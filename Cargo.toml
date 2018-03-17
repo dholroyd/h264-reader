@@ -1,0 +1,10 @@
+[package]
+name = "h264-reader"
+version = "0.1.0"
+authors = ["David Holroyd <dave@badgers-in-foil.co.uk>"]
+
+[dependencies]
+bitreader = "0.3.1"
+
+[dev-dependencies]
+hex-literal = "0.1.0"

@@ -1,0 +1,6 @@
+/target/
+**/*.swp
+Cargo.lock
+.idea
+h264-reader.iml
+resource
