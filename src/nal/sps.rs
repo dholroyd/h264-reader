@@ -1,45 +1,8 @@
 
+use ::rbsp::RbspBitReader;
 use super::NalHandler;
 use super::NalHeader;
 use bitreader;
-
-trait H264BitReader {
-    fn read_ue(&mut self) -> Result<u32,bitreader::BitReaderError>;
-    fn read_se(&mut self) -> Result<i32,bitreader::BitReaderError>;
-    fn has_more_rbsp_data(&self) -> bool;
-    fn golomb_to_signed(val: u32) -> i32;
-}
-impl<'a> H264BitReader for bitreader::BitReader<'a> {
-    fn read_ue(&mut self) -> Result<u32,bitreader::BitReaderError> {
-        let count = count_zero_bits(self)?;
-        if count > 0 {
-            let val = self.read_u32(count)?;
-            Ok((1 << count) -1 + val)
-        } else {
-            Ok(0)
-        }
-    }
-
-    fn read_se(&mut self) -> Result<i32,bitreader::BitReaderError> {
-        Ok(Self::golomb_to_signed(self.read_ue()?))
-    }
-
-    fn has_more_rbsp_data(&self) -> bool {
-        unimplemented!()
-    }
-
-    fn golomb_to_signed(val: u32) -> i32 {
-        let sign = (((val & 0x1) as i32) << 1) - 1;
-        ((val >> 1) as i32 + (val & 0x1) as i32) * sign
-    }
-}
-fn count_zero_bits(r: &mut bitreader::BitReader) -> Result<u8,bitreader::BitReaderError> {
-    let mut count = 0;
-    while !r.read_bool()? && count < 31 {
-        count += 1;
-    }
-    Ok(count)
-}
 
 #[derive(Debug)]
 pub enum SpsError {
@@ -83,7 +46,7 @@ impl NalHandler for SeqParameterSetNalHandler {
 }
 
 #[derive(Debug)]
-enum Profile {
+pub enum Profile {
     Unknown(u8),
     Baseline,
     Main,
@@ -144,7 +107,7 @@ impl Profile {
 }
 
 #[derive(Debug)]
-enum Level {
+pub enum Level {
     Unknown(u8),
     L1,
     L1_b,
@@ -215,8 +178,8 @@ impl Level {
     }
 }
 
-#[derive(Debug)]
-enum ChromaFormat {
+#[derive(Debug,PartialEq)]
+pub enum ChromaFormat {
     Monochrome,
     YUV420,
     YUV422,
@@ -236,7 +199,7 @@ impl ChromaFormat {
 }
 
 #[derive(Copy, Clone, Debug)]
-struct ProfileIdc(u8);
+pub struct ProfileIdc(u8);
 impl ProfileIdc {
     pub fn has_chroma_info(&self) -> bool {
         match self.0 {
@@ -251,11 +214,11 @@ impl From<u8> for ProfileIdc {
     }
 }
 
-struct ScalingList {
+pub struct ScalingList {
     // TODO
 }
 impl ScalingList {
-    fn read(r: &mut bitreader::BitReader, size: u8) -> Result<ScalingList,bitreader::BitReaderError> {
+    pub fn read(r: &mut RbspBitReader, size: u8) -> Result<ScalingList,bitreader::BitReaderError> {
         let mut scaling_list = vec!();
         let mut last_scale = 8;
         let mut next_scale = 8;
@@ -274,16 +237,16 @@ impl ScalingList {
     }
 }
 #[derive(Debug)]
-struct ScalingMatrix {
+pub struct SeqScalingMatrix {
     // TODO
 }
-impl Default for ScalingMatrix {
+impl Default for SeqScalingMatrix {
     fn default() -> Self {
-        ScalingMatrix { }
+        SeqScalingMatrix { }
     }
 }
-impl ScalingMatrix {
-    fn read(r: &mut bitreader::BitReader, chroma_format_idc: u32) -> Result<ScalingMatrix,bitreader::BitReaderError> {
+impl SeqScalingMatrix {
+    fn read(r: &mut RbspBitReader, chroma_format_idc: u32) -> Result<SeqScalingMatrix,bitreader::BitReaderError> {
         let mut scaling_list4x4 = vec!();
         let mut scaling_list8x8 = vec!();
 
@@ -298,21 +261,21 @@ impl ScalingMatrix {
                 }
             }
         }
-        Ok(ScalingMatrix { })
+        Ok(SeqScalingMatrix { })
     }
 }
 
 #[derive(Debug)]
-struct ChromaInfo {
-    chroma_format: ChromaFormat,
-    separate_colour_plane_flag: bool,
-    bit_depth_luma_minus8: u8,
-    bit_depth_chroma_minus8: u8,
-    qpprime_y_zero_transform_bypass_flag: bool,
-    scaling_matrix: ScalingMatrix,
+pub struct ChromaInfo {
+    pub chroma_format: ChromaFormat,
+    pub separate_colour_plane_flag: bool,
+    pub bit_depth_luma_minus8: u8,
+    pub bit_depth_chroma_minus8: u8,
+    pub qpprime_y_zero_transform_bypass_flag: bool,
+    pub scaling_matrix: SeqScalingMatrix,
 }
 impl ChromaInfo {
-    pub fn read(r: &mut bitreader::BitReader, profile_idc: ProfileIdc) -> Result<ChromaInfo, SpsError> {
+    pub fn read(r: &mut RbspBitReader, profile_idc: ProfileIdc) -> Result<ChromaInfo, SpsError> {
         if profile_idc.has_chroma_info() {
             let chroma_format_idc = r.read_ue()?;
             Ok(ChromaInfo {
@@ -330,11 +293,11 @@ impl ChromaInfo {
                 bit_depth_luma_minus8: 0,
                 bit_depth_chroma_minus8: 0,
                 qpprime_y_zero_transform_bypass_flag: false,
-                scaling_matrix: ScalingMatrix::default(),
+                scaling_matrix: SeqScalingMatrix::default(),
             })
         }
     }
-    fn read_bit_depth_minus8(r: &mut bitreader::BitReader) -> Result<u8, SpsError> {
+    fn read_bit_depth_minus8(r: &mut RbspBitReader) -> Result<u8, SpsError> {
         let value = r.read_ue()?;
         if value > 6 {
             Err(SpsError::BitDepthOutOfRange(value))
@@ -342,18 +305,18 @@ impl ChromaInfo {
             Ok(value as u8)
         }
     }
-    fn read_scaling_matrix(r: &mut bitreader::BitReader, chroma_format_idc: u32) -> Result<ScalingMatrix, SpsError> {
+    fn read_scaling_matrix(r: &mut RbspBitReader, chroma_format_idc: u32) -> Result<SeqScalingMatrix, SpsError> {
         let scaling_matrix_present_flag = r.read_bool()?;
         if scaling_matrix_present_flag {
-            ScalingMatrix::read(r, chroma_format_idc).map_err(|e| e.into())
+            SeqScalingMatrix::read(r, chroma_format_idc).map_err(|e| e.into())
         } else {
-            Ok(ScalingMatrix::default())
+            Ok(SeqScalingMatrix::default())
         }
     }
 }
 
 #[derive(Debug)]
-enum PicOrderCntError {
+pub enum PicOrderCntError {
     InvalidPicOrderCountType(u32),
     ReaderError(bitreader::BitReaderError),
 }
@@ -365,7 +328,7 @@ impl From<bitreader::BitReaderError> for PicOrderCntError {
 }
 
 #[derive(Debug)]
-enum PicOrderCntType {
+pub enum PicOrderCntType {
     TypeZero {
         log2_max_pic_order_cnt_lsb_minus4: u32
     },
@@ -378,7 +341,7 @@ enum PicOrderCntType {
     TypeTwo
 }
 impl PicOrderCntType {
-    fn read(r: &mut bitreader::BitReader) -> Result<PicOrderCntType, PicOrderCntError> {
+    fn read(r: &mut RbspBitReader) -> Result<PicOrderCntType, PicOrderCntError> {
         let pic_order_cnt_type = r.read_ue()?;
         match pic_order_cnt_type {
             0 => {
@@ -403,10 +366,10 @@ impl PicOrderCntType {
         }
     }
 
-    fn read_offsets_for_ref_frame(r: &mut bitreader::BitReader) -> Result<Vec<i32>, PicOrderCntError> {
+    fn read_offsets_for_ref_frame(r: &mut RbspBitReader) -> Result<Vec<i32>, PicOrderCntError> {
         let num_ref_frames_in_pic_order_cnt_cycle = r.read_ue()?;
         let mut offsets = Vec::with_capacity(num_ref_frames_in_pic_order_cnt_cycle as usize);
-        for i in 0..num_ref_frames_in_pic_order_cnt_cycle {
+        for _ in 0..num_ref_frames_in_pic_order_cnt_cycle {
             offsets.push(r.read_se()?);
         }
         Ok(offsets)
@@ -414,14 +377,14 @@ impl PicOrderCntType {
 }
 
 #[derive(Debug)]
-enum FrameMbsFlags {
+pub enum FrameMbsFlags {
     Frames,
     Fields {
         mb_adaptive_frame_field_flag: bool,
     }
 }
 impl FrameMbsFlags {
-    fn read(r: &mut bitreader::BitReader) -> Result<FrameMbsFlags, bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<FrameMbsFlags, bitreader::BitReaderError> {
         let frame_mbs_only_flag = r.read_bool()?;
         if frame_mbs_only_flag {
             Ok(FrameMbsFlags::Frames)
@@ -434,14 +397,14 @@ impl FrameMbsFlags {
 }
 
 #[derive(Debug)]
-struct FrameCropping {
+pub struct FrameCropping {
     left_offset: u32,
     right_offset: u32,
     top_offset: u32,
     bottom_offset: u32,
 }
 impl FrameCropping {
-    fn read(r: &mut bitreader::BitReader) -> Result<Option<FrameCropping>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<Option<FrameCropping>,bitreader::BitReaderError> {
         let frame_cropping_flag = r.read_bool()?;
         Ok(if frame_cropping_flag {
             Some(FrameCropping {
@@ -457,7 +420,7 @@ impl FrameCropping {
 }
 
 #[derive(Debug)]
-enum AspectRatioInfo {
+pub enum AspectRatioInfo {
     Unspecified,
     Ratio1_1,
     Ratio12_11,
@@ -480,7 +443,7 @@ enum AspectRatioInfo {
 
 }
 impl AspectRatioInfo {
-    fn read(r: &mut bitreader::BitReader) -> Result<Option<AspectRatioInfo>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<Option<AspectRatioInfo>,bitreader::BitReaderError> {
         let aspect_ratio_info_present_flag = r.read_bool()?;
         Ok(if aspect_ratio_info_present_flag {
             let aspect_ratio_idc = r.read_u8(8)?;
@@ -512,13 +475,13 @@ impl AspectRatioInfo {
 }
 
 #[derive(Debug)]
-enum OverscanAppropriate {
+pub enum OverscanAppropriate {
     Unspecified,
     Appropriate,
     Inappropriate,
 }
 impl OverscanAppropriate {
-    fn read(r: &mut bitreader::BitReader) -> Result<OverscanAppropriate,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<OverscanAppropriate,bitreader::BitReaderError> {
         let overscan_info_present_flag = r.read_bool()?;
         Ok(if overscan_info_present_flag {
             let overscan_appropriate_flag = r.read_bool()?;
@@ -534,7 +497,7 @@ impl OverscanAppropriate {
 }
 
 #[derive(Debug)]
-enum VideoFormat {
+pub enum VideoFormat {
     Component,
     PAL,
     NTSC,
@@ -559,13 +522,13 @@ impl VideoFormat {
 }
 
 #[derive(Debug)]
-struct ColourDescription {
+pub struct ColourDescription {
     colour_primaries: u8,
     transfer_characteristics: u8,
     matrix_coefficients: u8,
 }
 impl ColourDescription {
-    fn read(r: &mut bitreader::BitReader) -> Result<Option<ColourDescription>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<Option<ColourDescription>,bitreader::BitReaderError> {
         let colour_description_present_flag = r.read_bool()?;
         Ok(if colour_description_present_flag {
             Some(ColourDescription {
@@ -580,13 +543,13 @@ impl ColourDescription {
 }
 
 #[derive(Debug)]
-struct VideoSignalType {
+pub struct VideoSignalType {
     video_format: VideoFormat,
     video_full_range_flag: bool,
     colour_description: Option<ColourDescription>,
 }
 impl VideoSignalType {
-    fn read(r: &mut bitreader::BitReader) -> Result<Option<VideoSignalType>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<Option<VideoSignalType>,bitreader::BitReaderError> {
         let video_signal_type_present_flag = r.read_bool()?;
         Ok(if video_signal_type_present_flag {
             Some(VideoSignalType {
@@ -601,12 +564,12 @@ impl VideoSignalType {
 }
 
 #[derive(Debug)]
-struct ChromaLocInfo {
+pub struct ChromaLocInfo {
     chroma_sample_loc_type_top_field: u32,
     chroma_sample_loc_type_bottom_field: u32,
 }
 impl ChromaLocInfo {
-    fn read(r: &mut bitreader::BitReader) -> Result<Option<ChromaLocInfo>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<Option<ChromaLocInfo>,bitreader::BitReaderError> {
         let chroma_loc_info_present_flag = r.read_bool()?;
         Ok(if chroma_loc_info_present_flag {
             Some(ChromaLocInfo {
@@ -620,13 +583,13 @@ impl ChromaLocInfo {
 }
 
 #[derive(Debug)]
-struct TimingInfo {
+pub struct TimingInfo {
     num_units_in_tick: u32,
     time_scale: u32,
     fixed_frame_rate_flag: bool,
 }
 impl TimingInfo {
-    fn read(r: &mut bitreader::BitReader) -> Result<Option<TimingInfo>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<Option<TimingInfo>,bitreader::BitReaderError> {
         let timing_info_present_flag = r.read_bool()?;
         Ok(if timing_info_present_flag {
             Some(TimingInfo {
@@ -641,13 +604,13 @@ impl TimingInfo {
 }
 
 #[derive(Debug)]
-struct CpbSpec {
+pub struct CpbSpec {
     bit_rate_value_minus1: u32,
     cpb_size_value_minus1: u32,
     cbr_flag: bool,
 }
 impl CpbSpec {
-    fn read(r: &mut bitreader::BitReader) -> Result<CpbSpec,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<CpbSpec,bitreader::BitReaderError> {
         Ok(CpbSpec {
             bit_rate_value_minus1: r.read_ue()?,
             cpb_size_value_minus1: r.read_ue()?,
@@ -658,7 +621,7 @@ impl CpbSpec {
 
 
 #[derive(Debug)]
-struct HrdParameters {
+pub struct HrdParameters {
     bit_rate_scale: u8,
     cpb_size_scale: u8,
     cpb_specs: Vec<CpbSpec>,
@@ -668,7 +631,7 @@ struct HrdParameters {
     time_offset_length: u8,
 }
 impl HrdParameters {
-    fn read(r: &mut bitreader::BitReader, hrd_parameters_present: &bool) -> Result<Option<HrdParameters>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader, hrd_parameters_present: &bool) -> Result<Option<HrdParameters>,bitreader::BitReaderError> {
         let hrd_parameters_present_flag = r.read_bool()?;
         *hrd_parameters_present != hrd_parameters_present_flag;
         Ok(if hrd_parameters_present_flag {
@@ -687,7 +650,7 @@ impl HrdParameters {
             None
         })
     }
-    fn read_cpb_specs(r: &mut bitreader::BitReader, cpb_cnt: u32) -> Result<Vec<CpbSpec>,bitreader::BitReaderError> {
+    fn read_cpb_specs(r: &mut RbspBitReader, cpb_cnt: u32) -> Result<Vec<CpbSpec>,bitreader::BitReaderError> {
         let mut cpb_specs = Vec::with_capacity(cpb_cnt as usize);
         for _ in 0..cpb_cnt {
             cpb_specs.push(CpbSpec::read(r)?);
@@ -697,7 +660,7 @@ impl HrdParameters {
 }
 
 #[derive(Debug)]
-struct BitstreamRestrictions {
+pub struct BitstreamRestrictions {
     motion_vectors_over_pic_boundaries_flag: bool,
     max_bytes_per_pic_denom: u32,
     max_bits_per_mb_denom: u32,
@@ -707,7 +670,7 @@ struct BitstreamRestrictions {
     max_dec_frame_buffering: u32,
 }
 impl BitstreamRestrictions {
-    fn read(r: &mut bitreader::BitReader) -> Result<Option<BitstreamRestrictions>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<Option<BitstreamRestrictions>,bitreader::BitReaderError> {
         let bitstream_restriction_flag = r.read_bool()?;
         Ok(if bitstream_restriction_flag {
             Some(BitstreamRestrictions {
@@ -726,7 +689,7 @@ impl BitstreamRestrictions {
 }
 
 #[derive(Debug)]
-struct VuiParameters {
+pub struct VuiParameters {
     aspect_ratio_info: Option<AspectRatioInfo>,
     overscan_appropriate: OverscanAppropriate,
     video_signal_type: Option<VideoSignalType>,
@@ -739,7 +702,7 @@ struct VuiParameters {
     bitstream_restrictions: Option<BitstreamRestrictions>,
 }
 impl VuiParameters {
-    fn read(r: &mut bitreader::BitReader) -> Result<Option<VuiParameters>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<Option<VuiParameters>,bitreader::BitReaderError> {
         let vui_parameters_present_flag = r.read_bool()?;
         Ok(if vui_parameters_present_flag {
             let hrd_parameters_present = false;
@@ -762,27 +725,27 @@ impl VuiParameters {
 }
 
 #[derive(Debug)]
-struct SeqParameterSet {
-    profile_idc: ProfileIdc,
-    constraint_flags: [bool; 6],
-    reserved_zero_two_bits: u8,
-    level_idc: u8,
-    seq_parameter_set_id: u32,
-    chroma_info: ChromaInfo,
-    log2_max_frame_num_minus4: u32,
-    pic_order_cnt: PicOrderCntType,
-    max_num_ref_frames: u32,
-    gaps_in_frame_num_value_allowed_flag: bool,
-    pic_width_in_mbs_minus1: u32,
-    pic_height_in_map_units_minus1: u32,
-    frame_mbs_flags: FrameMbsFlags,
-    direct_8x8_inference_flag: bool,
-    frame_cropping: Option<FrameCropping>,
-    vui_parameters: Option<VuiParameters>,
+pub struct SeqParameterSet {
+    pub profile_idc: ProfileIdc,
+    pub constraint_flags: [bool; 6],
+    pub reserved_zero_two_bits: u8,
+    pub level_idc: u8,
+    pub seq_parameter_set_id: u32,
+    pub chroma_info: ChromaInfo,
+    pub log2_max_frame_num_minus4: u32,
+    pub pic_order_cnt: PicOrderCntType,
+    pub max_num_ref_frames: u32,
+    pub gaps_in_frame_num_value_allowed_flag: bool,
+    pub pic_width_in_mbs_minus1: u32,
+    pub pic_height_in_map_units_minus1: u32,
+    pub frame_mbs_flags: FrameMbsFlags,
+    pub direct_8x8_inference_flag: bool,
+    pub frame_cropping: Option<FrameCropping>,
+    pub vui_parameters: Option<VuiParameters>,
 }
 impl SeqParameterSet {
-    fn from_bytes(buf: &[u8]) -> Result<SeqParameterSet, SpsError> {
-        let mut r = bitreader::BitReader::new(buf);
+    pub fn from_bytes(buf: &[u8]) -> Result<SeqParameterSet, SpsError> {
+        let mut r = RbspBitReader::new(buf);
         let profile_idc = r.read_u8(8)?.into();
         let constraint_flags = [
                 r.read_bool()?,

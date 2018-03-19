@@ -4,7 +4,8 @@
 //! [`RbspDecoder`](../rbsp/struct.RbspDecoder.html)), where it has been encoded with
 //! 'emulation prevention bytes'.
 
-mod sps;
+pub mod sps;
+pub mod pps;
 
 use std::hash::{Hash, Hasher};
 use annexb::NalReader;

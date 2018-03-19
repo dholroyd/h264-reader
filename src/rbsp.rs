@@ -21,6 +21,8 @@
 //! yield byte sequences where the encoding is removed (i.e. the decoder will replace instances of
 //! the sequence `0x00 0x00 0x03` with `0x00 0x00`).
 
+use std::ops::{Deref, DerefMut};
+use bitreader;
 use ::annexb::NalReader;
 
 #[derive(Debug)]
@@ -152,6 +154,60 @@ impl<R> NalReader for RbspDecoder<R>
         }
         self.to(ParseState::Start);
         self.nal_reader.end();
+    }
+}
+
+pub struct RbspBitReader<'a> {
+    total_size: usize,
+    reader: bitreader::BitReader<'a>,
+}
+impl<'a> RbspBitReader<'a> {
+    pub fn new(buf: &'a[u8]) -> RbspBitReader<'a> {
+        RbspBitReader {
+            total_size: buf.len() * 8,
+            reader: bitreader::BitReader::new(buf),
+        }
+    }
+    pub fn read_ue(&mut self) -> Result<u32,bitreader::BitReaderError> {
+        let count = count_zero_bits(&mut self.reader)?;
+        if count > 0 {
+            let val = self.reader.read_u32(count)?;
+            Ok((1 << count) -1 + val)
+        } else {
+            Ok(0)
+        }
+    }
+
+    pub fn read_se(&mut self) -> Result<i32,bitreader::BitReaderError> {
+        Ok(Self::golomb_to_signed(self.read_ue()?))
+    }
+
+    pub fn has_more_rbsp_data(&self) -> bool {
+        self.position() < self.total_size as u64
+    }
+
+    fn golomb_to_signed(val: u32) -> i32 {
+        let sign = (((val & 0x1) as i32) << 1) - 1;
+        ((val >> 1) as i32 + (val & 0x1) as i32) * sign
+    }
+}
+fn count_zero_bits(r: &mut bitreader::BitReader) -> Result<u8,bitreader::BitReaderError> {
+    let mut count = 0;
+    while !r.read_bool()? && count < 31 {
+        count += 1;
+    }
+    Ok(count)
+}
+impl<'a> Deref for RbspBitReader<'a> {
+    type Target = bitreader::BitReader<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.reader
+    }
+}
+impl<'a> DerefMut for RbspBitReader<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.reader
     }
 }
 
