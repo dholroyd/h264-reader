@@ -9,7 +9,7 @@ pub mod nal;
 
 /// Contextual data that needs to be tracked between evaluations of different portions of H264
 /// syntax.
-struct Context {
+pub struct Context {
     seq_param_sets: Vec<Option<nal::sps::SeqParameterSet>>
 }
 impl Default for Context {

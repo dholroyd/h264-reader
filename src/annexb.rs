@@ -1,6 +1,8 @@
 //! A reader for the NAL Unit framing format defined in _ITU-T Recommendation H.264 - Annex B_,
 //! as used when H264 data is embedded in an MPEG2 Transport Stream
 
+use Context;
+
 #[derive(Debug)]
 enum ParseState {
     Start,
@@ -39,9 +41,9 @@ impl ParseState {
 
 
 pub trait NalReader {
-    fn start(&mut self);
-    fn push(&mut self, buf: &[u8]);
-    fn end(&mut self);
+    fn start(&mut self, ctx: &mut Context);
+    fn push(&mut self, ctx: &mut Context, buf: &[u8]);
+    fn end(&mut self, ctx: &mut Context);
 }
 
 pub struct AnnexBReader<R>
@@ -62,7 +64,7 @@ impl<R> AnnexBReader<R>
         }
     }
 
-    pub fn push(&mut self, buf: &[u8]) {
+    pub fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
         let mut unit_start: Option<usize> = if self.state.in_unit() {
             Some(0)
         } else {
@@ -96,7 +98,7 @@ impl<R> AnnexBReader<R>
                         0x01 => {
                             self.to(ParseState::InUnit);
                             unit_start = Some(i + 1);
-                            self.nal_reader.start();
+                            self.nal_reader.start(ctx);
                         },
                         _ => self.err(b),
                     }
@@ -117,8 +119,8 @@ impl<R> AnnexBReader<R>
                     match b {
                         0x00 => (),   // keep ignoring further 0x00 bytes if within start-code
                         0x01 => {
-                            self.emit(buf, unit_start, i - 2);
-                            self.nal_reader.end();
+                            self.emit(ctx, buf, unit_start, i - 2);
+                            self.nal_reader.end(ctx);
                             unit_start = Some(i + 1);
                             self.to(ParseState::InUnit);
                         },
@@ -128,7 +130,7 @@ impl<R> AnnexBReader<R>
             }
         }
         if let (Some(start), Some(backtrack)) = (unit_start, self.state.end_backtrack_bytes()) {
-            self.nal_reader.push(&buf[start..buf.len()-backtrack])
+            self.nal_reader.push(ctx, &buf[start..buf.len()-backtrack])
         }
     }
 
@@ -138,28 +140,28 @@ impl<R> AnnexBReader<R>
     /// For example, if the containing data structure demarcates the end of a sequence of NAL
     /// Units explicitly, the parser for that structure should call `end_units()` once all data
     /// has been passed to the `push()` function.
-    pub fn end_units(&mut self) {
+    pub fn end_units(&mut self, ctx: &mut Context) {
         if let Some(backtrack) = self.state.end_backtrack_bytes() {
             // if we were in the middle of parsing a sequence of 0x00 bytes that might have become
             // a start-code, but actually reached the end of input, then we will now need to emit
             // those 0x00 bytes that we had been holding back,
             if backtrack > 0 {
                 let tmp = [0u8; 3];
-                self.nal_reader.push(&tmp[0..backtrack]);
+                self.nal_reader.push(ctx, &tmp[0..backtrack]);
             }
         }
         self.to(ParseState::Start);
-        self.nal_reader.end();
+        self.nal_reader.end(ctx);
     }
 
     fn to(&mut self, new_state: ParseState) {
         self.state = new_state;
     }
 
-    fn emit(&mut self, buf:&[u8], start_index: Option<usize>, end_index: usize) {
+    fn emit(&mut self, ctx: &mut Context, buf:&[u8], start_index: Option<usize>, end_index: usize) {
         //println!("emit {:?}", &buf[start_index.unwrap()..end_index]);
         if let Some(start) = start_index {
-            self.nal_reader.push(&buf[start..end_index])
+            self.nal_reader.push(ctx, &buf[start..end_index])
         } else {
             eprintln!("AnnexBReader: no start_index");
         }
@@ -193,15 +195,15 @@ mod tests {
         }
     }
     impl NalReader for MockReader {
-        fn start(&mut self) {
+        fn start(&mut self, ctx: &mut Context) {
             self.state.borrow_mut().started = true;
         }
 
-        fn push(&mut self, buf: &[u8]) {
+        fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
             self.state.borrow_mut().data.extend_from_slice(buf);
         }
 
-        fn end(&mut self) {
+        fn end(&mut self, ctx: &mut Context) {
             self.state.borrow_mut().ended = true;
         }
     }
@@ -220,7 +222,8 @@ mod tests {
             3,           // NAL data
             0, 0, 1      // end-code
         );
-        r.push(&data[..]);
+        let mut ctx = Context::default();
+        r.push(&mut ctx, &data[..]);
         {
             let s = state.borrow();
             assert!(s.started);
@@ -242,8 +245,9 @@ mod tests {
             0, 0, 0, 1,  // start-code
             3, 0         // NAL data
         );
-        r.push(&data[..]);
-        r.end_units();
+        let mut ctx = Context::default();
+        r.push(&mut ctx, &data[..]);
+        r.end_units(&mut ctx);
         {
             let s = state.borrow();
             assert!(s.started);
@@ -266,14 +270,15 @@ mod tests {
             2, 3,        // NAL data
             0, 0, 1      // nd-code
         );
-        r.push(&data[..5]);  // half-way through the NAL Unit
+        let mut ctx = Context::default();
+        r.push(&mut ctx, &data[..5]);  // half-way through the NAL Unit
         {
             let s = state.borrow();
             assert!(s.started);
             assert_eq!(s.data[..], [2u8]);
             assert!(!s.ended);
         }
-        r.push(&data[5..]);  // second half og the NAL Unit
+        r.push(&mut ctx, &data[5..]);  // second half of the NAL Unit
         {
             let s = state.borrow();
             assert!(s.started);
@@ -331,6 +336,7 @@ mod tests {
         }));
         let mock = MockReader::new(Rc::clone(&state));
         let mut r = AnnexBReader::new(mock);
-        r.push(&data[..]);
+        let mut ctx = Context::default();
+        r.push(&mut ctx, &data[..]);
     }
 }

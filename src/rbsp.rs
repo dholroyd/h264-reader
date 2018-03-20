@@ -24,6 +24,7 @@
 use std::ops::{Deref, DerefMut};
 use bitreader;
 use ::annexb::NalReader;
+use Context;
 
 #[derive(Debug)]
 enum ParseState {
@@ -70,10 +71,10 @@ impl<R> RbspDecoder<R>
         self.state = new_state;
     }
 
-    fn emit(&mut self, buf:&[u8], start_index: Option<usize>, end_index: usize) {
+    fn emit(&mut self, ctx: &mut Context, buf:&[u8], start_index: Option<usize>, end_index: usize) {
         //println!("emit {:?}", &buf[start_index.unwrap()..end_index]);
         if let Some(start) = start_index {
-            self.nal_reader.push(&buf[start..end_index])
+            self.nal_reader.push(ctx, &buf[start..end_index])
         } else {
             eprintln!("RbspDecoder: no start_index");
         }
@@ -88,11 +89,11 @@ impl<R> NalReader for RbspDecoder<R>
     where
         R: NalReader
 {
-    fn start(&mut self) {
+    fn start(&mut self, ctx: &mut Context) {
         unimplemented!()
     }
 
-    fn push(&mut self, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
         let mut rbsp_start: Option<usize> = if self.state.in_rbsp() {
             Some(0)
         } else {
@@ -118,8 +119,8 @@ impl<R> NalReader for RbspDecoder<R>
                     match b {
                         0x03 => {
                             // found an 'emulation prevention' byte; skip it,
-                            self.emit(buf, rbsp_start, i);
-                            self.nal_reader.end();
+                            self.emit(ctx, buf, rbsp_start, i);
+                            self.nal_reader.end(ctx);
                             rbsp_start = Some(i + 1);
                             // TODO: per spec, the next byte should be either 0x00, 0x1, 0x02 or
                             // 0x03, but at the moment we assume this without checking for
@@ -133,7 +134,7 @@ impl<R> NalReader for RbspDecoder<R>
             }
         }
         if let Some(start) = rbsp_start {
-            self.nal_reader.push(&buf[start..buf.len()-self.state.end_backtrack_bytes()])
+            self.nal_reader.push(ctx, &buf[start..buf.len()-self.state.end_backtrack_bytes()])
         }
     }
 
@@ -143,17 +144,17 @@ impl<R> NalReader for RbspDecoder<R>
     /// For example, if the containing data structure demarcates the end of a sequence of NAL
     /// Units explicitly, the parser for that structure should call `end_units()` once all data
     /// has been passed to the `push()` function.
-    fn end(&mut self) {
+    fn end(&mut self, ctx: &mut Context) {
         let backtrack = self.state.end_backtrack_bytes();
         if backtrack > 0 {
             // if we were in the middle of parsing a sequence of 0x00 bytes that might have become
             // a start-code, but actually reached the end of input, then we will now need to emit
             // those 0x00 bytes that we had been holding back,
             let tmp = [0u8; 3];
-            self.nal_reader.push(&tmp[0..backtrack]);
+            self.nal_reader.push(ctx, &tmp[0..backtrack]);
         }
         self.to(ParseState::Start);
-        self.nal_reader.end();
+        self.nal_reader.end(ctx);
     }
 }
 
@@ -240,15 +241,15 @@ mod tests {
         }
     }
     impl NalReader for MockReader {
-        fn start(&mut self) {
+        fn start(&mut self, ctx: &mut Context) {
             self.state.borrow_mut().started = true;
         }
 
-        fn push(&mut self, buf: &[u8]) {
+        fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
             self.state.borrow_mut().data.extend_from_slice(buf);
         }
 
-        fn end(&mut self) {
+        fn end(&mut self, ctx: &mut Context) {
             self.state.borrow_mut().ended = true;
         }
     }
@@ -265,7 +266,8 @@ mod tests {
         }));
         let mock = MockReader::new(Rc::clone(&state));
         let mut r = RbspDecoder::new(mock);
-        r.push(&data[..]);
+        let mut ctx = Context::default();
+        r.push(&mut ctx, &data[..]);
         let expected = hex!(
            "67 64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");

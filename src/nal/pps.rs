@@ -221,7 +221,7 @@ struct PicParameterSet {
     extension: Option<PicParameterSetExtra>,
 }
 impl PicParameterSet {
-    fn from_bytes(buf: &[u8], ctx: &Context) -> Result<PicParameterSet, PpsError> {
+    fn from_bytes(ctx: &Context, buf: &[u8]) -> Result<PicParameterSet, PpsError> {
         let mut r = RbspBitReader::new(buf);
         let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue()?)
             .map_err(|e| PpsError::BadPicParamSetId(e) )?;
@@ -273,7 +273,7 @@ mod test {
         let mut ctx = Context::default();
         ctx.put_seq_param_set(sps);
         let data = hex!("E8 43 8F 13 21 30");
-        match PicParameterSet::from_bytes(&data[..], &ctx) {
+        match PicParameterSet::from_bytes(&mut ctx, &data[..]) {
             Err(e) => panic!("failed: {:?}", e),
             Ok(pps) => {
                 println!("pps: {:#?}", pps);

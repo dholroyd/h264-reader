@@ -10,6 +10,7 @@ pub mod pps;
 use std::hash::{Hash, Hasher};
 use annexb::NalReader;
 use std::cell::RefCell;
+use Context;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum UnitType {
@@ -165,11 +166,11 @@ impl NalSwitch {
     }
 }
 impl NalReader for NalSwitch {
-    fn start(&mut self) {
+    fn start(&mut self, ctx: &mut Context) {
         self.state = NalSwitchState::Start;
     }
 
-    fn push(&mut self, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
         if buf.len() == 0 {
             return;
         }
@@ -177,8 +178,8 @@ impl NalReader for NalSwitch {
             NalSwitchState::Start => {
                 let header = NalHeader::new(buf[0]).unwrap();
                 self.state = if let &Some(ref handler) = self.get_handler(header.nal_unit_type()) {
-                    handler.borrow_mut().start(&header);
-                    handler.borrow_mut().push(&buf[1..]);
+                    handler.borrow_mut().start(ctx, &header);
+                    handler.borrow_mut().push(ctx, &buf[1..]);
                     NalSwitchState::Handling(header.nal_unit_type())
                 } else {
                     NalSwitchState::Ignoring
@@ -187,25 +188,25 @@ impl NalReader for NalSwitch {
             NalSwitchState::Ignoring => (),
             NalSwitchState::Handling(unit_type) => {
                 if let &Some(ref handler) = self.get_handler(unit_type) {
-                    handler.borrow_mut().push(buf);
+                    handler.borrow_mut().push(ctx, buf);
                 }
             }
         }
     }
 
-    fn end(&mut self) {
+    fn end(&mut self, ctx: &mut Context) {
         if let NalSwitchState::Handling(unit_type) = self.state {
             if let &Some(ref handler) = self.get_handler(unit_type) {
-                handler.borrow_mut().end();
+                handler.borrow_mut().end(ctx);
             }
         }
     }
 }
 
 pub trait NalHandler {
-    fn start(&mut self, header: &NalHeader);
-    fn push(&mut self, buf: &[u8]);
-    fn end(&mut self);
+    fn start(&mut self, ctx: &mut Context, header: &NalHeader);
+    fn push(&mut self, ctx: &mut Context, buf: &[u8]);
+    fn end(&mut self, ctx: &mut Context);
 }
 
 #[cfg(test)]
@@ -221,18 +222,18 @@ mod test {
 
     struct MockHandler;
     impl NalHandler for MockHandler {
-        fn start(&mut self, header: &NalHeader) {
+        fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
             assert_eq!(header.nal_unit_type(), UnitType::SeqParameterSet);
         }
 
-        fn push(&mut self, buf: &[u8]) {
+        fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
             let expected = hex!(
                "64 00 0A AC 72 84 44 26 84 00 00
                 00 04 00 00 00 CA 3C 48 96 11 80");
             assert_eq!(buf, &expected[..])
         }
 
-        fn end(&mut self) {
+        fn end(&mut self, ctx: &mut Context) {
         }
     }
 
@@ -244,6 +245,7 @@ mod test {
         let data = hex!(
            "67 64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");
-        s.push(&data[..]);
+        let mut ctx = Context::default();
+        s.push(&mut ctx, &data[..]);
     }
 }

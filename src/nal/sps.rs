@@ -3,6 +3,7 @@ use ::rbsp::RbspBitReader;
 use super::NalHandler;
 use super::NalHeader;
 use bitreader;
+use Context;
 
 #[derive(Debug)]
 pub enum SpsError {
@@ -30,15 +31,15 @@ impl SeqParameterSetNalHandler {
     }
 }
 impl NalHandler for SeqParameterSetNalHandler {
-    fn start(&mut self, header: &NalHeader) {
+    fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
         assert_eq!(header.nal_unit_type(), super::UnitType::SeqParameterSet);
     }
 
-    fn push(&mut self, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
         self.buf.extend_from_slice(buf);
     }
 
-    fn end(&mut self) {
+    fn end(&mut self, ctx: &mut Context) {
         let sps = SeqParameterSet::from_bytes(&self.buf[..]);
         println!("sps: {:#?}", sps);
         self.buf.clear();
