@@ -193,8 +193,15 @@ impl<'a> RbspBitReader<'a> {
 }
 fn count_zero_bits(r: &mut bitreader::BitReader) -> Result<u8,bitreader::BitReaderError> {
     let mut count = 0;
-    while !r.read_bool()? && count < 31 {
+    while !r.read_bool()? {
         count += 1;
+        if count > 31 {
+            return Err(bitreader::BitReaderError::TooManyBitsForType {
+                position: r.position(),
+                requested: 32,
+                allowed: 31,
+            })
+        }
     }
     Ok(count)
 }
