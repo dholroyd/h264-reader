@@ -11,6 +11,7 @@ use std::hash::{Hash, Hasher};
 use annexb::NalReader;
 use std::cell::RefCell;
 use Context;
+use std::fmt;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum UnitType {
@@ -128,6 +129,15 @@ impl NalHeader {
 
     pub fn nal_unit_type(&self) -> UnitType {
         UnitType::for_id(self.0 & 0b0001_1111).unwrap()
+    }
+}
+
+impl fmt::Debug for NalHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(),fmt::Error> {
+        f.debug_struct("NalHeader")
+            .field("nal_ref_idc", &self.nal_ref_idc())
+            .field("nal_unit_type", &self.nal_unit_type())
+            .finish()
     }
 }
 
