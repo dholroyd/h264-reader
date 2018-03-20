@@ -2,6 +2,8 @@
 #[macro_use]
 extern crate hex_literal;
 extern crate bitreader;
+#[cfg(test)]
+extern crate hex_slice;
 
 pub mod rbsp;
 pub mod annexb;
