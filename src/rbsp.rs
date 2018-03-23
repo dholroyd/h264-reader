@@ -60,7 +60,7 @@ impl<R> RbspDecoder<R>
     where
         R: NalReader
 {
-    fn new(nal_reader: R) -> RbspDecoder<R> {
+    pub fn new(nal_reader: R) -> RbspDecoder<R> {
         RbspDecoder {
             state: ParseState::Start,
             nal_reader,
