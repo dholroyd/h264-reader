@@ -120,7 +120,6 @@ impl<R> NalReader for RbspDecoder<R>
                         0x03 => {
                             // found an 'emulation prevention' byte; skip it,
                             self.emit(ctx, buf, rbsp_start, i);
-                            self.nal_reader.end(ctx);
                             rbsp_start = Some(i + 1);
                             // TODO: per spec, the next byte should be either 0x00, 0x1, 0x02 or
                             // 0x03, but at the moment we assume this without checking for
