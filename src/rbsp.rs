@@ -90,7 +90,8 @@ impl<R> NalReader for RbspDecoder<R>
         R: NalReader
 {
     fn start(&mut self, ctx: &mut Context) {
-        unimplemented!()
+        self.state = ParseState::Start;
+        self.nal_reader.start(ctx);
     }
 
     fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
