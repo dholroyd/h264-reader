@@ -28,7 +28,7 @@ impl ParseState {
             ParseState::InUnitOneZero => true,
             ParseState::InUnitTwoZero => true,
             ParseState::InUnitThreeZero => true,
-            ParseState::Error => panic!("unexpected call while in error state"),
+            ParseState::Error => false,
         }
     }
 
@@ -43,7 +43,7 @@ impl ParseState {
             ParseState::InUnitOneZero => Some(1),
             ParseState::InUnitTwoZero => Some(2),
             ParseState::InUnitThreeZero => Some(3),
-            ParseState::Error => panic!("unexpected call while in error state"),
+            ParseState::Error => None,
         }
     }
 }
