@@ -287,7 +287,7 @@ mod tests {
         {
             let s = state.borrow();
             assert_eq!(1, s.started);
-            assert_eq!(s.data[..], [3u8]);
+            assert_eq!(&s.data[..], &[3u8][..]);
             assert_eq!(1, s.ended);
         }
     }
@@ -311,7 +311,7 @@ mod tests {
         {
             let s = state.borrow();
             assert_eq!(1, s.started);
-            assert_eq!(s.data[..], [3u8, 0u8]);
+            assert_eq!(&s.data[..], &[3u8, 0u8][..]);
             assert_eq!(1, s.ended);
         }
     }
@@ -335,14 +335,14 @@ mod tests {
         {
             let s = state.borrow();
             assert_eq!(1, s.started);
-            assert_eq!(s.data[..], [2u8]);
+            assert_eq!(&s.data[..], &[2u8][..]);
             assert_eq!(0, s.ended);
         }
         r.push(&mut ctx, &data[5..]);  // second half of the NAL Unit
         {
             let s = state.borrow();
             assert_eq!(1, s.started);
-            assert_eq!(s.data[..], [2u8, 3u8]);
+            assert_eq!(&s.data[..], &[2u8, 3u8][..]);
             assert_eq!(1, s.ended);
         }
     }

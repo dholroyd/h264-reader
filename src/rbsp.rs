@@ -272,6 +272,6 @@ mod tests {
            "67 64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");
         let s = state.borrow();
-        assert_eq!(s.data[..], expected);
+        assert_eq!(&s.data[..], &expected[..]);
     }
 }

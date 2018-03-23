@@ -3,6 +3,8 @@
 extern crate hex_literal;
 extern crate bitreader;
 #[cfg(test)]
+#[macro_use]
+extern crate pretty_assertions;
 #[cfg(test)]
 extern crate hex_slice;
 
