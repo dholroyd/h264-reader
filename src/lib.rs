@@ -3,6 +3,7 @@
 extern crate hex_literal;
 extern crate bitreader;
 #[cfg(test)]
+#[cfg(test)]
 extern crate hex_slice;
 
 pub mod rbsp;
