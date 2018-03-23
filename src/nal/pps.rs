@@ -1,6 +1,8 @@
 use bitreader;
 use ::Context;
 use ::rbsp::RbspBitReader;
+use super::NalHandler;
+use super::NalHeader;
 use super::sps;
 
 #[derive(Debug)]
@@ -259,6 +261,32 @@ impl PicParameterSet {
     }
 }
 
+pub struct PicParameterSetNalHandler {
+    buf: Vec<u8>,
+}
+
+impl PicParameterSetNalHandler {
+    fn new() -> PicParameterSetNalHandler {
+        PicParameterSetNalHandler {
+            buf: Vec::new(),
+        }
+    }
+}
+impl NalHandler for PicParameterSetNalHandler {
+    fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
+        assert_eq!(header.nal_unit_type(), super::UnitType::SeqParameterSet);
+    }
+
+    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+        self.buf.extend_from_slice(buf);
+    }
+
+    fn end(&mut self, ctx: &mut Context) {
+        let pps = PicParameterSet::from_bytes(ctx, &self.buf[..]);
+        println!("pps: {:#?}", pps);
+        self.buf.clear();
+    }
+}
 
 #[cfg(test)]
 mod test {
