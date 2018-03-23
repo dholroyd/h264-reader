@@ -449,7 +449,7 @@ impl AspectRatioInfo {
         Ok(if aspect_ratio_info_present_flag {
             let aspect_ratio_idc = r.read_u8(8)?;
             Some(match aspect_ratio_idc {
-                1 => AspectRatioInfo::Unspecified,
+                0 => AspectRatioInfo::Unspecified,
                 1 => AspectRatioInfo::Ratio1_1,
                 2 => AspectRatioInfo::Ratio12_11,
                 3 => AspectRatioInfo::Ratio10_11,
