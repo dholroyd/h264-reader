@@ -22,7 +22,7 @@ impl From<bitreader::BitReaderError> for PpsError {
 }
 
 #[derive(Debug)]
-enum SliceGroupChangeType {
+pub enum SliceGroupChangeType {
     BoxOut,
     RasterScan,
     WipeOut,
@@ -39,7 +39,7 @@ impl SliceGroupChangeType {
 }
 
 #[derive(Debug)]
-struct SliceRect {
+pub struct SliceRect {
     top_left: u32,
     bottom_right: u32,
 }
@@ -53,7 +53,7 @@ impl SliceRect {
 }
 
 #[derive(Debug)]
-enum SliceGroup {
+pub enum SliceGroup {
     Interleaved {
         run_length_minus1: Vec<u32>,
     },
@@ -163,7 +163,7 @@ impl PicScalingMatrix {
 }
 
 #[derive(Debug)]
-struct PicParameterSetExtra {
+pub struct PicParameterSetExtra {
     transform_8x8_mode_flag: bool,
     pic_scaling_matrix: Option<PicScalingMatrix>,
     second_chroma_qp_index_offset: i32,
@@ -204,23 +204,23 @@ impl ParamSetId {
 }
 
 #[derive(Debug)]
-struct PicParameterSet {
-    pic_parameter_set_id: ParamSetId,
-    seq_parameter_set_id: ParamSetId,
-    entropy_coding_mode_flag: bool,
-    bottom_field_pic_order_in_frame_present_flag: bool,
-    slice_groups: Option<SliceGroup>,
-    num_ref_idx_l0_default_active_minus1: u32,
-    num_ref_idx_l1_default_active_minus1: u32,
-    weighted_pred_flag: bool,
-    weighted_bipred_idc: u8,
-    pic_init_qp_minus26: i32,
-    pic_init_qs_minus26: i32,
-    chroma_qp_index_offset: i32,
-    deblocking_filter_control_present_flag: bool,
-    constrained_intra_pred_flag: bool,
-    redundant_pic_cnt_present_flag: bool,
-    extension: Option<PicParameterSetExtra>,
+pub struct PicParameterSet {
+    pub pic_parameter_set_id: ParamSetId,
+    pub seq_parameter_set_id: ParamSetId,
+    pub entropy_coding_mode_flag: bool,
+    pub bottom_field_pic_order_in_frame_present_flag: bool,
+    pub slice_groups: Option<SliceGroup>,
+    pub num_ref_idx_l0_default_active_minus1: u32,
+    pub num_ref_idx_l1_default_active_minus1: u32,
+    pub weighted_pred_flag: bool,
+    pub weighted_bipred_idc: u8,
+    pub pic_init_qp_minus26: i32,
+    pub pic_init_qs_minus26: i32,
+    pub chroma_qp_index_offset: i32,
+    pub deblocking_filter_control_present_flag: bool,
+    pub constrained_intra_pred_flag: bool,
+    pub redundant_pic_cnt_present_flag: bool,
+    pub extension: Option<PicParameterSetExtra>,
 }
 impl PicParameterSet {
     fn from_bytes(ctx: &Context, buf: &[u8]) -> Result<PicParameterSet, PpsError> {
@@ -266,7 +266,7 @@ pub struct PicParameterSetNalHandler {
 }
 
 impl PicParameterSetNalHandler {
-    fn new() -> PicParameterSetNalHandler {
+    pub fn new() -> PicParameterSetNalHandler {
         PicParameterSetNalHandler {
             buf: Vec::new(),
         }
@@ -285,6 +285,9 @@ impl NalHandler for PicParameterSetNalHandler {
         let pps = PicParameterSet::from_bytes(ctx, &self.buf[..]);
         println!("pps: {:#?}", pps);
         self.buf.clear();
+        if let Ok(pps) = pps {
+            ctx.put_pic_param_set(pps);
+        }
     }
 }
 
