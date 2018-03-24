@@ -274,7 +274,7 @@ impl PicParameterSetNalHandler {
 }
 impl NalHandler for PicParameterSetNalHandler {
     fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
-        assert_eq!(header.nal_unit_type(), super::UnitType::SeqParameterSet);
+        assert_eq!(header.nal_unit_type(), super::UnitType::PicParameterSet);
     }
 
     fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
