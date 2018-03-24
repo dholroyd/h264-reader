@@ -1,10 +1,12 @@
+pub mod buffering_period;
+
 use annexb::NalReader;
 use Context;
 use nal::NalHandler;
 use nal::NalHeader;
 use rbsp::RbspDecoder;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum HeaderType {
     BufferingPeriod,
     PicTiming,
@@ -136,6 +138,68 @@ impl HeaderType {
     }
 }
 
+#[macro_export]
+macro_rules! sei_switch {
+    ( $( $name:ident => $v:ty ),*, ) => {
+        #[allow(non_snake_case)]
+        struct SeiSwitch {
+            current_type: Option<$crate::nal::sei::HeaderType>,
+            $( $name: $crate::nal::sei::SeiBuffer<$v>, )*
+        }
+        impl Default for SeiSwitch {
+            fn default() -> SeiSwitch {
+                SeiSwitch {
+                    current_type: None,
+                    $( $name: $crate::nal::sei::SeiBuffer::new(<$v>::new()), )*
+                }
+            }
+        }
+        impl $crate::nal::sei::SeiIncrementalPayloadReader for SeiSwitch {
+            fn start(&mut self, ctx: &mut $crate::Context, payload_type: $crate::nal::sei::HeaderType, payload_size: u32) {
+                self.current_type = Some(payload_type);
+                match payload_type {
+                    $(
+                    $crate::nal::sei::HeaderType::$name => self.$name.start(ctx, payload_type, payload_size),
+                    )*
+                    _ => (),
+                }
+            }
+
+            fn push(&mut self, ctx: &mut $crate::Context, buf: &[u8]) {
+                match self.current_type {
+                    $(
+                    Some($crate::nal::sei::HeaderType::$name) => self.$name.push(ctx, buf),
+                    )*
+                    Some(_) => (),
+                    None => panic!("no previous call to start()"),
+                }
+            }
+
+            fn end(&mut self, ctx: &mut $crate::Context) {
+                match self.current_type {
+                    $(
+                    Some($crate::nal::sei::HeaderType::$name) => self.$name.end(ctx),
+                    )*
+                    Some(_) => (),
+                    None => panic!("no previous call to start()"),
+                }
+                self.current_type = None;
+            }
+
+            fn reset(&mut self, ctx: &mut $crate::Context) {
+                match self.current_type {
+                    $(
+                    Some($crate::nal::sei::HeaderType::$name) => self.$name.reset(ctx),
+                    )*
+                    Some(_) => (),
+                    None => (),
+                }
+                self.current_type = None;
+            }
+        }
+    }
+}
+
 enum SeiHeaderState {
     Begin,
     PayloadType { payload_type: u32 },
@@ -154,10 +218,19 @@ pub trait SeiIncrementalPayloadReader {
     fn reset(&mut self, ctx: &mut Context);
 }
 
-struct SeiBuffer<R: SeiCompletePayloadReader> {
+pub struct SeiBuffer<R: SeiCompletePayloadReader> {
     payload_type: Option<HeaderType>,
     buf: Vec<u8>,
     reader: R,
+}
+impl<R: SeiCompletePayloadReader> SeiBuffer<R> {
+    pub fn new(reader: R) -> SeiBuffer<R> {
+        SeiBuffer {
+            payload_type: None,
+            buf: Vec::new(),
+            reader,
+        }
+    }
 }
 impl<R: SeiCompletePayloadReader> SeiIncrementalPayloadReader for SeiBuffer<R> {
     fn start(&mut self, ctx: &mut Context, payload_type: HeaderType, payload_size: u32) {

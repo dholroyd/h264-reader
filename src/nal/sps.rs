@@ -24,7 +24,7 @@ pub struct SeqParameterSetNalHandler {
 }
 
 impl SeqParameterSetNalHandler {
-    fn new() -> SeqParameterSetNalHandler {
+    pub fn new() -> SeqParameterSetNalHandler {
         SeqParameterSetNalHandler {
             buf: Vec::new(),
         }
@@ -43,6 +43,9 @@ impl NalHandler for SeqParameterSetNalHandler {
         let sps = SeqParameterSet::from_bytes(&self.buf[..]);
         println!("sps: {:#?}", sps);
         self.buf.clear();
+        if let Ok(sps) = sps {
+            ctx.put_seq_param_set(sps);
+        }
     }
 }
 
@@ -623,13 +626,13 @@ impl CpbSpec {
 
 #[derive(Debug)]
 pub struct HrdParameters {
-    bit_rate_scale: u8,
-    cpb_size_scale: u8,
-    cpb_specs: Vec<CpbSpec>,
-    initial_cpb_removal_delay_length_minus1: u8,
-    cpb_removal_delay_length_minus1: u8,
-    dpb_output_delay_length_minus1: u8,
-    time_offset_length: u8,
+    pub bit_rate_scale: u8,
+    pub cpb_size_scale: u8,
+    pub cpb_specs: Vec<CpbSpec>,
+    pub initial_cpb_removal_delay_length_minus1: u8,
+    pub cpb_removal_delay_length_minus1: u8,
+    pub dpb_output_delay_length_minus1: u8,
+    pub time_offset_length: u8,
 }
 impl HrdParameters {
     fn read(r: &mut RbspBitReader, hrd_parameters_present: &bool) -> Result<Option<HrdParameters>,bitreader::BitReaderError> {
@@ -691,16 +694,16 @@ impl BitstreamRestrictions {
 
 #[derive(Debug)]
 pub struct VuiParameters {
-    aspect_ratio_info: Option<AspectRatioInfo>,
-    overscan_appropriate: OverscanAppropriate,
-    video_signal_type: Option<VideoSignalType>,
-    chroma_loc_info: Option<ChromaLocInfo>,
-    timing_info: Option<TimingInfo>,
-    nal_hrd_parameters: Option<HrdParameters>,
-    vcl_hrd_parameters: Option<HrdParameters>,
-    low_delay_hrd_flag: Option<bool>,
-    pic_struct_present_flag: bool,
-    bitstream_restrictions: Option<BitstreamRestrictions>,
+    pub aspect_ratio_info: Option<AspectRatioInfo>,
+    pub overscan_appropriate: OverscanAppropriate,
+    pub video_signal_type: Option<VideoSignalType>,
+    pub chroma_loc_info: Option<ChromaLocInfo>,
+    pub timing_info: Option<TimingInfo>,
+    pub nal_hrd_parameters: Option<HrdParameters>,
+    pub vcl_hrd_parameters: Option<HrdParameters>,
+    pub low_delay_hrd_flag: Option<bool>,
+    pub pic_struct_present_flag: bool,
+    pub bitstream_restrictions: Option<BitstreamRestrictions>,
 }
 impl VuiParameters {
     fn read(r: &mut RbspBitReader) -> Result<Option<VuiParameters>,bitreader::BitReaderError> {
