@@ -277,6 +277,7 @@ impl<R: SeiIncrementalPayloadReader> NalReader for SeiHeaderReader<R> {
                 break;
             }
             let b = input[0];
+            let mut exit = false;
             self.state = match self.state {
                 SeiHeaderState::Begin => {
                     match b {
@@ -311,15 +312,18 @@ impl<R: SeiIncrementalPayloadReader> NalReader for SeiHeaderReader<R> {
                         }
                     }
                 },
-                SeiHeaderState::Payload { payload_type, payload_size, ref mut consumed_size } => {
-                    let remaining = (payload_size - *consumed_size) as usize;
+                SeiHeaderState::Payload { payload_type, payload_size, consumed_size } => {
+                    let remaining = (payload_size - consumed_size) as usize;
                     if remaining >= input.len() {
+                        exit = true;
                         self.reader.push(ctx, input);
-                        *consumed_size += input.len() as u32;
-                        if *consumed_size == payload_size {
+                        let consumed_size = consumed_size + input.len() as u32;
+                        if consumed_size == payload_size {
                             self.reader.end(ctx);
+                            SeiHeaderState::Begin
+                        } else {
+                            SeiHeaderState::Payload { payload_type, payload_size, consumed_size }
                         }
-                        break;
                     } else {
                         let (head, tail) = input.split_at(remaining);
                         self.reader.push(ctx, head);
@@ -329,6 +333,7 @@ impl<R: SeiIncrementalPayloadReader> NalReader for SeiHeaderReader<R> {
                     }
                 },
             };
+            if exit { break; }
             if let SeiHeaderState::Begin = self.state {
 
             } else {
