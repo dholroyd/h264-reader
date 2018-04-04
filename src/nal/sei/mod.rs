@@ -454,4 +454,27 @@ mod test {
         assert_eq!(&st.data[..], [0x01, 0x02, 0x02]);
         assert_eq!(st.ended, 2);
     }
+
+    #[test]
+    fn split() {
+        let data = [
+            // header 2
+            0x02,  // type
+            0x06,  // len
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06  // payload
+        ];
+        let state = Rc::new(RefCell::new(State::default()));
+        let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
+        let mut ctx = &mut Context::default();
+        let header = NalHeader::new(6).unwrap();
+        r.start(ctx);
+        let (head, tail) = data.split_at(data.len()-4);  // just before end of payload
+        r.push(ctx, head);
+        r.push(ctx, tail);
+        r.end(ctx);
+        let st = state.borrow();
+        assert_eq!(st.started, 1);
+        assert_eq!(&st.data[..], [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
+        assert_eq!(st.ended, 1);
+    }
 }
