@@ -1,4 +1,5 @@
 pub mod buffering_period;
+pub mod user_data_registered_itu_t_t35;
 
 use annexb::NalReader;
 use Context;
