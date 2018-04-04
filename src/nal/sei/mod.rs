@@ -270,6 +270,7 @@ impl<R: SeiIncrementalPayloadReader> NalReader for SeiHeaderReader<R> {
     }
 
     fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+        assert!(!buf.is_empty());
         let mut input = &buf[..];
         loop {
             if input.is_empty() {
