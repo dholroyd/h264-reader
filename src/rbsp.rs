@@ -113,14 +113,26 @@ impl<R> NalReader for RbspDecoder<R>
                 ParseState::OneZero => {
                     match b {
                         0x00 => self.to(ParseState::TwoZero),
-                        _ => self.to(ParseState::Start),
+                        _ => {
+                            if rbsp_start.is_none() {
+                                let fake = [0x00];
+                                self.emit(ctx, &fake[..], Some(0), 1);
+                                rbsp_start = Some(i);
+                            }
+                            self.to(ParseState::Start)
+                        },
                     }
                 },
                 ParseState::TwoZero => {
                     match b {
                         0x03 => {
                             // found an 'emulation prevention' byte; skip it,
-                            self.emit(ctx, buf, rbsp_start, i);
+                            if rbsp_start.is_none() {
+                                let fake = [0x00, 0x00];
+                                self.emit(ctx, &fake[..], Some(0), 2);
+                            } else {
+                                self.emit(ctx, buf, rbsp_start, i);
+                            }
                             rbsp_start = Some(i + 1);
                             // TODO: per spec, the next byte should be either 0x00, 0x1, 0x02 or
                             // 0x03, but at the moment we assume this without checking for
@@ -128,13 +140,23 @@ impl<R> NalReader for RbspDecoder<R>
                             self.to(ParseState::Start);
                         },
                         0x00 => self.err(b),
-                        _ => self.to(ParseState::Start),
+                        _ => {
+                            if rbsp_start.is_none() {
+                                let fake = [0x00, 0x00];
+                                self.emit(ctx, &fake[..], Some(0), 2);
+                                rbsp_start = Some(i);
+                            }
+                            self.to(ParseState::Start)
+                        },
                     }
                 },
             }
         }
         if let Some(start) = rbsp_start {
-            self.nal_reader.push(ctx, &buf[start..buf.len()-self.state.end_backtrack_bytes()])
+            let end = buf.len() - self.state.end_backtrack_bytes();
+            if start != end {
+                self.nal_reader.push(ctx, &buf[start..end])
+            }
         }
     }
 
@@ -259,19 +281,23 @@ mod tests {
         let data = hex!(
            "67 64 00 0A AC 72 84 44 26 84 00 00 03
             00 04 00 00 03 00 CA 3C 48 96 11 80");
-        let state = Rc::new(RefCell::new(State {
-            started: false,
-            ended: false,
-            data: Vec::new(),
-        }));
-        let mock = MockReader::new(Rc::clone(&state));
-        let mut r = RbspDecoder::new(mock);
-        let mut ctx = Context::default();
-        r.push(&mut ctx, &data[..]);
-        let expected = hex!(
+        for i in 1..data.len()-1 {
+            let state = Rc::new(RefCell::new(State {
+                started: false,
+                ended: false,
+                data: Vec::new(),
+            }));
+            let mock = MockReader::new(Rc::clone(&state));
+            let mut r = RbspDecoder::new(mock);
+            let mut ctx = Context::default();
+            let (head, tail) = data.split_at(i);
+            r.push(&mut ctx, head);
+            r.push(&mut ctx, tail);
+            let expected = hex!(
            "67 64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");
-        let s = state.borrow();
-        assert_eq!(&s.data[..], &expected[..]);
+            let s = state.borrow();
+            assert_eq!(&s.data[..], &expected[..], "on split_at({})", i);
+        }
     }
 }
