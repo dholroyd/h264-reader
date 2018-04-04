@@ -141,17 +141,17 @@ impl HeaderType {
 
 #[macro_export]
 macro_rules! sei_switch {
-    ( $( $name:ident => $v:ty ),*, ) => {
+    ( $( $name:ident : $t:ty => $v:expr ),*, ) => {
         #[allow(non_snake_case)]
         struct SeiSwitch {
             current_type: Option<$crate::nal::sei::HeaderType>,
-            $( $name: $crate::nal::sei::SeiBuffer<$v>, )*
+            $( $name: $crate::nal::sei::SeiBuffer<$t>, )*
         }
         impl Default for SeiSwitch {
             fn default() -> SeiSwitch {
                 SeiSwitch {
                     current_type: None,
-                    $( $name: $crate::nal::sei::SeiBuffer::new(<$v>::new()), )*
+                    $( $name: $crate::nal::sei::SeiBuffer::new($v), )*
                 }
             }
         }
