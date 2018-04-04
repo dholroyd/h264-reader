@@ -206,6 +206,7 @@ enum SeiHeaderState {
     PayloadType { payload_type: u32 },
     PayloadSize { payload_type: HeaderType, payload_size: u32 },
     Payload { payload_type: HeaderType, payload_size: u32, consumed_size: u32 },
+    End,
 }
 
 pub trait SeiCompletePayloadReader {
@@ -280,6 +281,9 @@ impl<R: SeiIncrementalPayloadReader> NalReader for SeiHeaderReader<R> {
             let b = input[0];
             let mut exit = false;
             self.state = match self.state {
+                SeiHeaderState::End => {
+                    panic!("SeiHeaderReader no preceding call to start()");
+                },
                 SeiHeaderState::Begin => {
                     match b {
                         0xff => {
@@ -346,6 +350,7 @@ impl<R: SeiIncrementalPayloadReader> NalReader for SeiHeaderReader<R> {
     fn end(&mut self, ctx: &mut Context) {
         match self.state {
             SeiHeaderState::Begin => (),
+            SeiHeaderState::End => panic!("SeiHeaderReader already ended and end() called again"),
             SeiHeaderState::PayloadSize { payload_type: HeaderType::ReservedSeiMessage(0x80), payload_size: 0 } => {
                 // TODO: this is a bit of a hack to ignore rbsp_trailing_bits (which will always
                 //       be 0b10000000 in an SEI payload since SEI messages are byte-aligned).
@@ -363,6 +368,7 @@ impl<R: SeiIncrementalPayloadReader> NalReader for SeiHeaderReader<R> {
                 self.reader.reset(ctx);
             },
         }
+        self.state = SeiHeaderState::End;
     }
 }
 

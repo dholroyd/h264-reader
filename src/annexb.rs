@@ -15,6 +15,7 @@ enum ParseState {
     InUnitTwoZero,
     InUnitThreeZero,
     Error,
+    End,
 }
 impl ParseState {
     fn in_unit(&self) -> bool {
@@ -29,6 +30,7 @@ impl ParseState {
             ParseState::InUnitTwoZero => true,
             ParseState::InUnitThreeZero => true,
             ParseState::Error => false,
+            ParseState::End => false,
         }
     }
 
@@ -44,6 +46,7 @@ impl ParseState {
             ParseState::InUnitTwoZero => Some(2),
             ParseState::InUnitThreeZero => Some(3),
             ParseState::Error => None,
+            ParseState::End => None,
         }
     }
 }
@@ -68,7 +71,7 @@ impl<R> AnnexBReader<R>
 {
     pub fn new(nal_reader: R) -> AnnexBReader<R> {
         AnnexBReader {
-            state: ParseState::Start,
+            state: ParseState::End,
             nal_reader,
         }
     }
@@ -87,6 +90,7 @@ impl<R> AnnexBReader<R>
         for i in 0..buf.len() {
             let b = buf[i];
             match self.state {
+                ParseState::End => panic!("no previous call to start()"),
                 ParseState::Error => return,
                 ParseState::Start => {
                     match b {
@@ -208,7 +212,7 @@ impl<R> AnnexBReader<R>
                 self.nal_reader.push(ctx, &tmp[0..backtrack]);
             }
         }
-        self.to(ParseState::Start);
+        self.to(ParseState::End);
         self.nal_reader.end(ctx);
     }
 
@@ -292,6 +296,7 @@ mod tests {
             0, 0, 1      // end-code
         );
         let mut ctx = Context::default();
+        r.start(&mut ctx);
         r.push(&mut ctx, &data[..]);
         {
             let s = state.borrow();
@@ -315,6 +320,7 @@ mod tests {
             3, 0         // NAL data
         );
         let mut ctx = Context::default();
+        r.start(&mut ctx);
         r.push(&mut ctx, &data[..]);
         r.end_units(&mut ctx);
         {
@@ -340,6 +346,7 @@ mod tests {
             0, 0, 1      // nd-code
         );
         let mut ctx = Context::default();
+        r.start(&mut ctx);
         r.push(&mut ctx, &data[..5]);  // half-way through the NAL Unit
         {
             let s = state.borrow();
