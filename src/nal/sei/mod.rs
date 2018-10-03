@@ -267,6 +267,7 @@ impl<R: SeiIncrementalPayloadReader> SeiHeaderReader<R> {
 }
 impl<R: SeiIncrementalPayloadReader> NalHandler for SeiHeaderReader<R> {
     fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
+        assert_eq!(header.nal_unit_type(), ::nal::UnitType::SEI);
         self.state = SeiHeaderState::Begin;
     }
 
