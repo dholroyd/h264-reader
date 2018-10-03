@@ -194,6 +194,7 @@ impl NalReader for NalSwitch {
                 handler.borrow_mut().end(ctx);
             }
         }
+        self.state = NalSwitchState::Ignoring
     }
 }
 
