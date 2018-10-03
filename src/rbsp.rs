@@ -184,6 +184,19 @@ impl<R> NalHandler for RbspDecoder<R>
     }
 }
 
+
+impl From<bitreader::BitReaderError> for RbspBitReaderError {
+    fn from(e: bitreader::BitReaderError) -> Self {
+        RbspBitReaderError::ReaderError(e)
+    }
+}
+
+#[derive(Debug)]
+pub enum RbspBitReaderError {
+    ReaderError(bitreader::BitReaderError),
+    ReaderErrorFor(&'static str, bitreader::BitReaderError),
+}
+
 pub struct RbspBitReader<'a> {
     total_size: usize,
     reader: bitreader::BitReader<'a>,
@@ -203,6 +216,14 @@ impl<'a> RbspBitReader<'a> {
         } else {
             Ok(0)
         }
+    }
+
+    pub fn read_ue_named(&mut self, name: &'static str) -> Result<u32,RbspBitReaderError> {
+        self.read_ue().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
+    }
+
+    pub fn read_bool_named(&mut self, name: &'static str) -> Result<bool, RbspBitReaderError> {
+        self.read_bool().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
     }
 
     pub fn read_se(&mut self) -> Result<i32,bitreader::BitReaderError> {

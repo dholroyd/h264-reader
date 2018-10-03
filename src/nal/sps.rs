@@ -4,18 +4,26 @@ use super::NalHandler;
 use super::NalHeader;
 use bitreader;
 use Context;
+use rbsp::RbspBitReaderError;
 
 #[derive(Debug)]
 pub enum SpsError {
     /// Signals that bit_depth_luma_minus8 was greater than the max value, 6
     BitDepthOutOfRange(u32),
     ReaderError(bitreader::BitReaderError),
+    RbspReaderError(RbspBitReaderError),
     PicOrderCnt(PicOrderCntError)
 }
 
 impl From<bitreader::BitReaderError> for SpsError {
     fn from(e: bitreader::BitReaderError) -> Self {
         SpsError::ReaderError(e)
+    }
+}
+
+impl From<RbspBitReaderError> for SpsError {
+    fn from(e: RbspBitReaderError) -> Self {
+        SpsError::RbspReaderError(e)
     }
 }
 
@@ -614,11 +622,11 @@ pub struct CpbSpec {
     cbr_flag: bool,
 }
 impl CpbSpec {
-    fn read(r: &mut RbspBitReader) -> Result<CpbSpec,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<CpbSpec,RbspBitReaderError> {
         Ok(CpbSpec {
-            bit_rate_value_minus1: r.read_ue()?,
-            cpb_size_value_minus1: r.read_ue()?,
-            cbr_flag: r.read_bool()?,
+            bit_rate_value_minus1: r.read_ue_named("bit_rate_value_minus1")?,
+            cpb_size_value_minus1: r.read_ue_named("cpb_size_value_minus1")?,
+            cbr_flag: r.read_bool_named("cbr_flag")?,
         })
     }
 }
@@ -635,11 +643,11 @@ pub struct HrdParameters {
     pub time_offset_length: u8,
 }
 impl HrdParameters {
-    fn read(r: &mut RbspBitReader, hrd_parameters_present: &bool) -> Result<Option<HrdParameters>,bitreader::BitReaderError> {
-        let hrd_parameters_present_flag = r.read_bool()?;
+    fn read(r: &mut RbspBitReader, hrd_parameters_present: &bool) -> Result<Option<HrdParameters>,RbspBitReaderError> {
+        let hrd_parameters_present_flag = r.read_bool_named("hrd_parameters_present_flag")?;
         *hrd_parameters_present != hrd_parameters_present_flag;
         Ok(if hrd_parameters_present_flag {
-            let cpb_cnt_minus1 = r.read_ue()?;
+            let cpb_cnt_minus1 = r.read_ue_named("cpb_cnt_minus1")?;
             let cpb_cnt = cpb_cnt_minus1 + 1;
             Some(HrdParameters {
                 bit_rate_scale: r.read_u8(4)?,
@@ -654,7 +662,7 @@ impl HrdParameters {
             None
         })
     }
-    fn read_cpb_specs(r: &mut RbspBitReader, cpb_cnt: u32) -> Result<Vec<CpbSpec>,bitreader::BitReaderError> {
+    fn read_cpb_specs(r: &mut RbspBitReader, cpb_cnt: u32) -> Result<Vec<CpbSpec>,RbspBitReaderError> {
         let mut cpb_specs = Vec::with_capacity(cpb_cnt as usize);
         for _ in 0..cpb_cnt {
             cpb_specs.push(CpbSpec::read(r)?);
@@ -674,17 +682,17 @@ pub struct BitstreamRestrictions {
     max_dec_frame_buffering: u32,
 }
 impl BitstreamRestrictions {
-    fn read(r: &mut RbspBitReader) -> Result<Option<BitstreamRestrictions>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<Option<BitstreamRestrictions>,RbspBitReaderError> {
         let bitstream_restriction_flag = r.read_bool()?;
         Ok(if bitstream_restriction_flag {
             Some(BitstreamRestrictions {
-                motion_vectors_over_pic_boundaries_flag: r.read_bool()?,
-                max_bytes_per_pic_denom: r.read_ue()?,
-                max_bits_per_mb_denom: r.read_ue()?,
-                log2_max_mv_length_horizontal: r.read_ue()?,
-                log2_max_mv_length_vertical: r.read_ue()?,
-                max_num_reorder_frames: r.read_ue()?,
-                max_dec_frame_buffering: r.read_ue()?,
+                motion_vectors_over_pic_boundaries_flag: r.read_bool_named("motion_vectors_over_pic_boundaries_flag")?,
+                max_bytes_per_pic_denom: r.read_ue_named("max_bytes_per_pic_denom")?,
+                max_bits_per_mb_denom: r.read_ue_named("max_bits_per_mb_denom")?,
+                log2_max_mv_length_horizontal: r.read_ue_named("log2_max_mv_length_horizontal")?,
+                log2_max_mv_length_vertical: r.read_ue_named("log2_max_mv_length_vertical")?,
+                max_num_reorder_frames: r.read_ue_named("max_num_reorder_frames")?,
+                max_dec_frame_buffering: r.read_ue_named("max_dec_frame_buffering")?,
             })
         } else {
             None
@@ -706,7 +714,7 @@ pub struct VuiParameters {
     pub bitstream_restrictions: Option<BitstreamRestrictions>,
 }
 impl VuiParameters {
-    fn read(r: &mut RbspBitReader) -> Result<Option<VuiParameters>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader) -> Result<Option<VuiParameters>,RbspBitReaderError> {
         let vui_parameters_present_flag = r.read_bool()?;
         Ok(if vui_parameters_present_flag {
             let hrd_parameters_present = false;
@@ -718,8 +726,8 @@ impl VuiParameters {
                 timing_info: TimingInfo::read(r)?,
                 nal_hrd_parameters: HrdParameters::read(r, &hrd_parameters_present)?,
                 vcl_hrd_parameters: HrdParameters::read(r, &hrd_parameters_present)?,
-                low_delay_hrd_flag: if hrd_parameters_present { Some(r.read_bool()?) } else { None },
-                pic_struct_present_flag: r.read_bool()?,
+                low_delay_hrd_flag: if hrd_parameters_present { Some(r.read_bool_named("low_delay_hrd_flag")?) } else { None },
+                pic_struct_present_flag: r.read_bool_named("pic_struct_present_flag")?,
                 bitstream_restrictions: BitstreamRestrictions::read(r)?,
             })
         } else {
