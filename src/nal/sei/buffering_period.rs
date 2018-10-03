@@ -55,9 +55,9 @@ impl BufferingPeriod {
                 let nal_hrd_bp = if let Some((cpb_removal_delay_length_minus1, nal_cpb_cnt)) = vui
                     .and_then(|vui_params| vui_params.nal_hrd_parameters.as_ref() )
                     .and_then(|nal_hrd_params| Some((nal_hrd_params.cpb_removal_delay_length_minus1, nal_hrd_params.cpb_specs.len())) )
-                    {
-                        Some(read_cpb_removal_delay_list(&mut r, nal_cpb_cnt, cpb_removal_delay_length_minus1+1)?)
-                    } else {
+                {
+                    Some(read_cpb_removal_delay_list(&mut r, nal_cpb_cnt, cpb_removal_delay_length_minus1+1)?)
+                } else {
                     None
                 };
                 let vcl_hrd_bp = if let Some((cpb_removal_delay_length_minus1, vcl_cpb_cnt)) = vui
