@@ -198,6 +198,7 @@ impl NalReader for NalSwitch {
     }
 }
 
+// TODO: rename to 'RbspHandler' or something, to indicate it's only for post-emulation-prevention-bytes data
 pub trait NalHandler {
     fn start(&mut self, ctx: &mut Context, header: &NalHeader);
     fn push(&mut self, ctx: &mut Context, buf: &[u8]);

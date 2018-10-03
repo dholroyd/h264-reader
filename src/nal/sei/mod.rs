@@ -1,7 +1,6 @@
 pub mod buffering_period;
 pub mod user_data_registered_itu_t_t35;
 
-use annexb::NalReader;
 use Context;
 use nal::NalHandler;
 use nal::NalHeader;
@@ -266,8 +265,8 @@ impl<R: SeiIncrementalPayloadReader> SeiHeaderReader<R> {
         }
     }
 }
-impl<R: SeiIncrementalPayloadReader> NalReader for SeiHeaderReader<R> {
-    fn start(&mut self, ctx: &mut Context) {
+impl<R: SeiIncrementalPayloadReader> NalHandler for SeiHeaderReader<R> {
+    fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
         self.state = SeiHeaderState::Begin;
     }
 
@@ -386,7 +385,7 @@ impl<R: SeiIncrementalPayloadReader> SeiNalHandler<R> {
 impl<R: SeiIncrementalPayloadReader> NalHandler for SeiNalHandler<R> {
     fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
         assert_eq!(header.nal_unit_type(), super::UnitType::SEI);
-        self.reader.start(ctx);
+        self.reader.start(ctx, header);
     }
 
     fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
@@ -446,7 +445,8 @@ mod test {
         let state = Rc::new(RefCell::new(State::default()));
         let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
         let mut ctx = &mut Context::default();
-        r.start(ctx);
+        let header = NalHeader::new(6).unwrap();
+        r.start(ctx, &header);
         r.push(ctx, &data[..]);
         r.end(ctx);
         let st = state.borrow();
@@ -467,7 +467,7 @@ mod test {
         let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
         let mut ctx = &mut Context::default();
         let header = NalHeader::new(6).unwrap();
-        r.start(ctx);
+        r.start(ctx, &header);
         let (head, tail) = data.split_at(data.len()-4);  // just before end of payload
         r.push(ctx, head);
         r.push(ctx, tail);

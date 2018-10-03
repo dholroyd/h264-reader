@@ -23,7 +23,8 @@
 
 use std::ops::{Deref, DerefMut};
 use bitreader;
-use ::annexb::NalReader;
+use ::nal::NalHandler;
+use ::nal::NalHeader;
 use Context;
 
 #[derive(Debug)]
@@ -51,14 +52,14 @@ impl ParseState {
 }
 pub struct RbspDecoder<R>
     where
-        R: NalReader
+        R: NalHandler
 {
     state: ParseState,
     nal_reader: R,
 }
 impl<R> RbspDecoder<R>
     where
-        R: NalReader
+        R: NalHandler
 {
     pub fn new(nal_reader: R) -> RbspDecoder<R> {
         RbspDecoder {
@@ -85,13 +86,13 @@ impl<R> RbspDecoder<R>
         self.state = ParseState::Start;
     }
 }
-impl<R> NalReader for RbspDecoder<R>
+impl<R> NalHandler for RbspDecoder<R>
     where
-        R: NalReader
+        R: NalHandler
 {
-    fn start(&mut self, ctx: &mut Context) {
+    fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
         self.state = ParseState::Start;
-        self.nal_reader.start(ctx);
+        self.nal_reader.start(ctx, header);
     }
 
     fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
@@ -262,8 +263,8 @@ mod tests {
             }
         }
     }
-    impl NalReader for MockReader {
-        fn start(&mut self, ctx: &mut Context) {
+    impl NalHandler for MockReader {
+        fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
             self.state.borrow_mut().started = true;
         }
 
