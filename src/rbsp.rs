@@ -140,7 +140,10 @@ impl<R> NalHandler for RbspDecoder<R>
                             // correctness
                             self.to(ParseState::Start);
                         },
-                        0x00 => self.err(b),
+                        // I see example PES packet payloads that end with 0x80 0x00 0x00 0x00,
+                        // which triggered this error; guess the example is correct and this code
+                        // was wrong, but not sure why!
+                        // 0x00 => { self.err(b); },
                         _ => {
                             if rbsp_start.is_none() {
                                 let fake = [0x00, 0x00];
