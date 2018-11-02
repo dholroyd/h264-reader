@@ -90,7 +90,11 @@ impl<R> AnnexBReader<R>
         for i in 0..buf.len() {
             let b = buf[i];
             match self.state {
-                ParseState::End => panic!("no previous call to start()"),
+                ParseState::End => {
+                    eprintln!("no previous call to start()");
+                    self.state = ParseState::Error;
+                    return;
+                },
                 ParseState::Error => return,
                 ParseState::Start => {
                     match b {
