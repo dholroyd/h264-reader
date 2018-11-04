@@ -14,6 +14,7 @@ enum ParseState {
     InUnitOneZero,
     InUnitTwoZero,
     InUnitThreeZero,
+    InUnitTrailingZeros,
     Error,
     End,
 }
@@ -29,6 +30,7 @@ impl ParseState {
             ParseState::InUnitOneZero => true,
             ParseState::InUnitTwoZero => true,
             ParseState::InUnitThreeZero => true,
+            ParseState::InUnitTrailingZeros => true,
             ParseState::Error => false,
             ParseState::End => false,
         }
@@ -45,6 +47,7 @@ impl ParseState {
             ParseState::InUnitOneZero => Some(1),
             ParseState::InUnitTwoZero => Some(2),
             ParseState::InUnitThreeZero => Some(3),
+            ParseState::InUnitTrailingZeros => Some(3),
             ParseState::Error => None,
             ParseState::End => None,
         }
@@ -167,9 +170,7 @@ impl<R> AnnexBReader<R>
                 ParseState::InUnitThreeZero => {
                     match b {
                         0x00 => {
-                            eprintln!("Expected start code, found 0x00000000");
-                            self.to(ParseState::Error);
-                            return;
+                            self.to(ParseState::InUnitTrailingZeros)
                         },
                         0x01 => {
                             if unit_start.is_some() && (unit_start.unwrap() > 0 || i > 3) {
@@ -182,6 +183,38 @@ impl<R> AnnexBReader<R>
                         _ => {
                             if i < 3 { self.emit_fake(ctx, 3-i) }
                             self.to(ParseState::InUnit)
+                        },
+                    }
+                },
+                ParseState::InUnitTrailingZeros => {
+                    match b {
+                        0x00 => {
+                            // We now presume that the earliest of the three zeros was part of
+                            // cabac_zero_word, but we can't yet know how many more zeros might be
+                            // part of further cabac_zero_word entries, and how many might
+                            // become part of a 0x00000001 start code (because we've not seen
+                            // the 0x01 yet); so we stay in InUnitThreeZero state
+                            //
+                            // Spec:
+                            // "One or more cabac_zero_word 16-bit syntax elements equal to 0x0000
+                            //  may be present in some RBSPs after the rbsp_trailing_bits( ) at
+                            //  the end of the RBSP."
+                            //
+                            // We're not yet bothering to check that the trailing 0x00 come in
+                            // pairs to make 16 bit elements mentioned above,
+                            ()
+                        },
+                        0x01 => {
+                            if unit_start.is_some() && (unit_start.unwrap() > 0 || i > 3) {
+                                self.emit(ctx, buf, unit_start, i - 3);
+                            }
+                            self.nal_reader.end(ctx);
+                            unit_start = Some(i as isize + 1);
+                            self.to(ParseState::InUnitStart);
+                        },
+                        _ => {
+                            eprintln!("Expected either start code byte 0x01 or end_units(), got byte {:#x}", b);
+                            self.to(ParseState::Error);
                         },
                     }
                 },
@@ -306,6 +339,35 @@ mod tests {
             let s = state.borrow();
             assert_eq!(1, s.started);
             assert_eq!(&s.data[..], &[3u8][..]);
+            assert_eq!(1, s.ended);
+        }
+    }
+
+    // Several trailing 0x00 bytes
+    #[test]
+    fn rbsp_trailing() {
+        let state = Rc::new(RefCell::new(State {
+            started: 0,
+            ended: 0,
+            data: Vec::new(),
+        }));
+        let mock = MockReader::new(Rc::clone(&state));
+        let mut r = AnnexBReader::new(mock);
+        let data = vec!(
+            0, 0, 0, 1,  // start-code
+            3,           // NAL data
+            0x80,        // 1 stop-bit + 7 alignment-zero-bits
+            0, 0,        // cabac_zero_word
+            0, 0,        // cabac_zero_word
+            0, 0, 0, 1,  // start-code
+        );
+        let mut ctx = Context::default();
+        r.start(&mut ctx);
+        r.push(&mut ctx, &data[..]);
+        {
+            let s = state.borrow();
+            assert_eq!(1, s.started);
+            assert_eq!(&s.data[..], &[3, 0x80, 0, 0, 0, 0][..]);
             assert_eq!(1, s.ended);
         }
     }
