@@ -643,9 +643,9 @@ pub struct HrdParameters {
     pub time_offset_length: u8,
 }
 impl HrdParameters {
-    fn read(r: &mut RbspBitReader, hrd_parameters_present: &bool) -> Result<Option<HrdParameters>,RbspBitReaderError> {
+    fn read(r: &mut RbspBitReader, hrd_parameters_present: &mut bool) -> Result<Option<HrdParameters>,RbspBitReaderError> {
         let hrd_parameters_present_flag = r.read_bool_named("hrd_parameters_present_flag")?;
-        *hrd_parameters_present != hrd_parameters_present_flag;
+        *hrd_parameters_present |= hrd_parameters_present_flag;
         Ok(if hrd_parameters_present_flag {
             let cpb_cnt_minus1 = r.read_ue_named("cpb_cnt_minus1")?;
             let cpb_cnt = cpb_cnt_minus1 + 1;
@@ -717,15 +717,15 @@ impl VuiParameters {
     fn read(r: &mut RbspBitReader) -> Result<Option<VuiParameters>,RbspBitReaderError> {
         let vui_parameters_present_flag = r.read_bool()?;
         Ok(if vui_parameters_present_flag {
-            let hrd_parameters_present = false;
+            let mut hrd_parameters_present = false;
             Some(VuiParameters {
                 aspect_ratio_info: AspectRatioInfo::read(r)?,
                 overscan_appropriate: OverscanAppropriate::read(r)?,
                 video_signal_type: VideoSignalType::read(r)?,
                 chroma_loc_info: ChromaLocInfo::read(r)?,
                 timing_info: TimingInfo::read(r)?,
-                nal_hrd_parameters: HrdParameters::read(r, &hrd_parameters_present)?,
-                vcl_hrd_parameters: HrdParameters::read(r, &hrd_parameters_present)?,
+                nal_hrd_parameters: HrdParameters::read(r, &mut hrd_parameters_present)?,
+                vcl_hrd_parameters: HrdParameters::read(r, &mut hrd_parameters_present)?,
                 low_delay_hrd_flag: if hrd_parameters_present { Some(r.read_bool_named("low_delay_hrd_flag")?) } else { None },
                 pic_struct_present_flag: r.read_bool_named("pic_struct_present_flag")?,
                 bitstream_restrictions: BitstreamRestrictions::read(r)?,
