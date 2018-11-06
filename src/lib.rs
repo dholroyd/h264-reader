@@ -7,6 +7,7 @@ extern crate bitreader;
 extern crate pretty_assertions;
 #[cfg(test)]
 extern crate hex_slice;
+extern crate memchr;
 
 pub mod rbsp;
 pub mod annexb;

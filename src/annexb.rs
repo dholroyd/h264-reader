@@ -2,6 +2,7 @@
 //! as used when H264 data is embedded in an MPEG2 Transport Stream
 
 use Context;
+use memchr;
 
 #[derive(Debug)]
 enum ParseState {
@@ -90,7 +91,8 @@ impl<R> AnnexBReader<R>
     pub fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
         let mut unit_start: Option<isize> = self.state.end_backtrack_bytes().map(|v| -(v as isize));
 
-        for i in 0..buf.len() {
+        let mut i = 0;
+        while i < buf.len() {
             let b = buf[i];
             match self.state {
                 ParseState::End => {
@@ -136,9 +138,16 @@ impl<R> AnnexBReader<R>
                     }
                 },
                 ParseState::InUnit => {
-                    match b {
-                        0x00 => self.to(ParseState::InUnitOneZero),
-                        _ => (),
+                    let remaining = &buf[i..];
+                    match memchr::memchr(0x00, remaining) {
+                        Some(pos) => {
+                            self.to(ParseState::InUnitOneZero);
+                            i += pos;
+                        },
+                        None => {
+                            // skip to end
+                            i = buf.len();
+                        }
                     }
                 },
                 ParseState::InUnitOneZero => {
@@ -219,6 +228,7 @@ impl<R> AnnexBReader<R>
                     }
                 },
             }
+            i += 1;
         }
         if let (Some(start), Some(backtrack)) = (unit_start, self.state.end_backtrack_bytes()) {
             let end = (buf.len() as isize) - backtrack as isize;
