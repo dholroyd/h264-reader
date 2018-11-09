@@ -1,5 +1,6 @@
 pub mod buffering_period;
 pub mod user_data_registered_itu_t_t35;
+pub mod pic_timing;
 
 use Context;
 use nal::NalHandler;
