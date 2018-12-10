@@ -297,7 +297,6 @@ mod tests {
     use super::*;
     use std::rc::Rc;
     use std::cell::RefCell;
-    use hex_slice::AsHex;
 
     struct State {
         started: u32,
