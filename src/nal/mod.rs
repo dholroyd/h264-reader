@@ -147,6 +147,7 @@ impl fmt::Debug for NalHeader {
     }
 }
 
+#[derive(Debug)]
 enum NalSwitchState {
     Start,
     Handling(UnitType),

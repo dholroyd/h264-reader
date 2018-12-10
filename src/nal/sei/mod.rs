@@ -201,6 +201,7 @@ macro_rules! sei_switch {
     }
 }
 
+#[derive(Debug)]
 enum SeiHeaderState {
     Begin,
     PayloadType { payload_type: u32 },
