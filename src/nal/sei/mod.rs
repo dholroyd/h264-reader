@@ -446,7 +446,7 @@ mod test {
         ];
         let state = Rc::new(RefCell::new(State::default()));
         let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
-        let mut ctx = &mut Context::default();
+        let ctx = &mut Context::default();
         let header = NalHeader::new(6).unwrap();
         r.start(ctx, &header);
         r.push(ctx, &data[..]);
@@ -467,7 +467,7 @@ mod test {
         ];
         let state = Rc::new(RefCell::new(State::default()));
         let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
-        let mut ctx = &mut Context::default();
+        let ctx = &mut Context::default();
         let header = NalHeader::new(6).unwrap();
         r.start(ctx, &header);
         let (head, tail) = data.split_at(data.len()-4);  // just before end of payload
