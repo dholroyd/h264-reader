@@ -114,6 +114,7 @@ pub enum UnitTypeError {
     ValueOutOfRange(u8)
 }
 
+#[derive(Copy,Clone)]
 pub struct NalHeader ( u8 );
 
 #[derive(Debug)]
