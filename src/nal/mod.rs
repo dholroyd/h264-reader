@@ -153,6 +153,7 @@ enum NalSwitchState {
     Handling(UnitType),
     Ignoring,
 }
+// TODO: generate enum at compile time rather than Vec<Box<>>
 pub struct NalSwitch {
     readers_by_id: Vec<Option<Box<RefCell<NalHandler>>>>,
     state: NalSwitchState,
