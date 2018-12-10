@@ -51,7 +51,6 @@ impl NalHandler for SeqParameterSetNalHandler {
 
     fn end(&mut self, ctx: &mut Context) {
         let sps = SeqParameterSet::from_bytes(&self.buf[..]);
-        println!("sps: {:#?}", sps);
         self.buf.clear();
         if let Ok(sps) = sps {
             ctx.put_seq_param_set(sps);

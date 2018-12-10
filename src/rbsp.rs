@@ -73,7 +73,6 @@ impl<R> RbspDecoder<R>
     }
 
     fn emit(&mut self, ctx: &mut Context, buf:&[u8], start_index: Option<usize>, end_index: usize) {
-        //println!("emit {:?}", &buf[start_index.unwrap()..end_index]);
         if let Some(start) = start_index {
             self.nal_reader.push(ctx, &buf[start..end_index])
         } else {
