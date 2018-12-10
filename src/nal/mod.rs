@@ -31,7 +31,14 @@ pub enum UnitType {
     EndOfSeq,
     EndOfStream,
     FillerData,
-    /// The values `13`-`23` are reserved for future use by the H264 spec
+    SeqParameterSetExtension,
+    PrefixNALUnit,
+    SubsetSeqParameterSet,
+    DepthParameterSet,
+    SliceLayerWithoutPartitioningAux,
+    SliceExtension,
+    SliceExtensionViewComponent,
+    /// The values `17`, `18`, `22` and `23` are reserved for future use by the H264 spec
     Reserved(u8),
 }
 impl UnitType {
@@ -53,7 +60,15 @@ impl UnitType {
                 10 => UnitType::EndOfSeq,
                 11 => UnitType::EndOfStream,
                 12 => UnitType::FillerData,
-                13...23 => UnitType::Reserved(id),
+                13 => UnitType::SeqParameterSetExtension,
+                14 => UnitType::PrefixNALUnit,
+                15 => UnitType::SubsetSeqParameterSet,
+                16 => UnitType::DepthParameterSet,
+                17...18 => UnitType::Reserved(id),
+                19 => UnitType::SliceLayerWithoutPartitioningAux,
+                20 => UnitType::SliceExtension,
+                21 => UnitType::SliceExtensionViewComponent,
+                22...23 => UnitType::Reserved(id),
                 24...31 => UnitType::Unspecified(id),
                 _ => panic!("unexpected {}", id), // shouldn't happen
             };
@@ -76,6 +91,13 @@ impl UnitType {
             UnitType::EndOfSeq => 10,
             UnitType::EndOfStream => 11,
             UnitType::FillerData => 12,
+            UnitType::SeqParameterSetExtension => 13,
+            UnitType::PrefixNALUnit => 14,
+            UnitType::SubsetSeqParameterSet => 15,
+            UnitType::DepthParameterSet => 16,
+            UnitType::SliceLayerWithoutPartitioningAux => 19,
+            UnitType::SliceExtension => 20,
+            UnitType::SliceExtensionViewComponent => 21,
             UnitType::Reserved(v) => v,
         }
     }
