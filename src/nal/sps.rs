@@ -12,7 +12,9 @@ pub enum SpsError {
     BitDepthOutOfRange(u32),
     ReaderError(bitreader::BitReaderError),
     RbspReaderError(RbspBitReaderError),
-    PicOrderCnt(PicOrderCntError)
+    PicOrderCnt(PicOrderCntError),
+    /// log2_max_frame_num_minus4 must be between 0 and 12
+    Log2MaxFrameNumMinus4OutOfRange(u32),
 }
 
 impl From<bitreader::BitReaderError> for SpsError {
@@ -331,6 +333,8 @@ impl ChromaInfo {
 pub enum PicOrderCntError {
     InvalidPicOrderCountType(u32),
     ReaderError(bitreader::BitReaderError),
+    /// log2_max_pic_order_cnt_lsb_minus4 must be between 0 and 12
+    Log2MaxPicOrderCntLsbMinus4OutOfRange(u32),
 }
 
 impl From<bitreader::BitReaderError> for PicOrderCntError {
@@ -342,10 +346,10 @@ impl From<bitreader::BitReaderError> for PicOrderCntError {
 #[derive(Debug)]
 pub enum PicOrderCntType {
     TypeZero {
-        log2_max_pic_order_cnt_lsb_minus4: u32
+        log2_max_pic_order_cnt_lsb_minus4: u8
     },
     TypeOne {
-        delta_pic_order_always_zero_flag: u32,
+        delta_pic_order_always_zero_flag: bool,
         offset_for_non_ref_pic: i32,
         offset_for_top_to_bottom_field: i32,
         offsets_for_ref_frame: Vec<i32>
@@ -358,12 +362,12 @@ impl PicOrderCntType {
         match pic_order_cnt_type {
             0 => {
                 Ok(PicOrderCntType::TypeZero {
-                    log2_max_pic_order_cnt_lsb_minus4: r.read_ue()?
+                    log2_max_pic_order_cnt_lsb_minus4: Self::read_log2_max_pic_order_cnt_lsb_minus4(r)?
                 })
             },
             1 => {
                 Ok(PicOrderCntType::TypeOne {
-                    delta_pic_order_always_zero_flag: r.read_ue()?,
+                    delta_pic_order_always_zero_flag: r.read_bool()?,
                     offset_for_non_ref_pic: r.read_se()?,
                     offset_for_top_to_bottom_field: r.read_se()?,
                     offsets_for_ref_frame: Self::read_offsets_for_ref_frame(r)?,
@@ -375,6 +379,15 @@ impl PicOrderCntType {
             _ => {
                 Err(PicOrderCntError::InvalidPicOrderCountType(pic_order_cnt_type))
             }
+        }
+    }
+
+    fn read_log2_max_pic_order_cnt_lsb_minus4(r: &mut RbspBitReader) -> Result<u8, PicOrderCntError> {
+        let val = r.read_ue()?;
+        if val > 12 {
+            Err(PicOrderCntError::Log2MaxPicOrderCntLsbMinus4OutOfRange(val))
+        } else {
+            Ok(val as u8)
         }
     }
 
@@ -744,7 +757,7 @@ pub struct SeqParameterSet {
     pub level_idc: u8,
     pub seq_parameter_set_id: u32,
     pub chroma_info: ChromaInfo,
-    pub log2_max_frame_num_minus4: u32,
+    pub log2_max_frame_num_minus4: u8,
     pub pic_order_cnt: PicOrderCntType,
     pub max_num_ref_frames: u32,
     pub gaps_in_frame_num_value_allowed_flag: bool,
@@ -774,7 +787,7 @@ impl SeqParameterSet {
             level_idc: r.read_u8(8)?,
             seq_parameter_set_id: r.read_ue()?,
             chroma_info: ChromaInfo::read(&mut r, profile_idc)?,
-            log2_max_frame_num_minus4: r.read_ue()?,
+            log2_max_frame_num_minus4: Self::read_log2_max_frame_num_minus4(&mut r)?,
             pic_order_cnt: PicOrderCntType::read(&mut r).map_err(|e| SpsError::PicOrderCnt(e))?,
             max_num_ref_frames: r.read_ue()?,
             gaps_in_frame_num_value_allowed_flag: r.read_bool()?,
@@ -788,12 +801,25 @@ impl SeqParameterSet {
         Ok(sps)
     }
 
+    fn read_log2_max_frame_num_minus4(r: &mut RbspBitReader) -> Result<u8, SpsError> {
+        let val = r.read_ue()?;
+        if val > 12 {
+            Err(SpsError::Log2MaxFrameNumMinus4OutOfRange(val))
+        } else {
+            Ok(val as u8)
+        }
+    }
+
     pub fn profile(&self) -> Profile {
         Profile::from_profile_idc(self.profile_idc)
     }
 
     pub fn level(&self) -> Level {
         Level::from_constraint_flags_and_level_idc(&self.constraint_flags, self.level_idc)
+    }
+    /// returned value will be in the range 4 to 16 inclusive
+    pub fn log2_max_frame_num(&self) -> u8 {
+        self.log2_max_frame_num_minus4 + 4
     }
 }
 
