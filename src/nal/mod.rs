@@ -7,6 +7,7 @@
 pub mod sps;
 pub mod pps;
 pub mod sei;
+pub mod slice;
 
 use std::hash::{Hash, Hasher};
 use annexb::NalReader;

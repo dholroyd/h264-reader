@@ -191,7 +191,7 @@ impl Level {
     }
 }
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug,PartialEq,Clone,Copy)]
 pub enum ChromaFormat {
     Monochrome,
     YUV420,

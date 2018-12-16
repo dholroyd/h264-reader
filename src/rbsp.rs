@@ -221,6 +221,10 @@ impl<'a> RbspBitReader<'a> {
         self.read_ue().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
     }
 
+    pub fn read_se_named(&mut self, name: &'static str) -> Result<i32,RbspBitReaderError> {
+        self.read_se().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
+    }
+
     pub fn read_bool_named(&mut self, name: &'static str) -> Result<bool, RbspBitReaderError> {
         self.read_bool().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
     }
