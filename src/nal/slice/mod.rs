@@ -494,7 +494,7 @@ impl SliceHeader {
         if pps.deblocking_filter_control_present_flag {
             disable_deblocking_filter_idc = {
                 let v = r.read_ue_named("disable_deblocking_filter_idc")?;
-                if v > 2 {
+                if v > 6 {
                     return Err(SliceHeaderError::InvalidDisableDeblockingFilterIdc(v));
                 }
                 v as u8
