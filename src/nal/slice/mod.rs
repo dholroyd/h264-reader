@@ -479,7 +479,7 @@ impl SliceHeader {
         }
         let mut sp_for_switch_flag = None;
         let mut slice_qs = None;
-        if slice_type.family == SliceFamily::SP || slice_type.family != SliceFamily::SI {
+        if slice_type.family == SliceFamily::SP || slice_type.family == SliceFamily::SI {
             if slice_type.family == SliceFamily::SP {
                 sp_for_switch_flag = Some(r.read_bool_named("sp_for_switch_flag")?);
             }
