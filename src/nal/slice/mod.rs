@@ -404,7 +404,7 @@ impl SliceHeader {
             sps::PicOrderCntType::TypeZero { log2_max_pic_order_cnt_lsb_minus4 } => {
                 let pic_order_cnt_lsb = r.read_u32(log2_max_pic_order_cnt_lsb_minus4 + 4)?;
                 Some(if pps.bottom_field_pic_order_in_frame_present_flag && field_pic == FieldPic::Frame {
-                    let delta_pic_order_cnt_bottom = r.read_se()?;
+                    let delta_pic_order_cnt_bottom = r.read_se_named("delta_pic_order_cnt_bottom")?;
                     PicOrderCountLsb::FieldsAbsolute {
                         top: pic_order_cnt_lsb,
                         bottom_delta: pic_order_cnt_lsb as i32 + delta_pic_order_cnt_bottom,
@@ -418,8 +418,9 @@ impl SliceHeader {
                     None
                 } else {
                     Some(PicOrderCountLsb::FieldsDelta([
-                        r.read_se()?,
-                        r.read_se()?
+                        // TODO: can't remember what field names these are in the spec, to give for debugging
+                        r.read_se_named("FieldsDelta[0]")?,
+                        r.read_se_named("FieldsDelta[1]")?
                     ]))
                 }
             },
@@ -473,7 +474,7 @@ impl SliceHeader {
         } else {
             None
         };
-        let slice_qp_delta = r.read_se()?;
+        let slice_qp_delta = r.read_se_named("slice_qp_delta")?;
         if slice_qp_delta > 51 {  // TODO: or less than -qp_bd_offset
             return Err(SliceHeaderError::InvalidSliceQpDelta(slice_qp_delta))
         }
@@ -483,7 +484,7 @@ impl SliceHeader {
             if slice_type.family == SliceFamily::SP {
                 sp_for_switch_flag = Some(r.read_bool_named("sp_for_switch_flag")?);
             }
-            let slice_qs_delta = r.read_se()?;
+            let slice_qs_delta = r.read_se_named("slice_qs_delta")?;
             let qs_y = 26 + pps.pic_init_qs_minus26 + slice_qs_delta;
             if qs_y < 0 || 51 < qs_y {
                 return Err(SliceHeaderError::InvalidSliceQsDelta(slice_qs_delta))
@@ -500,11 +501,11 @@ impl SliceHeader {
                 v as u8
             };
             if disable_deblocking_filter_idc != 1 {
-                let slice_alpha_c0_offset_div2 = r.read_se()?;
+                let slice_alpha_c0_offset_div2 = r.read_se_named("slice_alpha_c0_offset_div2")?;
                 if slice_alpha_c0_offset_div2 < -6 || 6 < slice_alpha_c0_offset_div2 {
                     return Err(SliceHeaderError::InvalidSliceAlphaC0OffsetDiv2(slice_alpha_c0_offset_div2));
                 }
-                let slice_beta_offset_div2 = r.read_se()?;
+                let slice_beta_offset_div2 = r.read_se_named("slice_beta_offset_div2")?;
             }
         }
         Ok(SliceHeader {

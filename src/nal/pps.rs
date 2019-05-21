@@ -1,4 +1,4 @@
-use bitreader;
+use ::{bitreader, rbsp};
 use ::Context;
 use ::rbsp::RbspBitReader;
 use super::NalHandler;
@@ -8,6 +8,7 @@ use super::sps;
 #[derive(Debug)]
 pub enum PpsError {
     ReaderError(bitreader::BitReaderError),
+    RbspReaderError(rbsp::RbspBitReaderError),
     InvalidSliceGroupMapType(u32),
     InvalidSliceGroupChangeType(u32),
     UnknownSeqParamSetId(ParamSetId),
@@ -18,6 +19,11 @@ pub enum PpsError {
 impl From<bitreader::BitReaderError> for PpsError {
     fn from(e: bitreader::BitReaderError) -> Self {
         PpsError::ReaderError(e)
+    }
+}
+impl From<rbsp::RbspBitReaderError> for PpsError {
+    fn from(e: rbsp::RbspBitReaderError) -> Self {
+        PpsError::RbspReaderError(e)
     }
 }
 
@@ -175,7 +181,7 @@ impl PicParameterSetExtra {
             Some(PicParameterSetExtra {
                 transform_8x8_mode_flag,
                 pic_scaling_matrix: PicScalingMatrix::read(r, sps, transform_8x8_mode_flag)?,
-                second_chroma_qp_index_offset: r.read_se()?,
+                second_chroma_qp_index_offset: r.read_se_named("second_chroma_qp_index_offset")?,
             })
         } else {
             None
@@ -225,9 +231,9 @@ pub struct PicParameterSet {
 impl PicParameterSet {
     fn from_bytes(ctx: &Context, buf: &[u8]) -> Result<PicParameterSet, PpsError> {
         let mut r = RbspBitReader::new(buf);
-        let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue()?)
+        let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue_named("pic_parameter_set_id")?)
             .map_err(|e| PpsError::BadPicParamSetId(e) )?;
-        let seq_parameter_set_id = ParamSetId::from_u32(r.read_ue()?)
+        let seq_parameter_set_id = ParamSetId::from_u32(r.read_ue_named("seq_parameter_set_id")?)
             .map_err(|e| PpsError::BadSeqParamSetId(e))?;
         let seq_parameter_set = ctx.sps_by_id(seq_parameter_set_id)
             .ok_or_else(|| PpsError::UnknownSeqParamSetId(seq_parameter_set_id))?;
