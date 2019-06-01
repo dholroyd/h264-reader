@@ -139,6 +139,11 @@ impl NalHeader {
         UnitType::for_id(self.0 & 0b0001_1111).unwrap()
     }
 }
+impl From<NalHeader> for u8 {
+    fn from(v: NalHeader) -> Self {
+        v.0
+    }
+}
 
 impl fmt::Debug for NalHeader {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(),fmt::Error> {
