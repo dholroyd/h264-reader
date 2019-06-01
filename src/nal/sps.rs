@@ -226,6 +226,9 @@ impl From<u8> for ProfileIdc {
         ProfileIdc(v)
     }
 }
+impl From<ProfileIdc> for u8 {
+    fn from(v: ProfileIdc) -> Self { v.0 }
+}
 
 pub struct ScalingList {
     // TODO
