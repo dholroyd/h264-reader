@@ -18,13 +18,15 @@ struct NullNalReader {
     end: u64,
 }
 impl NalReader for NullNalReader {
-    fn start(&mut self, ctx: &mut Context) {
+    type Ctx = ();
+
+    fn start(&mut self, _ctx: &mut Context<Self::Ctx>) {
         self.start += 1;
     }
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+    fn push(&mut self, _ctx: &mut Context<Self::Ctx>, _buf: &[u8]) {
         self.push += 1;
     }
-    fn end(&mut self, ctx: &mut Context) {
+    fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
         self.end += 1;
     }
 }

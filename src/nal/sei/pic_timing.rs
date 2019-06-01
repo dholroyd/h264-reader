@@ -223,7 +223,7 @@ pub struct PicTiming {
     pic_struct: Option<PicStruct>,
 }
 impl PicTiming {
-    pub fn read(ctx: &mut Context, buf: &[u8]) -> Result<PicTiming, PicTimingError> {
+    pub fn read<Ctx>(ctx: &mut Context<Ctx>, buf: &[u8]) -> Result<PicTiming, PicTimingError> {
         let mut r = RbspBitReader::new(buf);
         let seq_parameter_set_id = ParamSetId::from_u32(0).unwrap();
         match ctx.sps_by_id(seq_parameter_set_id) {
@@ -283,25 +283,28 @@ impl PicTiming {
     }
 }
 pub trait PicTimingHandler {
-    fn handle(&mut self, pic_timing: PicTiming);
+    type Ctx;
+    fn handle(&mut self, ctx: &mut Context<Self::Ctx>, pic_timing: PicTiming);
 }
 pub struct PicTimingReader<H: PicTimingHandler> {
     handler: H,
 }
 impl<H: PicTimingHandler> PicTimingReader<H> {
-    pub fn new(handler: H) -> PicTimingReader<H> {
+    pub fn new(handler: H) -> Self {
         PicTimingReader {
             handler,
         }
     }
 }
 impl<H: PicTimingHandler> SeiCompletePayloadReader for PicTimingReader<H> {
-    fn header(&mut self, ctx: &mut Context, payload_type: HeaderType, buf: &[u8]) {
+    type Ctx = H::Ctx;
+
+    fn header(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, buf: &[u8]) {
         assert_eq!(payload_type, HeaderType::PicTiming);
         match PicTiming::read(ctx, buf) {
-            Err(e) => eprintln!("Failure reading buffering_period: {:?}", e),
+            Err(e) => eprintln!("Failure reading pic_timing: {:?}", e),
             Ok(pic_timing) => {
-                self.handler.handle(pic_timing);
+                self.handler.handle(ctx, pic_timing);
             }
         }
     }

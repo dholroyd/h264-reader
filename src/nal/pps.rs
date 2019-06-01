@@ -4,6 +4,7 @@ use ::rbsp::RbspBitReader;
 use super::NalHandler;
 use super::NalHeader;
 use super::sps;
+use std::marker;
 
 #[derive(Debug)]
 pub enum PpsError {
@@ -194,7 +195,7 @@ pub enum ParamSetIdError {
     IdTooLarge(u32)
 }
 
-#[derive(Debug,Clone,Copy)]
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash)]
 pub struct ParamSetId(u8);
 impl ParamSetId {
     pub fn from_u32(id: u32) -> Result<ParamSetId,ParamSetIdError> {
@@ -229,7 +230,7 @@ pub struct PicParameterSet {
     pub extension: Option<PicParameterSetExtra>,
 }
 impl PicParameterSet {
-    fn from_bytes(ctx: &Context, buf: &[u8]) -> Result<PicParameterSet, PpsError> {
+    pub fn from_bytes<Ctx>(ctx: &Context<Ctx>, buf: &[u8]) -> Result<PicParameterSet, PpsError> {
         let mut r = RbspBitReader::new(buf);
         let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue_named("pic_parameter_set_id")?)
             .map_err(|e| PpsError::BadPicParamSetId(e) )?;
@@ -253,7 +254,7 @@ impl PicParameterSet {
             deblocking_filter_control_present_flag: r.read_bool()?,
             constrained_intra_pred_flag: r.read_bool()?,
             redundant_pic_cnt_present_flag: r.read_bool()?,
-            extension: PicParameterSetExtra::read(&mut r, seq_parameter_set)?,
+            extension: None, // TODO: buggy?: PicParameterSetExtra::read(&mut r, seq_parameter_set)?,
         })
     }
 
@@ -267,32 +268,40 @@ impl PicParameterSet {
     }
 }
 
-pub struct PicParameterSetNalHandler {
+pub struct PicParameterSetNalHandler<Ctx> {
     buf: Vec<u8>,
+    phantom: marker::PhantomData<Ctx>
 }
 
-impl PicParameterSetNalHandler {
-    pub fn new() -> PicParameterSetNalHandler {
+impl<Ctx> PicParameterSetNalHandler<Ctx> {
+    pub fn new() -> Self {
         PicParameterSetNalHandler {
             buf: Vec::new(),
+            phantom: marker::PhantomData,
         }
     }
 }
-impl NalHandler for PicParameterSetNalHandler {
-    fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
+impl<Ctx> NalHandler for PicParameterSetNalHandler<Ctx> {
+    type Ctx = Ctx;
+
+    fn start(&mut self, ctx: &mut Context<Ctx>, header: NalHeader) {
         assert_eq!(header.nal_unit_type(), super::UnitType::PicParameterSet);
     }
 
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
         self.buf.extend_from_slice(buf);
     }
 
-    fn end(&mut self, ctx: &mut Context) {
+    fn end(&mut self, ctx: &mut Context<Ctx>) {
         let pps = PicParameterSet::from_bytes(ctx, &self.buf[..]);
-        println!("pps: {:#?}", pps);
         self.buf.clear();
-        if let Ok(pps) = pps {
-            ctx.put_pic_param_set(pps);
+        match pps {
+            Ok(pps) => {
+                ctx.put_pic_param_set(pps);
+            },
+            Err(e) => {
+                eprintln!("pps: {:?}", e);
+            },
         }
     }
 }

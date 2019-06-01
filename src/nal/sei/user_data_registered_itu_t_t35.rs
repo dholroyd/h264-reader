@@ -423,7 +423,8 @@ impl ItuTT35 {
 }
 
 pub trait Register {
-    fn handle(&mut self, ctx: &mut Context, country_code: ItuTT35, payload: &[u8]);
+    type Ctx;
+    fn handle(&mut self, ctx: &mut Context<Self::Ctx>, country_code: ItuTT35, payload: &[u8]);
 }
 
 pub struct UserDataRegisteredItuTT35Reader<R: Register> {
@@ -437,7 +438,9 @@ impl<R: Register> UserDataRegisteredItuTT35Reader<R>  {
     }
 }
 impl<R: Register> SeiCompletePayloadReader for UserDataRegisteredItuTT35Reader<R> {
-    fn header(&mut self, ctx: &mut Context, payload_type: HeaderType, buf: &[u8]) {
+    type Ctx = R::Ctx;
+
+    fn header(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, buf: &[u8]) {
         assert_eq!(payload_type, HeaderType::UserDataRegisteredItuTT35);
         match ItuTT35::read(buf) {
             Ok( (country_code, payload) ) => {

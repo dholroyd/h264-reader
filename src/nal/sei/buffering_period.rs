@@ -4,6 +4,7 @@ use nal::sei::HeaderType;
 use nal::pps;
 use rbsp::RbspBitReader;
 use bitreader;
+use std::marker;
 
 #[derive(Debug)]
 enum BufferingPeriodError {
@@ -45,7 +46,7 @@ struct BufferingPeriod {
     vcl_hrd_bp: Option<Vec<InitialCpbRemoval>>,
 }
 impl BufferingPeriod {
-    fn read(ctx: &Context, buf: &[u8]) -> Result<BufferingPeriod,BufferingPeriodError> {
+    fn read<Ctx>(ctx: &Context<Ctx>, buf: &[u8]) -> Result<BufferingPeriod,BufferingPeriodError> {
         let mut r = RbspBitReader::new(buf);
         let seq_parameter_set_id = pps::ParamSetId::from_u32(r.read_ue()?)?;
         match ctx.sps_by_id(seq_parameter_set_id) {
@@ -77,17 +78,20 @@ impl BufferingPeriod {
         }
     }
 }
-pub struct BufferingPeriodPayloadReader {
-
+pub struct BufferingPeriodPayloadReader<Ctx> {
+    phantom: marker::PhantomData<Ctx>,
 }
-impl BufferingPeriodPayloadReader {
-    pub fn new() -> BufferingPeriodPayloadReader {
+impl<Ctx> BufferingPeriodPayloadReader<Ctx> {
+    pub fn new() -> Self {
         BufferingPeriodPayloadReader {
+            phantom: marker::PhantomData
         }
     }
 }
-impl SeiCompletePayloadReader for BufferingPeriodPayloadReader {
-    fn header(&mut self, ctx: &mut Context, payload_type: HeaderType, buf: &[u8]) {
+impl<Ctx> SeiCompletePayloadReader for BufferingPeriodPayloadReader<Ctx> {
+    type Ctx = Ctx;
+
+    fn header(&mut self, ctx: &mut Context<Ctx>, payload_type: HeaderType, buf: &[u8]) {
         assert_eq!(payload_type, HeaderType::BufferingPeriod);
         match BufferingPeriod::read(ctx, buf) {
             Err(e) => eprintln!("Failure reading buffering_period: {:?}", e),

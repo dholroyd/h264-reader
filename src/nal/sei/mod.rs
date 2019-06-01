@@ -141,13 +141,17 @@ impl HeaderType {
 
 #[macro_export]
 macro_rules! sei_switch {
-    ( $( $name:ident : $t:ty => $v:expr ),*, ) => {
+    (
+        $struct_name:ident<$ctx:ty> {
+            $( $name:ident : $t:ty => $v:expr ),*,
+        }
+    ) => {
         #[allow(non_snake_case)]
-        struct SeiSwitch {
+        struct $struct_name {
             current_type: Option<$crate::nal::sei::HeaderType>,
             $( $name: $crate::nal::sei::SeiBuffer<$t>, )*
         }
-        impl Default for SeiSwitch {
+        impl Default for $struct_name {
             fn default() -> SeiSwitch {
                 SeiSwitch {
                     current_type: None,
@@ -155,8 +159,10 @@ macro_rules! sei_switch {
                 }
             }
         }
-        impl $crate::nal::sei::SeiIncrementalPayloadReader for SeiSwitch {
-            fn start(&mut self, ctx: &mut $crate::Context, payload_type: $crate::nal::sei::HeaderType, payload_size: u32) {
+        impl $crate::nal::sei::SeiIncrementalPayloadReader for $struct_name {
+            type Ctx = $ctx;
+
+            fn start(&mut self, ctx: &mut $crate::Context<Self::Ctx>, payload_type: $crate::nal::sei::HeaderType, payload_size: u32) {
                 self.current_type = Some(payload_type);
                 match payload_type {
                     $(
@@ -166,7 +172,7 @@ macro_rules! sei_switch {
                 }
             }
 
-            fn push(&mut self, ctx: &mut $crate::Context, buf: &[u8]) {
+            fn push(&mut self, ctx: &mut $crate::Context<Self::Ctx>, buf: &[u8]) {
                 match self.current_type {
                     $(
                     Some($crate::nal::sei::HeaderType::$name) => self.$name.push(ctx, buf),
@@ -176,7 +182,7 @@ macro_rules! sei_switch {
                 }
             }
 
-            fn end(&mut self, ctx: &mut $crate::Context) {
+            fn end(&mut self, ctx: &mut $crate::Context<Self::Ctx>) {
                 match self.current_type {
                     $(
                     Some($crate::nal::sei::HeaderType::$name) => self.$name.end(ctx),
@@ -187,7 +193,7 @@ macro_rules! sei_switch {
                 self.current_type = None;
             }
 
-            fn reset(&mut self, ctx: &mut $crate::Context) {
+            fn reset(&mut self, ctx: &mut $crate::Context<Self::Ctx>) {
                 match self.current_type {
                     $(
                     Some($crate::nal::sei::HeaderType::$name) => self.$name.reset(ctx),
@@ -211,14 +217,16 @@ enum SeiHeaderState {
 }
 
 pub trait SeiCompletePayloadReader {
-    fn header(&mut self, ctx: &mut Context, payload_type: HeaderType, buf: &[u8]);
+    type Ctx;
+    fn header(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, buf: &[u8]);
 }
 
 pub trait SeiIncrementalPayloadReader {
-    fn start(&mut self, ctx: &mut Context, payload_type: HeaderType, payload_size: u32);
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]);
-    fn end(&mut self, ctx: &mut Context);
-    fn reset(&mut self, ctx: &mut Context);
+    type Ctx;
+    fn start(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, payload_size: u32);
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]);
+    fn end(&mut self, ctx: &mut Context<Self::Ctx>);
+    fn reset(&mut self, ctx: &mut Context<Self::Ctx>);
 }
 
 pub struct SeiBuffer<R: SeiCompletePayloadReader> {
@@ -227,7 +235,7 @@ pub struct SeiBuffer<R: SeiCompletePayloadReader> {
     reader: R,
 }
 impl<R: SeiCompletePayloadReader> SeiBuffer<R> {
-    pub fn new(reader: R) -> SeiBuffer<R> {
+    pub fn new(reader: R) -> Self {
         SeiBuffer {
             payload_type: None,
             buf: Vec::new(),
@@ -236,21 +244,23 @@ impl<R: SeiCompletePayloadReader> SeiBuffer<R> {
     }
 }
 impl<R: SeiCompletePayloadReader> SeiIncrementalPayloadReader for SeiBuffer<R> {
-    fn start(&mut self, ctx: &mut Context, payload_type: HeaderType, payload_size: u32) {
+    type Ctx = R::Ctx;
+
+    fn start(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, payload_size: u32) {
         self.payload_type = Some(payload_type);
     }
 
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
         self.buf.extend_from_slice(buf);
     }
 
-    fn end(&mut self, ctx: &mut Context) {
+    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
         self.reader.header(ctx, self.payload_type.unwrap(), &self.buf[..]);
         self.buf.clear();
         self.payload_type = None;
     }
 
-    fn reset(&mut self, ctx: &mut Context) {
+    fn reset(&mut self, ctx: &mut Context<Self::Ctx>) {
         self.buf.clear();
     }
 }
@@ -260,7 +270,7 @@ pub struct SeiHeaderReader<R: SeiIncrementalPayloadReader> {
     reader: R,
 }
 impl<R: SeiIncrementalPayloadReader> SeiHeaderReader<R> {
-    pub fn new(reader: R) -> SeiHeaderReader<R> {
+    pub fn new(reader: R) -> Self {
         SeiHeaderReader {
             state: SeiHeaderState::Begin,
             reader,
@@ -268,12 +278,14 @@ impl<R: SeiIncrementalPayloadReader> SeiHeaderReader<R> {
     }
 }
 impl<R: SeiIncrementalPayloadReader> NalHandler for SeiHeaderReader<R> {
-    fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
+    type Ctx = R::Ctx;
+
+    fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader) {
         assert_eq!(header.nal_unit_type(), ::nal::UnitType::SEI);
         self.state = SeiHeaderState::Begin;
     }
 
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
         assert!(!buf.is_empty());
         let mut input = &buf[..];
         loop {
@@ -349,7 +361,7 @@ impl<R: SeiIncrementalPayloadReader> NalHandler for SeiHeaderReader<R> {
         }
     }
 
-    fn end(&mut self, ctx: &mut Context) {
+    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
         match self.state {
             SeiHeaderState::Begin => (),
             SeiHeaderState::End => panic!("SeiHeaderReader already ended and end() called again"),
@@ -378,7 +390,7 @@ pub struct SeiNalHandler<R: SeiIncrementalPayloadReader> {
     reader: RbspDecoder<SeiHeaderReader<R>>,
 }
 impl<R: SeiIncrementalPayloadReader> SeiNalHandler<R> {
-    pub fn new(r: R) -> SeiNalHandler<R> {
+    pub fn new(r: R) -> Self {
         SeiNalHandler {
             reader: RbspDecoder::new(SeiHeaderReader::new(r)),
         }
@@ -386,16 +398,18 @@ impl<R: SeiIncrementalPayloadReader> SeiNalHandler<R> {
 }
 
 impl<R: SeiIncrementalPayloadReader> NalHandler for SeiNalHandler<R> {
-    fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
+    type Ctx = R::Ctx;
+
+    fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader) {
         assert_eq!(header.nal_unit_type(), super::UnitType::SEI);
         self.reader.start(ctx, header);
     }
 
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
         self.reader.push(ctx, buf);
     }
 
-    fn end(&mut self, ctx: &mut Context) {
+    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
         self.reader.end(ctx);
     }
 }
@@ -416,19 +430,21 @@ mod test {
         state: Rc<RefCell<State>>
     }
     impl SeiIncrementalPayloadReader for MockReader {
-        fn start(&mut self, ctx: &mut Context, payload_type: HeaderType, payload_size: u32) {
+        type Ctx = ();
+
+        fn start(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, payload_size: u32) {
             self.state.borrow_mut().started += 1;
         }
 
-        fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+        fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
             self.state.borrow_mut().data.extend_from_slice(buf);
         }
 
-        fn end(&mut self, ctx: &mut Context) {
+        fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
             self.state.borrow_mut().ended += 1;
         }
 
-        fn reset(&mut self, ctx: &mut Context) {
+        fn reset(&mut self, ctx: &mut Context<Self::Ctx>) {
         }
     }
 
@@ -449,7 +465,7 @@ mod test {
         let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
         let ctx = &mut Context::default();
         let header = NalHeader::new(6).unwrap();
-        r.start(ctx, &header);
+        r.start(ctx, header);
         r.push(ctx, &data[..]);
         r.end(ctx);
         let st = state.borrow();
@@ -470,7 +486,7 @@ mod test {
         let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
         let ctx = &mut Context::default();
         let header = NalHeader::new(6).unwrap();
-        r.start(ctx, &header);
+        r.start(ctx, header);
         let (head, tail) = data.split_at(data.len()-4);  // just before end of payload
         r.push(ctx, head);
         r.push(ctx, tail);

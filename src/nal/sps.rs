@@ -5,6 +5,7 @@ use super::NalHeader;
 use bitreader;
 use Context;
 use rbsp::RbspBitReaderError;
+use std::marker;
 use nal::pps::ParamSetId;
 use nal::pps::ParamSetIdError;
 
@@ -32,27 +33,31 @@ impl From<RbspBitReaderError> for SpsError {
     }
 }
 
-pub struct SeqParameterSetNalHandler {
+pub struct SeqParameterSetNalHandler<Ctx> {
     buf: Vec<u8>,
+    phantom: marker::PhantomData<Ctx>
 }
 
-impl SeqParameterSetNalHandler {
-    pub fn new() -> SeqParameterSetNalHandler {
+impl<Ctx> SeqParameterSetNalHandler<Ctx> {
+    pub fn new() -> Self {
         SeqParameterSetNalHandler {
             buf: Vec::new(),
+            phantom: marker::PhantomData,
         }
     }
 }
-impl NalHandler for SeqParameterSetNalHandler {
-    fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
+impl<Ctx> NalHandler for SeqParameterSetNalHandler<Ctx> {
+    type Ctx = Ctx;
+
+    fn start(&mut self, ctx: &mut Context<Ctx>, header: NalHeader) {
         assert_eq!(header.nal_unit_type(), super::UnitType::SeqParameterSet);
     }
 
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
         self.buf.extend_from_slice(buf);
     }
 
-    fn end(&mut self, ctx: &mut Context) {
+    fn end(&mut self, ctx: &mut Context<Ctx>) {
         let sps = SeqParameterSet::from_bytes(&self.buf[..]);
         self.buf.clear();
         if let Ok(sps) = sps {

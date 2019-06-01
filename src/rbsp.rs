@@ -61,7 +61,7 @@ impl<R> RbspDecoder<R>
     where
         R: NalHandler
 {
-    pub fn new(nal_reader: R) -> RbspDecoder<R> {
+    pub fn new(nal_reader: R) -> Self {
         RbspDecoder {
             state: ParseState::Start,
             nal_reader,
@@ -72,7 +72,7 @@ impl<R> RbspDecoder<R>
         self.state = new_state;
     }
 
-    fn emit(&mut self, ctx: &mut Context, buf:&[u8], start_index: Option<usize>, end_index: usize) {
+    fn emit(&mut self, ctx: &mut Context<R::Ctx>, buf:&[u8], start_index: Option<usize>, end_index: usize) {
         if let Some(start) = start_index {
             self.nal_reader.push(ctx, &buf[start..end_index])
         } else {
@@ -93,12 +93,14 @@ impl<R> NalHandler for RbspDecoder<R>
     where
         R: NalHandler
 {
-    fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
+    type Ctx = R::Ctx;
+
+    fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader) {
         self.state = ParseState::Start;
         self.nal_reader.start(ctx, header);
     }
 
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
         let mut rbsp_start: Option<usize> = if self.state.in_rbsp() {
             Some(0)
         } else {
@@ -173,7 +175,7 @@ impl<R> NalHandler for RbspDecoder<R>
     /// For example, if the containing data structure demarcates the end of a sequence of NAL
     /// Units explicitly, the parser for that structure should call `end_units()` once all data
     /// has been passed to the `push()` function.
-    fn end(&mut self, ctx: &mut Context) {
+    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
         let backtrack = self.state.end_backtrack_bytes();
         if backtrack > 0 {
             // if we were in the middle of parsing a sequence of 0x00 bytes that might have become
@@ -295,15 +297,17 @@ mod tests {
         }
     }
     impl NalHandler for MockReader {
-        fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
+        type Ctx = ();
+
+        fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader) {
             self.state.borrow_mut().started = true;
         }
 
-        fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+        fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
             self.state.borrow_mut().data.extend_from_slice(buf);
         }
 
-        fn end(&mut self, ctx: &mut Context) {
+        fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
             self.state.borrow_mut().ended = true;
         }
     }

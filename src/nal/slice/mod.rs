@@ -2,10 +2,12 @@
 use super::{Context, NalHeader};
 use rbsp::RbspBitReader;
 use rbsp::RbspBitReaderError;
-use nal::pps::ParamSetId;
+use nal::pps::{ParamSetId, PicParameterSet};
 use nal::pps;
 use bitreader::BitReaderError;
 use nal::sps;
+use std::marker;
+use nal::sps::SeqParameterSet;
 
 enum ParseState {
     Unstarted,
@@ -52,7 +54,7 @@ impl SliceType {
 }
 
 #[derive(Debug)]
-enum SliceHeaderError {
+pub enum SliceHeaderError {
     ReaderError(BitReaderError),
     RbspError(RbspBitReaderError),
     InvalidSliceType(u32),
@@ -101,7 +103,7 @@ enum ColourPlane {
     Cr,
 }
 #[derive(Debug)]
-enum ColourPlaneError {
+pub enum ColourPlaneError {
     InvalidId(u8),
 }
 impl ColourPlane {
@@ -347,7 +349,7 @@ impl DecRefPicMarking {
 }
 
 #[derive(Debug)]
-struct SliceHeader {
+pub struct SliceHeader {
     first_mb_in_slice: u32,
     slice_type: SliceType,
     colour_plane: Option<ColourPlane>,
@@ -368,7 +370,7 @@ struct SliceHeader {
     disable_deblocking_filter_idc: u8,
 }
 impl SliceHeader {
-    fn read(ctx: &mut Context, r: &mut RbspBitReader, header: NalHeader) -> Result<SliceHeader, SliceHeaderError> {
+    pub fn read<'a, Ctx>(ctx: &'a mut Context<Ctx>, r: &mut RbspBitReader, header: NalHeader) -> Result<(SliceHeader, &'a SeqParameterSet, &'a PicParameterSet), SliceHeaderError> {
         let first_mb_in_slice = r.read_ue_named("first_mb_in_slice")?;
         let slice_type = SliceType::from_id(r.read_ue_named("slice_type")?)?;
         let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue_named("pic_parameter_set_id")?)?;
@@ -508,7 +510,7 @@ impl SliceHeader {
                 let slice_beta_offset_div2 = r.read_se_named("slice_beta_offset_div2")?;
             }
         }
-        Ok(SliceHeader {
+        let header = SliceHeader {
             first_mb_in_slice,
             slice_type,
             colour_plane,
@@ -527,20 +529,24 @@ impl SliceHeader {
             sp_for_switch_flag,
             slice_qs,
             disable_deblocking_filter_idc,
-        })
+        };
+        Ok((header, sps, pps))
     }
 }
 
-pub struct SliceLayerWithoutPartitioningRbsp {
+pub struct SliceLayerWithoutPartitioningRbsp<Ctx> {
     state: ParseState,
+    phantom: marker::PhantomData<Ctx>
 }
-impl super::NalHandler for SliceLayerWithoutPartitioningRbsp {
-    fn start(&mut self, _ctx: &mut Context, header: &NalHeader) {
+impl<Ctx> super::NalHandler for SliceLayerWithoutPartitioningRbsp<Ctx> {
+    type Ctx = Ctx;
+
+    fn start(&mut self, _ctx: &mut Context<Ctx>, header: NalHeader) {
         println!("SliceLayerWithoutPartitioningRbsp: start()");
-        self.state = ParseState::Start(*header);
+        self.state = ParseState::Start(header);
     }
 
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
         match self.state {
             ParseState::Unstarted => panic!("start() not yet called"),
             ParseState::Start(header) => {
@@ -557,14 +563,15 @@ impl super::NalHandler for SliceLayerWithoutPartitioningRbsp {
         }
     }
 
-    fn end(&mut self, _ctx: &mut Context) {
+    fn end(&mut self, _ctx: &mut Context<Ctx>) {
         println!("SliceLayerWithoutPartitioningRbsp: end()");
     }
 }
-impl Default for SliceLayerWithoutPartitioningRbsp {
+impl<Ctx> Default for SliceLayerWithoutPartitioningRbsp<Ctx> {
     fn default() -> Self {
         SliceLayerWithoutPartitioningRbsp {
-            state: ParseState::Unstarted
+            state: ParseState::Unstarted,
+            phantom: marker::PhantomData,
         }
     }
 }

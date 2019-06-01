@@ -57,30 +57,32 @@ impl ParseState {
 
 
 pub trait NalReader {
-    fn start(&mut self, ctx: &mut Context);
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]);
-    fn end(&mut self, ctx: &mut Context);
+    type Ctx;
+
+    fn start(&mut self, ctx: &mut Context<Self::Ctx>);
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]);
+    fn end(&mut self, ctx: &mut Context<Self::Ctx>);
 }
 
-pub struct AnnexBReader<R>
+pub struct AnnexBReader<R, Ctx>
     where
-        R: NalReader
+        R: NalReader<Ctx=Ctx>
 {
     state: ParseState,
     nal_reader: R,
 }
-impl<R> AnnexBReader<R>
+impl<R, Ctx> AnnexBReader<R, Ctx>
     where
-        R: NalReader
+        R: NalReader<Ctx=Ctx>
 {
-    pub fn new(nal_reader: R) -> AnnexBReader<R> {
+    pub fn new(nal_reader: R) -> Self {
         AnnexBReader {
             state: ParseState::End,
             nal_reader,
         }
     }
 
-    pub fn start(&mut self, ctx: &mut Context) {
+    pub fn start(&mut self, ctx: &mut Context<Ctx>) {
         if self.state.in_unit() {
             // TODO: or reset()?
             self.nal_reader.end(ctx);
@@ -88,7 +90,7 @@ impl<R> AnnexBReader<R>
         self.to(ParseState::Start);
     }
 
-    pub fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+    pub fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
         let mut unit_start: Option<isize> = self.state.end_backtrack_bytes().map(|v| -(v as isize));
 
         let mut i = 0;
@@ -249,7 +251,7 @@ impl<R> AnnexBReader<R>
     /// For example, if the containing data structure demarcates the end of a sequence of NAL
     /// Units explicitly, the parser for that structure should call `end_units()` once all data
     /// has been passed to the `push()` function.
-    pub fn end_units(&mut self, ctx: &mut Context) {
+    pub fn end_units(&mut self, ctx: &mut Context<Ctx>) {
         if let Some(backtrack) = self.state.end_backtrack_bytes() {
             // if we were in the middle of parsing a sequence of 0x00 bytes that might have become
             // a start-code, but actually reached the end of input, then we will now need to emit
@@ -268,12 +270,12 @@ impl<R> AnnexBReader<R>
     }
 
     /// count must be 4 or less
-    fn emit_fake(&mut self, ctx: &mut Context, count: usize) {
+    fn emit_fake(&mut self, ctx: &mut Context<Ctx>, count: usize) {
         let fake = [0u8; 4];
         self.nal_reader.push(ctx, &fake[..count]);
     }
 
-    fn emit(&mut self, ctx: &mut Context, buf:&[u8], start_index: Option<isize>, end_index: usize) {
+    fn emit(&mut self, ctx: &mut Context<Ctx>, buf:&[u8], start_index: Option<isize>, end_index: usize) {
         if let Some(start) = start_index {
             let start = if start < 0 {
                 0usize
@@ -314,15 +316,17 @@ mod tests {
         }
     }
     impl NalReader for MockReader {
-        fn start(&mut self, ctx: &mut Context) {
+        type Ctx = ();
+
+        fn start(&mut self, ctx: &mut Context<Self::Ctx>) {
             self.state.borrow_mut().started += 1;
         }
 
-        fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+        fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
             self.state.borrow_mut().data.extend_from_slice(buf);
         }
 
-        fn end(&mut self, ctx: &mut Context) {
+        fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
             self.state.borrow_mut().ended += 1;
         }
     }

@@ -161,19 +161,19 @@ enum NalSwitchState {
     Ignoring,
 }
 // TODO: generate enum at compile time rather than Vec<Box<>>
-pub struct NalSwitch {
-    readers_by_id: Vec<Option<Box<RefCell<NalHandler>>>>,
+pub struct NalSwitch<Ctx> {
+    readers_by_id: Vec<Option<Box<RefCell<NalHandler<Ctx=Ctx>>>>>,
     state: NalSwitchState,
 }
-impl NalSwitch {
-    pub fn new() -> NalSwitch {
+impl<Ctx> NalSwitch<Ctx> {
+    pub fn new() -> Self {
         NalSwitch {
             readers_by_id: Vec::new(),
             state: NalSwitchState::Start,
         }
     }
 
-    pub fn put_handler(&mut self, unit_type: UnitType, handler: Box<RefCell<NalHandler>>) {
+    pub fn put_handler(&mut self, unit_type: UnitType, handler: Box<RefCell<NalHandler<Ctx=Ctx>>>) {
         let i = unit_type.id() as usize;
         while i >= self.readers_by_id.len() {
             self.readers_by_id.push(None);
@@ -181,7 +181,7 @@ impl NalSwitch {
         self.readers_by_id[i] = Some(handler);
     }
 
-    fn get_handler(&self, unit_type: UnitType) -> &Option<Box<RefCell<NalHandler>>> {
+    fn get_handler(&self, unit_type: UnitType) -> &Option<Box<RefCell<NalHandler<Ctx=Ctx>>>> {
         let i = unit_type.id() as usize;
         if i < self.readers_by_id.len() {
             &self.readers_by_id[i]
@@ -190,12 +190,14 @@ impl NalSwitch {
         }
     }
 }
-impl NalReader for NalSwitch {
-    fn start(&mut self, ctx: &mut Context) {
+impl<Ctx> NalReader for NalSwitch<Ctx> {
+    type Ctx = Ctx;
+
+    fn start(&mut self, _ctx: &mut Context<Ctx>) {
         self.state = NalSwitchState::Start;
     }
 
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
         if buf.len() == 0 {
             return;
         }
@@ -203,7 +205,7 @@ impl NalReader for NalSwitch {
             NalSwitchState::Start => {
                 let header = NalHeader::new(buf[0]).unwrap();
                 self.state = if let &Some(ref handler) = self.get_handler(header.nal_unit_type()) {
-                    handler.borrow_mut().start(ctx, &header);
+                    handler.borrow_mut().start(ctx, header);
                     handler.borrow_mut().push(ctx, &buf[1..]);
                     NalSwitchState::Handling(header.nal_unit_type())
                 } else {
@@ -219,7 +221,7 @@ impl NalReader for NalSwitch {
         }
     }
 
-    fn end(&mut self, ctx: &mut Context) {
+    fn end(&mut self, ctx: &mut Context<Ctx>) {
         if let NalSwitchState::Handling(unit_type) = self.state {
             if let &Some(ref handler) = self.get_handler(unit_type) {
                 handler.borrow_mut().end(ctx);
@@ -231,9 +233,11 @@ impl NalReader for NalSwitch {
 
 // TODO: rename to 'RbspHandler' or something, to indicate it's only for post-emulation-prevention-bytes data
 pub trait NalHandler {
-    fn start(&mut self, ctx: &mut Context, header: &NalHeader);
-    fn push(&mut self, ctx: &mut Context, buf: &[u8]);
-    fn end(&mut self, ctx: &mut Context);
+    type Ctx;
+
+    fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader);
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]);
+    fn end(&mut self, ctx: &mut Context<Self::Ctx>);
 }
 
 #[cfg(test)]
@@ -249,18 +253,20 @@ mod test {
 
     struct MockHandler;
     impl NalHandler for MockHandler {
-        fn start(&mut self, ctx: &mut Context, header: &NalHeader) {
+        type Ctx = ();
+
+        fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader) {
             assert_eq!(header.nal_unit_type(), UnitType::SeqParameterSet);
         }
 
-        fn push(&mut self, ctx: &mut Context, buf: &[u8]) {
+        fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
             let expected = hex!(
                "64 00 0A AC 72 84 44 26 84 00 00
                 00 04 00 00 00 CA 3C 48 96 11 80");
             assert_eq!(buf, &expected[..])
         }
 
-        fn end(&mut self, ctx: &mut Context) {
+        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
         }
     }
 
