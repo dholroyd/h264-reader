@@ -27,7 +27,7 @@ impl From<rbsp::RbspBitReaderError> for PpsError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SliceGroupChangeType {
     BoxOut,
     RasterScan,
@@ -44,7 +44,7 @@ impl SliceGroupChangeType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SliceRect {
     top_left: u32,
     bottom_right: u32,
@@ -58,7 +58,7 @@ impl SliceRect {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SliceGroup {
     Interleaved {
         run_length_minus1: Vec<u32>,
@@ -135,9 +135,9 @@ impl SliceGroup {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PicScalingMatrix {
-
+    // TODO
 }
 impl PicScalingMatrix {
     fn read(r: &mut RbspBitReader, sps: &sps::SeqParameterSet, transform_8x8_mode_flag: bool) -> Result<Option<PicScalingMatrix>,PpsError> {
@@ -168,7 +168,7 @@ impl PicScalingMatrix {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PicParameterSetExtra {
     transform_8x8_mode_flag: bool,
     pic_scaling_matrix: Option<PicScalingMatrix>,
@@ -190,7 +190,7 @@ impl PicParameterSetExtra {
 }
 
 #[derive(Debug)]
-pub  enum ParamSetIdError {
+pub enum ParamSetIdError {
     IdTooLarge(u32)
 }
 
@@ -209,7 +209,7 @@ impl ParamSetId {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PicParameterSet {
     pub pic_parameter_set_id: ParamSetId,
     pub seq_parameter_set_id: ParamSetId,
