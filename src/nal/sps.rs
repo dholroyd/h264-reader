@@ -425,10 +425,10 @@ impl FrameMbsFlags {
 
 #[derive(Debug, Clone)]
 pub struct FrameCropping {
-    left_offset: u32,
-    right_offset: u32,
-    top_offset: u32,
-    bottom_offset: u32,
+    pub left_offset: u32,
+    pub right_offset: u32,
+    pub top_offset: u32,
+    pub bottom_offset: u32,
 }
 impl FrameCropping {
     fn read(r: &mut RbspBitReader) -> Result<Option<FrameCropping>,bitreader::BitReaderError> {
