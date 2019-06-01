@@ -123,6 +123,7 @@ impl Profile {
 }
 
 #[derive(Debug)]
+#[allow(non_camel_case_types)]
 pub enum Level {
     Unknown(u8),
     L1,
