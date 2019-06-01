@@ -3,6 +3,9 @@ h264-reader
 
 Incomplete reader for H264 bitstream syntax, written in Rust.
 
+[![crates.io version](https://img.shields.io/crates/v/h264-reader.svg)](https://crates.io/crates/h264-reader)
+[![Documentation](https://docs.rs/h264-reader/badge.svg)](https://docs.rs/h264-reader)
+
 Aims to provide access to stream metadata; does not actually decode the video.
 
 
