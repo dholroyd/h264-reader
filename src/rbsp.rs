@@ -84,6 +84,10 @@ impl<R> RbspDecoder<R>
         eprintln!("RbspDecoder: state={:?}, invalid byte {:#x}", self.state, b);
         self.state = ParseState::Start;
     }
+
+    pub fn into_handler(self) -> R {
+        self.nal_reader
+    }
 }
 impl<R> NalHandler for RbspDecoder<R>
     where
