@@ -5,6 +5,8 @@ use super::NalHeader;
 use bitreader;
 use Context;
 use rbsp::RbspBitReaderError;
+use nal::pps::ParamSetId;
+use nal::pps::ParamSetIdError;
 
 #[derive(Debug)]
 pub enum SpsError {
@@ -15,6 +17,7 @@ pub enum SpsError {
     PicOrderCnt(PicOrderCntError),
     /// log2_max_frame_num_minus4 must be between 0 and 12
     Log2MaxFrameNumMinus4OutOfRange(u32),
+    BadSeqParamSetId(ParamSetIdError),
 }
 
 impl From<bitreader::BitReaderError> for SpsError {
@@ -757,7 +760,7 @@ pub struct SeqParameterSet {
     pub constraint_flags: [bool; 6],
     pub reserved_zero_two_bits: u8,
     pub level_idc: u8,
-    pub seq_parameter_set_id: u32,
+    pub seq_parameter_set_id: ParamSetId,
     pub chroma_info: ChromaInfo,
     pub log2_max_frame_num_minus4: u8,
     pub pic_order_cnt: PicOrderCntType,
@@ -787,7 +790,7 @@ impl SeqParameterSet {
             constraint_flags,
             reserved_zero_two_bits: r.read_u8(2)?,
             level_idc: r.read_u8(8)?,
-            seq_parameter_set_id: r.read_ue()?,
+            seq_parameter_set_id: ParamSetId::from_u32(r.read_ue_named("seq_parameter_set_id")?).map_err(|e| SpsError::BadSeqParamSetId(e))?,
             chroma_info: ChromaInfo::read(&mut r, profile_idc)?,
             log2_max_frame_num_minus4: Self::read_log2_max_frame_num_minus4(&mut r)?,
             pic_order_cnt: PicOrderCntType::read(&mut r).map_err(|e| SpsError::PicOrderCnt(e))?,

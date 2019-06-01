@@ -40,7 +40,7 @@ impl Context {
         }
     }
     fn put_seq_param_set(&mut self, sps: nal::sps::SeqParameterSet) {
-        let i = sps.seq_parameter_set_id as usize;
+        let i = sps.seq_parameter_set_id.id() as usize;
         self.seq_param_sets[i] = Some(sps);
     }
     fn pps_by_id(&self, id: nal::pps::ParamSetId) -> Option<&nal::pps::PicParameterSet> {
