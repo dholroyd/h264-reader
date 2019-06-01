@@ -2,6 +2,7 @@
 name = "h264-reader"
 version = "0.1.0"
 authors = ["David Holroyd <dave@badgers-in-foil.co.uk>"]
+license = "MIT/Apache-2.0"
 description = "Reader for H264 bitsream syntax"
 categories = [ "multimedia::video" ]
 keywords = [ "H-264" ]
