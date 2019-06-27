@@ -142,17 +142,43 @@ pub enum SecMinHour {
     SM(u8, u8),
     SMH(u8, u8, u8)
 }
+impl SecMinHour {
+    pub fn seconds(&self) -> u8 {
+        match self {
+            SecMinHour::None => 0,
+            SecMinHour::S(s) => *s,
+            SecMinHour::SM(s, _) => *s,
+            SecMinHour::SMH(s, _, _) => *s,
+        }
+    }
+    pub fn minutes(&self) -> u8 {
+        match self {
+            SecMinHour::None => 0,
+            SecMinHour::S(_) => 0,
+            SecMinHour::SM(_, m) => *m,
+            SecMinHour::SMH(_, m, _) => *m,
+        }
+    }
+    pub fn hours(&self) -> u8 {
+        match self {
+            SecMinHour::None => 0,
+            SecMinHour::S(_) => 0,
+            SecMinHour::SM(_, _) => 0,
+            SecMinHour::SMH(_, _, h) => *h,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct ClockTimestamp {
-    ct_type: CtType,
-    nuit_field_based_flag: bool,
-    counting_type: CountingType,
-    discontinuity_flag: bool,
-    cnt_dropped_flag: bool,
-    n_frames: u8,
-    smh: SecMinHour,
-    time_offset: Option<i32>,
+    pub ct_type: CtType,
+    pub nuit_field_based_flag: bool,
+    pub counting_type: CountingType,
+    pub discontinuity_flag: bool,
+    pub cnt_dropped_flag: bool,
+    pub n_frames: u8,
+    pub smh: SecMinHour,
+    pub time_offset: Option<i32>,
 }
 impl ClockTimestamp {
     fn read(r: &mut RbspBitReader, sps: &sps::SeqParameterSet) -> Result<ClockTimestamp, PicTimingError> {
@@ -217,15 +243,15 @@ impl ClockTimestamp {
 }
 
 #[derive(Debug)]
-struct PicStruct {
-    pic_struct: PicStructType,
-    clock_timestamps: Vec<Option<ClockTimestamp>>,
+pub struct PicStruct {
+    pub pic_struct: PicStructType,
+    pub clock_timestamps: Vec<Option<ClockTimestamp>>,
 }
 
 #[derive(Debug)]
 pub struct PicTiming {
-    delays: Option<Delays>,
-    pic_struct: Option<PicStruct>,
+    pub delays: Option<Delays>,
+    pub pic_struct: Option<PicStruct>,
 }
 impl PicTiming {
     pub fn read<Ctx>(ctx: &mut Context<Ctx>, buf: &[u8]) -> Result<PicTiming, PicTimingError> {
