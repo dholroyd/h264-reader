@@ -152,7 +152,7 @@ pub struct ClockTimestamp {
     cnt_dropped_flag: bool,
     n_frames: u8,
     smh: SecMinHour,
-    time_offset: i32,
+    time_offset: Option<i32>,
 }
 impl ClockTimestamp {
     fn read(r: &mut RbspBitReader, sps: &sps::SeqParameterSet) -> Result<ClockTimestamp, PicTimingError> {
@@ -198,6 +198,11 @@ impl ClockTimestamp {
         } else {
             24
         };
+        let time_offset = if time_offset_length == 0 {
+            None
+        } else {
+            Some(r.read_i32(time_offset_length)?)
+        };
         Ok(ClockTimestamp {
             ct_type,
             nuit_field_based_flag,
@@ -206,7 +211,7 @@ impl ClockTimestamp {
             cnt_dropped_flag,
             n_frames,
             smh,
-            time_offset: r.read_i32(time_offset_length)?,
+            time_offset,
         })
     }
 }
