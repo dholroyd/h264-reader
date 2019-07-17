@@ -7,7 +7,7 @@ pub enum ItuTT35Error {
     NotEnoughData { expected: usize, actual: usize }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ItuTT35 {
     Japan,
     Albania,
@@ -422,7 +422,7 @@ impl ItuTT35 {
     }
 }
 
-pub trait Register {
+pub trait Register: Default {
     type Ctx;
     fn handle(&mut self, ctx: &mut Context<Self::Ctx>, country_code: ItuTT35, payload: &[u8]);
 }
@@ -455,20 +455,20 @@ impl<R: Register> SeiCompletePayloadReader for UserDataRegisteredItuTT35Reader<R
 
 #[macro_export]
 macro_rules! tt_35_switch {
-    ( $( $name:ident => $v:ty ),*, ) => {
+    (
+        $struct_name:ident<$ctx:ty> {
+            $( $name:ident => $v:ty ),*,
+        }
+    ) => {
         #[allow(non_snake_case)]
-        struct TT35Switch {
+        #[derive(Default)]
+        struct $struct_name {
             $( $name: $v, )*
         }
-        impl Default for TT35Switch {
-            fn default() -> TT35Switch {
-                TT35Switch {
-                    $( $name: <$v>::new(), )*
-                }
-            }
-        }
-        impl $crate::nal::sei::user_data_registered_itu_t_t35::Register for TT35Switch {
-            fn handle(&mut self, ctx: &mut $crate::Context, country_code: $crate::nal::sei::user_data_registered_itu_t_t35::ItuTT35, payload: &[u8]) {
+        impl $crate::nal::sei::user_data_registered_itu_t_t35::Register for $struct_name {
+            type Ctx = $ctx;
+
+            fn handle(&mut self, ctx: &mut $crate::Context<Self::Ctx>, country_code: $crate::nal::sei::user_data_registered_itu_t_t35::ItuTT35, payload: &[u8]) {
                 match country_code {
                     $(
                     $crate::nal::sei::user_data_registered_itu_t_t35::ItuTT35::$name => self.$name.handle(ctx, country_code, payload),
@@ -477,5 +477,37 @@ macro_rules! tt_35_switch {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[derive(Default)]
+    struct NullRegister {
+        handled: bool,
+    }
+    impl crate::nal::sei::user_data_registered_itu_t_t35::Register for NullRegister {
+        type Ctx = ();
+
+        fn handle(&mut self, ctx: &mut crate::Context<Self::Ctx>, country_code: crate::nal::sei::user_data_registered_itu_t_t35::ItuTT35, payload: &[u8]) {
+            assert_eq!(country_code, ItuTT35::UnitedKingdom);
+            self.handled = true;
+        }
+    }
+    #[test]
+    fn macro_usage() {
+        tt_35_switch!{
+            TestTT35Switch<()> {
+                UnitedKingdom => NullRegister,
+            }
+        }
+
+        let mut sw = TestTT35Switch::default();
+        let mut ctx = crate::Context::new(());
+        let data = [ 0x00u8 ];
+        sw.handle(&mut ctx, ItuTT35::UnitedKingdom, &data[..]);
+        assert!(sw.UnitedKingdom.handled);
     }
 }
