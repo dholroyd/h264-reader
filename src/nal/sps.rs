@@ -5,9 +5,10 @@ use super::NalHeader;
 use bitreader;
 use Context;
 use rbsp::RbspBitReaderError;
-use std::marker;
+use std::{marker, fmt};
 use nal::pps::ParamSetId;
 use nal::pps::ParamSetIdError;
+use std::fmt::Debug;
 
 #[derive(Debug)]
 pub enum SpsError {
@@ -127,7 +128,37 @@ impl Profile {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone)]
+pub struct ConstraintFlags(u8);
+impl From<u8> for ConstraintFlags {
+    fn from(v: u8) -> Self {
+        ConstraintFlags(v)
+    }
+}
+impl ConstraintFlags {
+    pub fn flag0(&self) -> bool { self.0 & 0b1000_0000 != 0 }
+    pub fn flag1(&self) -> bool { self.0 & 0b0100_0000 != 0 }
+    pub fn flag2(&self) -> bool { self.0 & 0b0010_0000 != 0 }
+    pub fn flag3(&self) -> bool { self.0 & 0b0001_0000 != 0 }
+    pub fn flag4(&self) -> bool { self.0 & 0b0000_1000 != 0 }
+    pub fn flag5(&self) -> bool { self.0 & 0b0000_0100 != 0 }
+    pub fn reserved_zero_two_bits(&self) -> u8 { self.0 & 0b0000_0011 }
+}
+impl Debug for ConstraintFlags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.debug_struct("ConstraintFlags")
+            .field("flag0", &self.flag0())
+            .field("flag1", &self.flag1())
+            .field("flag2", &self.flag2())
+            .field("flag3", &self.flag3())
+            .field("flag4", &self.flag4())
+            .field("flag5", &self.flag5())
+            .field("reserved_zero_two_bits", &self.reserved_zero_two_bits())
+            .finish()
+    }
+}
+
+#[derive(Debug, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum Level {
     Unknown(u8),
@@ -150,11 +181,11 @@ pub enum Level {
     L5_2,
 }
 impl Level {
-    fn from_constraint_flags_and_level_idc(constraint_flags: &[bool; 6], level_idc: u8) -> Level {
+    pub fn from_constraint_flags_and_level_idc(constraint_flags: ConstraintFlags, level_idc: u8) -> Level {
         match level_idc {
             10 => Level::L1,
             11 => {
-                if constraint_flags[3] {
+                if constraint_flags.flag3() {
                     Level::L1_b
                 } else {
                     Level::L1_1
@@ -220,7 +251,8 @@ impl ChromaFormat {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+// _Profile Indication_ value
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ProfileIdc(u8);
 impl ProfileIdc {
     pub fn has_chroma_info(&self) -> bool {
@@ -797,8 +829,7 @@ impl VuiParameters {
 #[derive(Debug, Clone)]
 pub struct SeqParameterSet {
     pub profile_idc: ProfileIdc,
-    pub constraint_flags: [bool; 6],
-    pub reserved_zero_two_bits: u8,
+    pub constraint_flags: ConstraintFlags,
     pub level_idc: u8,
     pub seq_parameter_set_id: ParamSetId,
     pub chroma_info: ChromaInfo,
@@ -817,18 +848,9 @@ impl SeqParameterSet {
     pub fn from_bytes(buf: &[u8]) -> Result<SeqParameterSet, SpsError> {
         let mut r = RbspBitReader::new(buf);
         let profile_idc = r.read_u8(8)?.into();
-        let constraint_flags = [
-                r.read_bool()?,
-                r.read_bool()?,
-                r.read_bool()?,
-                r.read_bool()?,
-                r.read_bool()?,
-                r.read_bool()?,
-            ];
         let sps = SeqParameterSet {
             profile_idc,
-            constraint_flags,
-            reserved_zero_two_bits: r.read_u8(2)?,
+            constraint_flags: r.read_u8(8)?.into(),
             level_idc: r.read_u8(8)?,
             seq_parameter_set_id: ParamSetId::from_u32(r.read_ue_named("seq_parameter_set_id")?).map_err(|e| SpsError::BadSeqParamSetId(e))?,
             chroma_info: ChromaInfo::read(&mut r, profile_idc)?,
@@ -860,7 +882,7 @@ impl SeqParameterSet {
     }
 
     pub fn level(&self) -> Level {
-        Level::from_constraint_flags_and_level_idc(&self.constraint_flags, self.level_idc)
+        Level::from_constraint_flags_and_level_idc(self.constraint_flags, self.level_idc)
     }
     /// returned value will be in the range 4 to 16 inclusive
     pub fn log2_max_frame_num(&self) -> u8 {
@@ -880,7 +902,7 @@ mod test {
         let sps = SeqParameterSet::from_bytes(&data[..]).unwrap();
         println!("sps: {:#?}", sps);
         assert_eq!(100, sps.profile_idc.0);
-        assert_eq!(0, sps.reserved_zero_two_bits);
+        assert_eq!(0, sps.constraint_flags.reserved_zero_two_bits());
     }
 
     #[test]
