@@ -12,6 +12,7 @@ extern crate memchr;
 pub mod rbsp;
 pub mod annexb;
 pub mod nal;
+pub mod avcc;
 
 /// Contextual data that needs to be tracked between evaluations of different portions of H264
 /// syntax.

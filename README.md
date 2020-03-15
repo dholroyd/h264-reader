@@ -15,7 +15,7 @@ The following list shows the current state of support per H264 syntax element:
 
  * Bytestream formats
    * [x] _Annex B_ format (e.g. in MPEG-TS)
-   * [ ] _AVCC_ format (e.g. in MP4)
+   * [x] _AVCC_ format (e.g. in MP4)
  * Network Abstraction Layer Units (NAL Units)
    * [ ] `slice_layer_without_partitioning_rbsp()`
    * [ ] `slice_data_partition_a_layer_rbsp()`
