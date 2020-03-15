@@ -508,6 +508,40 @@ impl AspectRatioInfo {
             None
         })
     }
+
+    /// Returns the aspect ratio as `(width, height)`, if specified.
+    pub fn get(self) -> Option<(u16, u16)> {
+        match self {
+            AspectRatioInfo::Unspecified => None,
+            AspectRatioInfo::Ratio1_1 => Some((1, 1)),
+            AspectRatioInfo::Ratio12_11 => Some((12, 11)),
+            AspectRatioInfo::Ratio10_11 => Some((10, 11)),
+            AspectRatioInfo::Ratio16_11 => Some((16, 11)),
+            AspectRatioInfo::Ratio40_33 => Some((40, 33)),
+            AspectRatioInfo::Ratio24_11 => Some((24, 11)),
+            AspectRatioInfo::Ratio20_11 => Some((20, 11)),
+            AspectRatioInfo::Ratio32_11 => Some((32, 11)),
+            AspectRatioInfo::Ratio80_33 => Some((80, 33)),
+            AspectRatioInfo::Ratio18_11 => Some((18, 11)),
+            AspectRatioInfo::Ratio15_11 => Some((15, 11)),
+            AspectRatioInfo::Ratio64_33 => Some((64, 33)),
+            AspectRatioInfo::Ratio160_99 => Some((160, 99)),
+            AspectRatioInfo::Ratio4_3 => Some((4, 3)),
+            AspectRatioInfo::Ratio3_2 => Some((3, 2)),
+            AspectRatioInfo::Ratio2_1 => Some((2, 1)),
+            AspectRatioInfo::Reserved(_) => None,
+            AspectRatioInfo::Extended(width, height) => {
+                // ISO/IEC 14496-10 section E.2.1: "When ... sar_width is equal to 0 or sar_height
+                // is equal to 0, the sample aspect ratio shall be considered unspecified by this
+                // Recommendation | International Standard."
+                if width == 0 || height == 0 {
+                    None
+                } else {
+                    Some((width, height))
+                }
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -843,13 +877,23 @@ mod test {
         let data = hex!(
            "64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");
-        match SeqParameterSet::from_bytes(&data[..]) {
-            Err(e) => panic!("failed: {:?}", e),
-            Ok(sps) => {
-                println!("sps: {:#?}", sps);
-                assert_eq!(100, sps.profile_idc.0);
-                assert_eq!(0, sps.reserved_zero_two_bits);
-            }
-        }
+        let sps = SeqParameterSet::from_bytes(&data[..]).unwrap();
+        println!("sps: {:#?}", sps);
+        assert_eq!(100, sps.profile_idc.0);
+        assert_eq!(0, sps.reserved_zero_two_bits);
+    }
+
+    #[test]
+    fn test_dahua() {
+        // From a Dahua IPC-HDW5231R-Z's sub stream, which is anamorphic.
+        let data = hex!(
+          "64 00 16 AC 1B 1A 80 B0 3D FF FF
+           00 28 00 21 6E 0C 0C 0C 80 00 01
+           F4 00 00 27 10 74 30 07 D0 00 07
+           A1 25 DE 5C 68 60 0F A0 00 0F 42
+           4B BC B8 50");
+        let sps = SeqParameterSet::from_bytes(&data[..]).unwrap();
+        println!("sps: {:#?}", sps);
+        assert_eq!(sps.vui_parameters.unwrap().aspect_ratio_info.unwrap().get(), Some((40, 33)));
     }
 }
