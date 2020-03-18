@@ -2,11 +2,12 @@
 //! File Format_ (AKA MP4), as the specified in _ISO/IEC 14496-15_.
 //!
 
-use nal::{sps, UnitType, NalHeader, NalHeaderError, pps};
+use nal::{sps, UnitType, NalHeader, NalHeaderError, pps, NalHandler};
 use std::convert::TryFrom;
 use nal::sps::{ProfileIdc, Level, ConstraintFlags, SeqParameterSet};
 use Context;
 use nal::pps::PicParameterSet;
+use rbsp;
 
 #[derive(Debug)]
 pub enum AvccError {
@@ -16,6 +17,31 @@ pub enum AvccError {
     ParamSet(ParamSetError),
     Sps(sps::SpsError),
     Pps(pps::PpsError),
+}
+
+// TODO: this hack is here because RbspDecoder is all geared-up for to handle complex cases where
+//       complete source data is not available, but it is therefore hard to use in the simple case
+//       where we've got a full buffer ready to decode.  We also fail to optimise the case where
+//       no decode is required (we could return Cow<[u8]> rather than Vec<u8> and just hand-back
+//       the input buffer when no emulation bytes are present; however I didn't spot an easy way
+//       to make that work yet).
+fn decode(encoded: &[u8]) -> Vec<u8> {
+    struct NalRead(Vec<u8>);
+    impl NalHandler for NalRead {
+        type Ctx = ();
+        fn start(&mut self, _ctx: &mut Context<Self::Ctx>, _header: NalHeader) { }
+
+        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
+            self.0.extend_from_slice(buf)
+        }
+
+        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) { }
+    }
+    let mut decode = rbsp::RbspDecoder::new(NalRead(vec![]));
+    let mut ctx = Context::new(());
+    decode.push(&mut ctx, encoded);
+    let read = decode.into_handler();
+    read.0
 }
 
 pub struct AvcDecoderConfigurationRecord<'buf> {
@@ -121,12 +147,14 @@ impl<'buf> AvcDecoderConfigurationRecord<'buf> {
     pub fn create_context<C>(&self, ctx: C) -> Result<Context<C>, AvccError> {
         let mut ctx = Context::new(ctx);
         for sps in self.sequence_parameter_sets() {
-            let sps = SeqParameterSet::from_bytes(sps.map_err(AvccError::ParamSet)?)
+            let buffer = decode(sps.map_err(AvccError::ParamSet)?);
+            let sps = SeqParameterSet::from_bytes(&buffer)
                 .map_err(AvccError::Sps)?;
             ctx.put_seq_param_set(sps);
         }
         for pps in self.picture_parameter_sets() {
-            let pps = PicParameterSet::from_bytes(&ctx, pps.map_err(AvccError::ParamSet)?)
+            let buffer = decode(pps.map_err(AvccError::ParamSet)?);
+            let pps = PicParameterSet::from_bytes(&ctx, &buffer)
                 .map_err(AvccError::Pps)?;
             ctx.put_pic_param_set(pps);
         }
@@ -204,5 +232,18 @@ mod test {
         assert_eq!(ParamSetId::from_u32(0).unwrap(), sps.seq_parameter_set_id);
         let pps = ctx.pps_by_id(ParamSetId::from_u32(0).unwrap())
             .expect("missing pps");
+    }
+    #[test]
+    fn sps_with_emulation_protection() {
+        // From a Hikvision 2CD2032-I.
+        let avcc_data = hex!("014d401e ffe10017 674d401e 9a660a0f
+                              ff350101 01400000 fa000003 01f40101
+                              000468ee 3c80");
+        let avcc = AvcDecoderConfigurationRecord::try_from(&avcc_data[..]).unwrap();
+        let sps_data = avcc.sequence_parameter_sets().next().unwrap().unwrap();
+        dbg!(sps_data);
+        let ctx = avcc.create_context(()).unwrap();
+        let sps = ctx.sps_by_id(ParamSetId::from_u32(0).unwrap())
+            .expect("missing sps");
     }
 }
