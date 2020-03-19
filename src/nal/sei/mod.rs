@@ -2,10 +2,10 @@ pub mod buffering_period;
 pub mod user_data_registered_itu_t_t35;
 pub mod pic_timing;
 
-use Context;
-use nal::NalHandler;
-use nal::NalHeader;
-use rbsp::RbspDecoder;
+use crate::Context;
+use crate::nal::NalHandler;
+use crate::nal::NalHeader;
+use crate::rbsp::RbspDecoder;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum HeaderType {
@@ -281,7 +281,7 @@ impl<R: SeiIncrementalPayloadReader> NalHandler for SeiHeaderReader<R> {
     type Ctx = R::Ctx;
 
     fn start(&mut self, _ctx: &mut Context<Self::Ctx>, header: NalHeader) {
-        assert_eq!(header.nal_unit_type(), ::nal::UnitType::SEI);
+        assert_eq!(header.nal_unit_type(), crate::nal::UnitType::SEI);
         self.state = SeiHeaderState::Begin;
     }
 

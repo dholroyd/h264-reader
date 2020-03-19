@@ -1,6 +1,6 @@
-use nal::sei::HeaderType;
-use Context;
-use nal::sei::SeiCompletePayloadReader;
+use crate::nal::sei::HeaderType;
+use crate::Context;
+use crate::nal::sei::SeiCompletePayloadReader;
 
 #[derive(Debug)]
 pub enum ItuTT35Error {

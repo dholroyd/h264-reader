@@ -1,13 +1,14 @@
 
-use super::{Context, NalHeader};
-use rbsp::RbspBitReader;
-use rbsp::RbspBitReaderError;
-use nal::pps::{ParamSetId, PicParameterSet};
-use nal::pps;
+use crate::Context;
+use crate::rbsp::RbspBitReader;
+use crate::rbsp::RbspBitReaderError;
+use crate::nal::pps::{ParamSetId, PicParameterSet};
+use crate::nal::pps;
 use bitreader::BitReaderError;
-use nal::sps;
+use crate::nal::sps;
 use std::marker;
-use nal::sps::SeqParameterSet;
+use crate::nal::sps::SeqParameterSet;
+use crate::nal::NalHeader;
 
 enum ParseState {
     Unstarted,
@@ -168,7 +169,7 @@ enum RefPicListModifications {
     },
 }
 impl RefPicListModifications {
-    fn read(slice_family: &SliceFamily, r: &mut RbspBitReader) -> Result<RefPicListModifications, SliceHeaderError> {
+    fn read(slice_family: &SliceFamily, r: &mut RbspBitReader<'_>) -> Result<RefPicListModifications, SliceHeaderError> {
         Ok(match slice_family {
             SliceFamily::I | SliceFamily::SI => RefPicListModifications::I,
             SliceFamily::B => RefPicListModifications::B {
@@ -181,7 +182,7 @@ impl RefPicListModifications {
         })
     }
 
-    fn read_list(r: &mut RbspBitReader) -> Result<Vec<ModificationOfPicNums>, SliceHeaderError> {
+    fn read_list(r: &mut RbspBitReader<'_>) -> Result<Vec<ModificationOfPicNums>, SliceHeaderError> {
         let mut result = vec![];
         // either ref_pic_list_modification_flag_l0 or ref_pic_list_modification_flag_l1 depending
         // on call-site,
@@ -214,7 +215,7 @@ struct PredWeightTable {
     chroma_weights: Vec<Vec<PredWeight>>,
 }
 impl PredWeightTable {
-    fn read(r: &mut RbspBitReader, slice_type: &SliceType, pps: &pps::PicParameterSet, sps: &sps::SeqParameterSet, num_ref_active: &Option<NumRefIdxActive>) -> Result<PredWeightTable, SliceHeaderError> {
+    fn read(r: &mut RbspBitReader<'_>, slice_type: &SliceType, pps: &pps::PicParameterSet, sps: &sps::SeqParameterSet, num_ref_active: &Option<NumRefIdxActive>) -> Result<PredWeightTable, SliceHeaderError> {
         let chroma_array_type = if sps.chroma_info.separate_colour_plane_flag {
             // TODO: "Otherwise (separate_colour_plane_flag is equal to 1), ChromaArrayType is
             //       set equal to 0."  ...does this mean ChromaFormat::Monochrome then?
@@ -300,8 +301,8 @@ enum DecRefPicMarking {
     Adaptive(Vec<MemoryManagementControlOperation>),
 }
 impl DecRefPicMarking {
-    fn read(r: &mut RbspBitReader, header: NalHeader) -> Result<DecRefPicMarking, SliceHeaderError> {
-        Ok(if header.nal_unit_type() == ::nal::UnitType::SliceLayerWithoutPartitioningIdr {
+    fn read(r: &mut RbspBitReader<'_>, header: NalHeader) -> Result<DecRefPicMarking, SliceHeaderError> {
+        Ok(if header.nal_unit_type() == crate::nal::UnitType::SliceLayerWithoutPartitioningIdr {
             DecRefPicMarking::Idr {
                 no_output_of_prior_pics_flag: r.read_bool_named("no_output_of_prior_pics_flag")?,
                 long_term_reference_flag: r.read_bool_named("long_term_reference_flag")?,
@@ -370,7 +371,7 @@ pub struct SliceHeader {
     disable_deblocking_filter_idc: u8,
 }
 impl SliceHeader {
-    pub fn read<'a, Ctx>(ctx: &'a mut Context<Ctx>, r: &mut RbspBitReader, header: NalHeader) -> Result<(SliceHeader, &'a SeqParameterSet, &'a PicParameterSet), SliceHeaderError> {
+    pub fn read<'a, Ctx>(ctx: &'a mut Context<Ctx>, r: &mut RbspBitReader<'_>, header: NalHeader) -> Result<(SliceHeader, &'a SeqParameterSet, &'a PicParameterSet), SliceHeaderError> {
         let first_mb_in_slice = r.read_ue_named("first_mb_in_slice")?;
         let slice_type = SliceType::from_id(r.read_ue_named("slice_type")?)?;
         let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue_named("pic_parameter_set_id")?)?;
@@ -397,7 +398,7 @@ impl SliceHeader {
         } else {
             FieldPic::Frame
         };
-        let idr_pic_id = if header.nal_unit_type() == ::nal::UnitType::SliceLayerWithoutPartitioningIdr {
+        let idr_pic_id = if header.nal_unit_type() == crate::nal::UnitType::SliceLayerWithoutPartitioningIdr {
             Some(r.read_ue_named("idr_pic_id")?)
         } else {
             None
@@ -455,7 +456,7 @@ impl SliceHeader {
         } else {
             None
         };
-        let ref_pic_list_modification = if header.nal_unit_type() == ::nal::UnitType::SliceExtension || header.nal_unit_type() == ::nal::UnitType::SliceExtensionViewComponent {
+        let ref_pic_list_modification = if header.nal_unit_type() == crate::nal::UnitType::SliceExtension || header.nal_unit_type() == crate::nal::UnitType::SliceExtensionViewComponent {
             return Err(SliceHeaderError::UnsupportedSyntax("NALU types 20 and 21 not yet supported"));
         } else {
             RefPicListModifications::read(&slice_type.family, r)?

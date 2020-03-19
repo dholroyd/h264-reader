@@ -1,7 +1,7 @@
 //! A reader for the NAL Unit framing format defined in _ITU-T Recommendation H.264 - Annex B_,
 //! as used when H264 data is embedded in an MPEG2 Transport Stream
 
-use Context;
+use crate::Context;
 use memchr;
 
 #[derive(Debug)]
@@ -298,6 +298,7 @@ mod tests {
     use super::*;
     use std::rc::Rc;
     use std::cell::RefCell;
+    use hex_literal::*;
 
     struct State {
         started: u32,

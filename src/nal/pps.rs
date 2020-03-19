@@ -1,10 +1,10 @@
-use ::{bitreader, rbsp};
-use ::Context;
-use ::rbsp::RbspBitReader;
+use bitreader;
 use super::NalHandler;
 use super::NalHeader;
 use super::sps;
 use std::marker;
+use crate::{rbsp, Context};
+use crate::rbsp::RbspBitReader;
 
 #[derive(Debug)]
 pub enum PpsError {
@@ -51,7 +51,7 @@ pub struct SliceRect {
     bottom_right: u32,
 }
 impl SliceRect {
-    fn read(r: &mut RbspBitReader) -> Result<SliceRect,PpsError> {
+    fn read(r: &mut RbspBitReader<'_>) -> Result<SliceRect,PpsError> {
         Ok(SliceRect {
             top_left: r.read_ue()?,
             bottom_right: r.read_ue()?,
@@ -82,7 +82,7 @@ pub enum SliceGroup {
     },
 }
 impl SliceGroup {
-    fn read(r: &mut RbspBitReader, num_slice_groups_minus1: u32) -> Result<SliceGroup,PpsError> {
+    fn read(r: &mut RbspBitReader<'_>, num_slice_groups_minus1: u32) -> Result<SliceGroup,PpsError> {
         let slice_group_map_type = r.read_ue()?;
         match slice_group_map_type {
             0 => Ok(SliceGroup::Interleaved {
@@ -108,7 +108,7 @@ impl SliceGroup {
         }
     }
 
-    fn read_run_lengths(r: &mut RbspBitReader, num_slice_groups_minus1: u32) -> Result<Vec<u32>,PpsError> {
+    fn read_run_lengths(r: &mut RbspBitReader<'_>, num_slice_groups_minus1: u32) -> Result<Vec<u32>,PpsError> {
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
         for _ in 0..num_slice_groups_minus1+1 {
             run_length_minus1.push(r.read_ue()?);
@@ -116,7 +116,7 @@ impl SliceGroup {
         Ok(run_length_minus1)
     }
 
-    fn read_rectangles(r: &mut RbspBitReader, num_slice_groups_minus1: u32) -> Result<Vec<SliceRect>,PpsError> {
+    fn read_rectangles(r: &mut RbspBitReader<'_>, num_slice_groups_minus1: u32) -> Result<Vec<SliceRect>,PpsError> {
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
         for _ in 0..num_slice_groups_minus1+1 {
             run_length_minus1.push(SliceRect::read(r)?);
@@ -124,7 +124,7 @@ impl SliceGroup {
         Ok(run_length_minus1)
     }
 
-    fn read_group_ids(r: &mut RbspBitReader, num_slice_groups_minus1: u32) -> Result<Vec<u32>,PpsError> {
+    fn read_group_ids(r: &mut RbspBitReader<'_>, num_slice_groups_minus1: u32) -> Result<Vec<u32>,PpsError> {
         let pic_size_in_map_units_minus1 = r.read_ue()?;
         // TODO: avoid any panics due to failed conversions
         let size = ((1f64+f64::from(pic_size_in_map_units_minus1)).log2()) as u8;
@@ -141,7 +141,7 @@ struct PicScalingMatrix {
     // TODO
 }
 impl PicScalingMatrix {
-    fn read(r: &mut RbspBitReader, sps: &sps::SeqParameterSet, transform_8x8_mode_flag: bool) -> Result<Option<PicScalingMatrix>,PpsError> {
+    fn read(r: &mut RbspBitReader<'_>, sps: &sps::SeqParameterSet, transform_8x8_mode_flag: bool) -> Result<Option<PicScalingMatrix>,PpsError> {
         let pic_scaling_matrix_present_flag = r.read_bool()?;
         Ok(if pic_scaling_matrix_present_flag {
             let mut scaling_list4x4 = vec!();
@@ -176,7 +176,7 @@ pub struct PicParameterSetExtra {
     second_chroma_qp_index_offset: i32,
 }
 impl PicParameterSetExtra {
-    fn read(r: &mut RbspBitReader, sps: &sps::SeqParameterSet) -> Result<Option<PicParameterSetExtra>,PpsError> {
+    fn read(r: &mut RbspBitReader<'_>, sps: &sps::SeqParameterSet) -> Result<Option<PicParameterSetExtra>,PpsError> {
         Ok(if r.has_more_rbsp_data() {
             let transform_8x8_mode_flag = r.read_bool()?;
             Some(PicParameterSetExtra {
@@ -258,7 +258,7 @@ impl PicParameterSet {
         })
     }
 
-    fn read_slice_groups(r: &mut RbspBitReader) -> Result<Option<SliceGroup>,PpsError> {
+    fn read_slice_groups(r: &mut RbspBitReader<'_>) -> Result<Option<SliceGroup>,PpsError> {
         let num_slice_groups_minus1 = r.read_ue()?;
         Ok(if num_slice_groups_minus1 > 0 {
             Some(SliceGroup::read(r, num_slice_groups_minus1)?)
@@ -309,6 +309,7 @@ impl<Ctx> NalHandler for PicParameterSetNalHandler<Ctx> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use hex_literal::*;
 
     #[test]
     fn test_it() {

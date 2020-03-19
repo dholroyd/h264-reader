@@ -2,12 +2,12 @@
 //! File Format_ (AKA MP4), as the specified in _ISO/IEC 14496-15_.
 //!
 
-use nal::{sps, UnitType, NalHeader, NalHeaderError, pps, NalHandler};
+use crate::nal::{sps, UnitType, NalHeader, NalHeaderError, pps, NalHandler};
 use std::convert::TryFrom;
-use nal::sps::{ProfileIdc, Level, ConstraintFlags, SeqParameterSet};
-use Context;
-use nal::pps::PicParameterSet;
-use rbsp;
+use crate::nal::sps::{ProfileIdc, Level, ConstraintFlags, SeqParameterSet};
+use crate::Context;
+use crate::nal::pps::PicParameterSet;
+use crate::rbsp;
 
 #[derive(Debug)]
 pub enum AvccError {
@@ -206,7 +206,8 @@ impl<'buf> Iterator for ParamSetIter<'buf>
 #[cfg(test)]
 mod test {
     use super::*;
-    use nal::pps::ParamSetId;
+    use crate::nal::pps::ParamSetId;
+    use hex_literal::*;
 
     #[test]
     fn it_works() {

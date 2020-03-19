@@ -1,13 +1,5 @@
-#[cfg(test)]
-#[macro_use]
-extern crate hex_literal;
-extern crate bitreader;
-#[cfg(test)]
-#[macro_use]
-extern crate pretty_assertions;
-#[cfg(test)]
-extern crate hex_slice;
-extern crate memchr;
+#![forbid(unsafe_code)]
+#![deny(rust_2018_idioms)]
 
 pub mod rbsp;
 pub mod annexb;

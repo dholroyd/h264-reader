@@ -23,9 +23,8 @@
 
 use std::ops::{Deref, DerefMut};
 use bitreader;
-use ::nal::NalHandler;
-use ::nal::NalHeader;
-use Context;
+use crate::nal::{NalHandler, NalHeader};
+use crate::Context;
 
 #[derive(Debug)]
 enum ParseState {
@@ -243,7 +242,7 @@ impl<'a> RbspBitReader<'a> {
         ((val >> 1) as i32 + (val & 0x1) as i32) * sign
     }
 }
-fn count_zero_bits(r: &mut bitreader::BitReader) -> Result<u8,bitreader::BitReaderError> {
+fn count_zero_bits(r: &mut bitreader::BitReader<'_>) -> Result<u8,bitreader::BitReaderError> {
     let mut count = 0;
     while !r.read_bool()? {
         count += 1;
@@ -275,6 +274,7 @@ mod tests {
     use super::*;
     use std::rc::Rc;
     use std::cell::RefCell;
+    use hex_literal::*;
 
     struct State {
         started: bool,

@@ -9,7 +9,7 @@ use criterion::Throughput;
 use std::io::Read;
 use h264_reader::annexb::AnnexBReader;
 use h264_reader::annexb::NalReader;
-use h264_reader::{Context, nal};
+use h264_reader::Context;
 use h264_reader::rbsp::RbspDecoder;
 use h264_reader::nal::NalHandler;
 use h264_reader::nal::NalHeader;

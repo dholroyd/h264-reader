@@ -1,10 +1,10 @@
 use super::SeiCompletePayloadReader;
-use Context;
-use nal::sei::HeaderType;
-use nal::pps;
-use rbsp::RbspBitReader;
 use bitreader;
 use std::marker;
+use crate::nal::pps;
+use crate::rbsp::RbspBitReader;
+use crate::Context;
+use crate::nal::sei::HeaderType;
 
 #[derive(Debug)]
 enum BufferingPeriodError {
@@ -29,7 +29,7 @@ struct InitialCpbRemoval {
     initial_cpb_removal_delay_offset: u32,
 }
 
-fn read_cpb_removal_delay_list(r: &mut RbspBitReader, count: usize, length: u8) -> Result<Vec<InitialCpbRemoval>,bitreader::BitReaderError> {
+fn read_cpb_removal_delay_list(r: &mut RbspBitReader<'_>, count: usize, length: u8) -> Result<Vec<InitialCpbRemoval>,bitreader::BitReaderError> {
     let mut res = vec!();
     for _ in 0..count {
         res.push(InitialCpbRemoval {
