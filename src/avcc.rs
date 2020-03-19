@@ -190,7 +190,7 @@ impl<'buf> Iterator for ParamSetIter<'buf>
             let data = &self.0[2..];
             let res = match NalHeader::new(data[0]) {
                 Ok(nal_header) => {
-                    if dbg!(nal_header).nal_unit_type() == self.1 {
+                    if nal_header.nal_unit_type() == self.1 {
                         let (data, remainder) = data.split_at(len as usize);
                         self.0 = remainder;
                         Ok(&data[1..])  // trim off the nal_header byte
@@ -241,7 +241,6 @@ mod test {
                               000468ee 3c80");
         let avcc = AvcDecoderConfigurationRecord::try_from(&avcc_data[..]).unwrap();
         let sps_data = avcc.sequence_parameter_sets().next().unwrap().unwrap();
-        dbg!(sps_data);
         let ctx = avcc.create_context(()).unwrap();
         let sps = ctx.sps_by_id(ParamSetId::from_u32(0).unwrap())
             .expect("missing sps");
