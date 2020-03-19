@@ -125,9 +125,7 @@ impl<'buf> AvcDecoderConfigurationRecord<'buf> {
     }
     pub fn sequence_parameter_sets(&self) -> impl Iterator<Item = Result<&'buf[u8], ParamSetError>> {
         let num = self.num_of_sequence_parameter_sets();
-        let mut data = &self.data[Self::MIN_CONF_SIZE..];
-        let profile = self.avc_profile_indication();
-        let level = self.avc_level_indication();
+        let data = &self.data[Self::MIN_CONF_SIZE..];
         ParamSetIter::new(data, UnitType::SeqParameterSet)
             .take(num)
     }
@@ -230,7 +228,7 @@ mod test {
         assert_eq!(avcc.avc_level_indication(), sps.level());
         assert_eq!(avcc.avc_profile_indication(), sps.profile_idc);
         assert_eq!(ParamSetId::from_u32(0).unwrap(), sps.seq_parameter_set_id);
-        let pps = ctx.pps_by_id(ParamSetId::from_u32(0).unwrap())
+        let _pps = ctx.pps_by_id(ParamSetId::from_u32(0).unwrap())
             .expect("missing pps");
     }
     #[test]
@@ -240,9 +238,9 @@ mod test {
                               ff350101 01400000 fa000003 01f40101
                               000468ee 3c80");
         let avcc = AvcDecoderConfigurationRecord::try_from(&avcc_data[..]).unwrap();
-        let sps_data = avcc.sequence_parameter_sets().next().unwrap().unwrap();
+        let _sps_data = avcc.sequence_parameter_sets().next().unwrap().unwrap();
         let ctx = avcc.create_context(()).unwrap();
-        let sps = ctx.sps_by_id(ParamSetId::from_u32(0).unwrap())
+        let _sps = ctx.sps_by_id(ParamSetId::from_u32(0).unwrap())
             .expect("missing sps");
     }
 }

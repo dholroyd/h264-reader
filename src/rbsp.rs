@@ -80,11 +80,6 @@ impl<R> RbspDecoder<R>
         }
     }
 
-    fn err(&mut self, b: u8) {
-        eprintln!("RbspDecoder: state={:?}, invalid byte {:#x}", self.state, b);
-        self.state = ParseState::Start;
-    }
-
     pub fn into_handler(self) -> R {
         self.nal_reader
     }
@@ -299,15 +294,15 @@ mod tests {
     impl NalHandler for MockReader {
         type Ctx = ();
 
-        fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader) {
+        fn start(&mut self, _ctx: &mut Context<Self::Ctx>, _header: NalHeader) {
             self.state.borrow_mut().started = true;
         }
 
-        fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
+        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
             self.state.borrow_mut().data.extend_from_slice(buf);
         }
 
-        fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
+        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
             self.state.borrow_mut().ended = true;
         }
     }

@@ -246,11 +246,11 @@ impl<R: SeiCompletePayloadReader> SeiBuffer<R> {
 impl<R: SeiCompletePayloadReader> SeiIncrementalPayloadReader for SeiBuffer<R> {
     type Ctx = R::Ctx;
 
-    fn start(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, payload_size: u32) {
+    fn start(&mut self, _ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, _payload_size: u32) {
         self.payload_type = Some(payload_type);
     }
 
-    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
+    fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
         self.buf.extend_from_slice(buf);
     }
 
@@ -260,7 +260,7 @@ impl<R: SeiCompletePayloadReader> SeiIncrementalPayloadReader for SeiBuffer<R> {
         self.payload_type = None;
     }
 
-    fn reset(&mut self, ctx: &mut Context<Self::Ctx>) {
+    fn reset(&mut self, _ctx: &mut Context<Self::Ctx>) {
         self.buf.clear();
     }
 }
@@ -280,7 +280,7 @@ impl<R: SeiIncrementalPayloadReader> SeiHeaderReader<R> {
 impl<R: SeiIncrementalPayloadReader> NalHandler for SeiHeaderReader<R> {
     type Ctx = R::Ctx;
 
-    fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader) {
+    fn start(&mut self, _ctx: &mut Context<Self::Ctx>, header: NalHeader) {
         assert_eq!(header.nal_unit_type(), ::nal::UnitType::SEI);
         self.state = SeiHeaderState::Begin;
     }
@@ -432,19 +432,19 @@ mod test {
     impl SeiIncrementalPayloadReader for MockReader {
         type Ctx = ();
 
-        fn start(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, payload_size: u32) {
+        fn start(&mut self, _ctx: &mut Context<Self::Ctx>, _payload_type: HeaderType, _payload_size: u32) {
             self.state.borrow_mut().started += 1;
         }
 
-        fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
+        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
             self.state.borrow_mut().data.extend_from_slice(buf);
         }
 
-        fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
+        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
             self.state.borrow_mut().ended += 1;
         }
 
-        fn reset(&mut self, ctx: &mut Context<Self::Ctx>) {
+        fn reset(&mut self, _ctx: &mut Context<Self::Ctx>) {
         }
     }
 

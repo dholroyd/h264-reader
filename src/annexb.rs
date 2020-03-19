@@ -233,7 +233,6 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
             i += 1;
         }
         if let (Some(start), Some(backtrack)) = (unit_start, self.state.end_backtrack_bytes()) {
-            let end = (buf.len() as isize) - backtrack as isize;
             let adjusted_start = if start < 0 {
                 0usize
             } else {
@@ -318,15 +317,15 @@ mod tests {
     impl NalReader for MockReader {
         type Ctx = ();
 
-        fn start(&mut self, ctx: &mut Context<Self::Ctx>) {
+        fn start(&mut self, _ctx: &mut Context<Self::Ctx>) {
             self.state.borrow_mut().started += 1;
         }
 
-        fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
+        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
             self.state.borrow_mut().data.extend_from_slice(buf);
         }
 
-        fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
+        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
             self.state.borrow_mut().ended += 1;
         }
     }

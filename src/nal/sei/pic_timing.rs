@@ -61,7 +61,7 @@ impl PicStructType {
             6 => Ok(PicStructType::BottomFieldTopFieldBottomFieldRepeated),
             7 => Ok(PicStructType::FrameDoubling),
             8 => Ok(PicStructType::FrameTripling),
-            9...15 => Ok(PicStructType::Reserved(id)),
+            9..=15 => Ok(PicStructType::Reserved(id)),
             _ => Err(PicTimingError::InvalidPicStructId(id)),
         }
     }
@@ -77,7 +77,7 @@ impl PicStructType {
             PicStructType::BottomFieldTopFieldBottomFieldRepeated => 3,
             PicStructType::FrameDoubling => 2,
             PicStructType::FrameTripling => 3,
-            PicStructType::Reserved(id) => 0,
+            PicStructType::Reserved(_) => 0,
         }
     }
 }
@@ -129,7 +129,7 @@ impl CountingType {
             4 => CountingType::DroppingTwoLowest,
             5 => CountingType::DroppingIndividual,
             6 => CountingType::Dropping,
-            7...31 => CountingType::Reserved(id),
+            7..=31 => CountingType::Reserved(id),
             _ => panic!("unexpected counting_type {}", id),
         }
     }
@@ -303,7 +303,7 @@ impl PicTiming {
 
     fn read_clock_timestamps(r: &mut RbspBitReader, pic_struct: &PicStructType, sps: &sps::SeqParameterSet) -> Result<Vec<Option<ClockTimestamp>>,PicTimingError> {
         let mut res = Vec::new();
-        for i in 0..pic_struct.num_clock_timestamps() {
+        for _ in 0..pic_struct.num_clock_timestamps() {
             res.push(if r.read_bool_named("clock_timestamp_flag")? {
                 Some(ClockTimestamp::read(r, sps)?)
             } else {

@@ -233,10 +233,10 @@ impl PicParameterSet {
     pub fn from_bytes<Ctx>(ctx: &Context<Ctx>, buf: &[u8]) -> Result<PicParameterSet, PpsError> {
         let mut r = RbspBitReader::new(buf);
         let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue_named("pic_parameter_set_id")?)
-            .map_err(|e| PpsError::BadPicParamSetId(e) )?;
+            .map_err(|e| PpsError::BadPicParamSetId(e))?;
         let seq_parameter_set_id = ParamSetId::from_u32(r.read_ue_named("seq_parameter_set_id")?)
             .map_err(|e| PpsError::BadSeqParamSetId(e))?;
-        let seq_parameter_set = ctx.sps_by_id(seq_parameter_set_id)
+        let _seq_parameter_set = ctx.sps_by_id(seq_parameter_set_id)
             .ok_or_else(|| PpsError::UnknownSeqParamSetId(seq_parameter_set_id))?;
         Ok(PicParameterSet {
             pic_parameter_set_id,
@@ -284,11 +284,11 @@ impl<Ctx> PicParameterSetNalHandler<Ctx> {
 impl<Ctx> NalHandler for PicParameterSetNalHandler<Ctx> {
     type Ctx = Ctx;
 
-    fn start(&mut self, ctx: &mut Context<Ctx>, header: NalHeader) {
+    fn start(&mut self, _ctx: &mut Context<Ctx>, header: NalHeader) {
         assert_eq!(header.nal_unit_type(), super::UnitType::PicParameterSet);
     }
 
-    fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
+    fn push(&mut self, _ctx: &mut Context<Ctx>, buf: &[u8]) {
         self.buf.extend_from_slice(buf);
     }
 

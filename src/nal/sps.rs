@@ -50,11 +50,11 @@ impl<Ctx> SeqParameterSetNalHandler<Ctx> {
 impl<Ctx> NalHandler for SeqParameterSetNalHandler<Ctx> {
     type Ctx = Ctx;
 
-    fn start(&mut self, ctx: &mut Context<Ctx>, header: NalHeader) {
+    fn start(&mut self, _ctx: &mut Context<Ctx>, header: NalHeader) {
         assert_eq!(header.nal_unit_type(), super::UnitType::SeqParameterSet);
     }
 
-    fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
+    fn push(&mut self, _ctx: &mut Context<Ctx>, buf: &[u8]) {
         self.buf.extend_from_slice(buf);
     }
 
@@ -87,7 +87,7 @@ pub enum Profile {
 }
 
 impl Profile {
-    fn from_profile_idc(profile_idc: ProfileIdc) -> Profile {
+    pub fn from_profile_idc(profile_idc: ProfileIdc) -> Profile {
         // TODO: accept constraint_flags too, as Level does?
         match profile_idc.0 {
             66  => Profile::Baseline,
@@ -107,7 +107,7 @@ impl Profile {
             other   => Profile::Unknown(other),
         }
     }
-    fn profile_idc(&self) -> u8 {
+    pub fn profile_idc(&self) -> u8 {
         match *self {
             Profile::Baseline                   => 66,
             Profile::Main                       => 77,
@@ -208,7 +208,7 @@ impl Level {
             _  => Level::Unknown(level_idc)
         }
     }
-    fn level_idc(&self) -> u8{
+    pub fn level_idc(&self) -> u8 {
         match *self {
             Level::L1    => 10,
             Level::L1_1 | Level::L1_b  => 11,
@@ -279,12 +279,12 @@ impl ScalingList {
         let mut scaling_list = vec!();
         let mut last_scale = 8;
         let mut next_scale = 8;
-        let mut use_default_scaling_matrix_flag = false;
+        let mut _use_default_scaling_matrix_flag = false;
         for j in 0..size {
             if next_scale != 0 {
                 let delta_scale = r.read_se()?;
                 next_scale = (last_scale + delta_scale + 256) % 256;
-                use_default_scaling_matrix_flag = j == 0 && next_scale == 0;
+                _use_default_scaling_matrix_flag = j == 0 && next_scale == 0;
             }
             let new_value = if next_scale == 0 { last_scale } else { next_scale };
             scaling_list.push(new_value);

@@ -236,7 +236,7 @@ impl PredWeightTable {
             });
         let mut luma_weights = Vec::with_capacity((num_ref_idx_l0_active_minus1 + 1) as usize);
         let mut chroma_weights = Vec::with_capacity((num_ref_idx_l0_active_minus1 + 1) as usize);
-        for i in 0..=num_ref_idx_l0_active_minus1 {
+        for _ in 0..=num_ref_idx_l0_active_minus1 {
             if r.read_bool_named("luma_weight_l0_flag")? {
                 luma_weights.push(Some(PredWeight {
                     weight: r.read_se_named("luma_weight_l0")?,
@@ -415,7 +415,7 @@ impl SliceHeader {
                     PicOrderCountLsb::Frame(pic_order_cnt_lsb)
                 })
             },
-            sps::PicOrderCntType::TypeOne { delta_pic_order_always_zero_flag, offset_for_non_ref_pic, offset_for_top_to_bottom_field, ref offsets_for_ref_frame } => {
+            sps::PicOrderCntType::TypeOne { delta_pic_order_always_zero_flag, offset_for_non_ref_pic: _, offset_for_top_to_bottom_field: _, offsets_for_ref_frame: _ } => {
                 if delta_pic_order_always_zero_flag {
                     None
                 } else {
@@ -507,7 +507,7 @@ impl SliceHeader {
                 if slice_alpha_c0_offset_div2 < -6 || 6 < slice_alpha_c0_offset_div2 {
                     return Err(SliceHeaderError::InvalidSliceAlphaC0OffsetDiv2(slice_alpha_c0_offset_div2));
                 }
-                let slice_beta_offset_div2 = r.read_se_named("slice_beta_offset_div2")?;
+                let _slice_beta_offset_div2 = r.read_se_named("slice_beta_offset_div2")?;
             }
         }
         let header = SliceHeader {

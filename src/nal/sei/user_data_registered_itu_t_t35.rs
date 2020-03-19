@@ -491,7 +491,7 @@ mod test {
     impl crate::nal::sei::user_data_registered_itu_t_t35::Register for NullRegister {
         type Ctx = ();
 
-        fn handle(&mut self, ctx: &mut crate::Context<Self::Ctx>, country_code: crate::nal::sei::user_data_registered_itu_t_t35::ItuTT35, payload: &[u8]) {
+        fn handle(&mut self, _ctx: &mut crate::Context<Self::Ctx>, country_code: crate::nal::sei::user_data_registered_itu_t_t35::ItuTT35, _payload: &[u8]) {
             assert_eq!(country_code, ItuTT35::UnitedKingdom);
             self.handled = true;
         }
