@@ -1,3 +1,5 @@
+//! Parser for H264 bitstream syntax.  Not a video decoder.
+
 #![forbid(unsafe_code)]
 #![deny(rust_2018_idioms)]
 

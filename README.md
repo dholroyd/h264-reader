@@ -1,13 +1,14 @@
 h264-reader
 ===========
 
-Incomplete reader for H264 bitstream syntax, written in Rust.
+Reader for H264 bitstream syntax, written in Rust.
 
 [![crates.io version](https://img.shields.io/crates/v/h264-reader.svg)](https://crates.io/crates/h264-reader)
 [![Documentation](https://docs.rs/h264-reader/badge.svg)](https://docs.rs/h264-reader)
 
 Aims to provide access to stream metadata; does not actually decode the video.
 
+The implementation attempts to minimise copying of source data, for efficiency, at the cost of a more complicated API
 
 ## Supported syntax
 
@@ -69,3 +70,22 @@ The following list shows the current state of support per H264 syntax element:
    * [ ] `slice_layer_without_partitioning_rbsp()`
    * [ ] `slice_layer_extension_rbsp()`
    * [ ] `slice_layer_extension_rbsp()`
+
+## Design goals
+
+### Avoid copies
+
+Parsing components accept partial data to avoid coping data
+into intermediate buffers.  This is intended to support common cases like,
+
+ - data embedded in MPEG-TS packets, where h264 data is interspersed with MPEG-TS header data
+ - data being read from the network, where the data available at any instant may be incomplete
+
+An alternative to accepting partial data would be to take a number of peices of partial data
+
+### Lazy parsing
+
+The implementation should be written to defer parsing data structures until an accessor method is called.
+This can mean saving parsing costs for callers that don't care about all the data.  It can be difficult to
+apply this principal universally, so in some areas we don't bother and just 'eager parse' (particularly
+structures defined bit-by-bit rather than byte-by-byte).
