@@ -4,9 +4,9 @@
 
 use crate::nal::{sps, UnitType, NalHeader, NalHeaderError, pps, NalHandler};
 use std::convert::TryFrom;
-use crate::nal::sps::{ProfileIdc, Level, ConstraintFlags, SeqParameterSet};
+use crate::nal::sps::{ProfileIdc, Level, ConstraintFlags, SeqParameterSet, SeqParameterSetNalHandler};
 use crate::Context;
-use crate::nal::pps::PicParameterSet;
+use crate::nal::pps::PicParameterSetNalHandler;
 use crate::rbsp;
 
 #[derive(Debug)]
@@ -17,31 +17,6 @@ pub enum AvccError {
     ParamSet(ParamSetError),
     Sps(sps::SpsError),
     Pps(pps::PpsError),
-}
-
-// TODO: this hack is here because RbspDecoder is all geared-up for to handle complex cases where
-//       complete source data is not available, but it is therefore hard to use in the simple case
-//       where we've got a full buffer ready to decode.  We also fail to optimise the case where
-//       no decode is required (we could return Cow<[u8]> rather than Vec<u8> and just hand-back
-//       the input buffer when no emulation bytes are present; however I didn't spot an easy way
-//       to make that work yet).
-fn decode(encoded: &[u8]) -> Vec<u8> {
-    struct NalRead(Vec<u8>);
-    impl NalHandler for NalRead {
-        type Ctx = ();
-        fn start(&mut self, _ctx: &mut Context<Self::Ctx>, _header: NalHeader) { }
-
-        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-            self.0.extend_from_slice(buf)
-        }
-
-        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) { }
-    }
-    let mut decode = rbsp::RbspDecoder::new(NalRead(vec![]));
-    let mut ctx = Context::new(());
-    decode.push(&mut ctx, encoded);
-    let read = decode.into_handler();
-    read.0
 }
 
 pub struct AvcDecoderConfigurationRecord<'buf> {
@@ -144,17 +119,15 @@ impl<'buf> AvcDecoderConfigurationRecord<'buf> {
     /// configuration record will be inserted into the resulting context.
     pub fn create_context<C>(&self, ctx: C) -> Result<Context<C>, AvccError> {
         let mut ctx = Context::new(ctx);
+        let mut sps_decode = rbsp::RbspDecoder::new(SeqParameterSetNalHandler::new());
         for sps in self.sequence_parameter_sets() {
-            let buffer = decode(sps.map_err(AvccError::ParamSet)?);
-            let sps = SeqParameterSet::from_bytes(&buffer)
-                .map_err(AvccError::Sps)?;
-            ctx.put_seq_param_set(sps);
+            sps_decode.push(&mut ctx, sps.map_err(AvccError::ParamSet)?);
+            sps_decode.end(&mut ctx);
         }
+        let mut pps_decode = rbsp::RbspDecoder::new(PicParameterSetNalHandler::new());
         for pps in self.picture_parameter_sets() {
-            let buffer = decode(pps.map_err(AvccError::ParamSet)?);
-            let pps = PicParameterSet::from_bytes(&ctx, &buffer)
-                .map_err(AvccError::Pps)?;
-            ctx.put_pic_param_set(pps);
+            pps_decode.push(&mut ctx, pps.map_err(AvccError::ParamSet)?);
+            pps_decode.end(&mut ctx);
         }
         Ok(ctx)
     }
