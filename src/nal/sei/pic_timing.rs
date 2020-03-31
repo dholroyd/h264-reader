@@ -195,23 +195,21 @@ impl ClockTimestamp {
                 r.read_u8(6)?,
                 r.read_u8(5)?,
             )
-        } else {
-            if r.read_bool_named("seconds_flag")? {
-                let seconds = r.read_u8(6)?;
-                if r.read_bool_named("minutes_flag")? {
-                    let minutes = r.read_u8(6)?;
-                    if r.read_bool_named("hours_flag")? {
-                        let hours = r.read_u8(5)?;
-                        SecMinHour::SMH(seconds, minutes, hours)
-                    } else {
-                        SecMinHour::SM(seconds, minutes)
-                    }
+        } else if r.read_bool_named("seconds_flag")? {
+            let seconds = r.read_u8(6)?;
+            if r.read_bool_named("minutes_flag")? {
+                let minutes = r.read_u8(6)?;
+                if r.read_bool_named("hours_flag")? {
+                    let hours = r.read_u8(5)?;
+                    SecMinHour::SMH(seconds, minutes, hours)
                 } else {
-                    SecMinHour::S(seconds)
+                    SecMinHour::SM(seconds, minutes)
                 }
             } else {
-                SecMinHour::None
+                SecMinHour::S(seconds)
             }
+        } else {
+            SecMinHour::None
         };
         let time_offset_length = if let Some(ref vui) = sps.vui_parameters {
             if let Some(ref hrd) = vui.nal_hrd_parameters {

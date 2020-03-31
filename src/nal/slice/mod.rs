@@ -307,44 +307,42 @@ impl DecRefPicMarking {
                 no_output_of_prior_pics_flag: r.read_bool_named("no_output_of_prior_pics_flag")?,
                 long_term_reference_flag: r.read_bool_named("long_term_reference_flag")?,
             }
-        } else {
-            if r.read_bool_named("adaptive_ref_pic_marking_mode_flag")? {
-                let mut ctl = vec![];
-                loop {
-                    let op = match r.read_ue_named("memory_management_control_operation")? {
-                        0 => break,
-                        1 => {
-                            let difference_of_pic_nums_minus1 = r.read_ue_named("difference_of_pic_nums_minus1")?;
-                            MemoryManagementControlOperation::ShortTermUnusedForRef{difference_of_pic_nums_minus1}
-                        },
-                        2 => {
-                            let long_term_pic_num = r.read_ue_named("long_term_pic_num")?;
-                            MemoryManagementControlOperation::LongTermUnusedForRef{long_term_pic_num}
-                        },
-                        3 => {
-                            let difference_of_pic_nums_minus1 = r.read_ue_named("difference_of_pic_nums_minus1")?;
-                            let long_term_frame_idx = r.read_ue_named("long_term_frame_idx")?;
-                            MemoryManagementControlOperation::ShortTermUsedForLongTerm{difference_of_pic_nums_minus1, long_term_frame_idx}
-                        },
-                        4 => {
-                            let max_long_term_frame_idx_plus1 = r.read_ue_named("max_long_term_frame_idx_plus1")?;
-                            MemoryManagementControlOperation::MaxUsedLongTermFrameRef{max_long_term_frame_idx_plus1}
-                        },
-                        5 => {
-                            MemoryManagementControlOperation::AllRefPicturesUnused
-                        },
-                        6 => {
-                            let long_term_frame_idx = r.read_ue_named("long_term_frame_idx")?;
-                            MemoryManagementControlOperation::CurrentUsedForLongTerm{long_term_frame_idx}
-                        },
-                        other => return Err(SliceHeaderError::InvalidMemoryManagementControlOperation(other))
-                    };
-                    ctl.push(op);
-                }
-                DecRefPicMarking::Adaptive(ctl)
-            } else {
-                DecRefPicMarking::SlidingWindow
+        } else if r.read_bool_named("adaptive_ref_pic_marking_mode_flag")? {
+            let mut ctl = vec![];
+            loop {
+                let op = match r.read_ue_named("memory_management_control_operation")? {
+                    0 => break,
+                    1 => {
+                        let difference_of_pic_nums_minus1 = r.read_ue_named("difference_of_pic_nums_minus1")?;
+                        MemoryManagementControlOperation::ShortTermUnusedForRef{difference_of_pic_nums_minus1}
+                    },
+                    2 => {
+                        let long_term_pic_num = r.read_ue_named("long_term_pic_num")?;
+                        MemoryManagementControlOperation::LongTermUnusedForRef{long_term_pic_num}
+                    },
+                    3 => {
+                        let difference_of_pic_nums_minus1 = r.read_ue_named("difference_of_pic_nums_minus1")?;
+                        let long_term_frame_idx = r.read_ue_named("long_term_frame_idx")?;
+                        MemoryManagementControlOperation::ShortTermUsedForLongTerm{difference_of_pic_nums_minus1, long_term_frame_idx}
+                    },
+                    4 => {
+                        let max_long_term_frame_idx_plus1 = r.read_ue_named("max_long_term_frame_idx_plus1")?;
+                        MemoryManagementControlOperation::MaxUsedLongTermFrameRef{max_long_term_frame_idx_plus1}
+                    },
+                    5 => {
+                        MemoryManagementControlOperation::AllRefPicturesUnused
+                    },
+                    6 => {
+                        let long_term_frame_idx = r.read_ue_named("long_term_frame_idx")?;
+                        MemoryManagementControlOperation::CurrentUsedForLongTerm{long_term_frame_idx}
+                    },
+                    other => return Err(SliceHeaderError::InvalidMemoryManagementControlOperation(other))
+                };
+                ctl.push(op);
             }
+            DecRefPicMarking::Adaptive(ctl)
+        } else {
+            DecRefPicMarking::SlidingWindow
         })
     }
 }
@@ -416,7 +414,7 @@ impl SliceHeader {
                     PicOrderCountLsb::Frame(pic_order_cnt_lsb)
                 })
             },
-            sps::PicOrderCntType::TypeOne { delta_pic_order_always_zero_flag, offset_for_non_ref_pic: _, offset_for_top_to_bottom_field: _, offsets_for_ref_frame: _ } => {
+            sps::PicOrderCntType::TypeOne { delta_pic_order_always_zero_flag, .. } => {
                 if delta_pic_order_always_zero_flag {
                     None
                 } else {
@@ -482,8 +480,7 @@ impl SliceHeader {
             return Err(SliceHeaderError::InvalidSliceQpDelta(slice_qp_delta))
         }
         let mut sp_for_switch_flag = None;
-        let mut slice_qs = None;
-        if slice_type.family == SliceFamily::SP || slice_type.family == SliceFamily::SI {
+        let slice_qs = if slice_type.family == SliceFamily::SP || slice_type.family == SliceFamily::SI {
             if slice_type.family == SliceFamily::SP {
                 sp_for_switch_flag = Some(r.read_bool_named("sp_for_switch_flag")?);
             }
@@ -492,8 +489,10 @@ impl SliceHeader {
             if qs_y < 0 || 51 < qs_y {
                 return Err(SliceHeaderError::InvalidSliceQsDelta(slice_qs_delta))
             }
-            slice_qs = Some(qs_y as u32);
-        }
+            Some(qs_y as u32)
+        } else {
+            None
+        };
         let mut disable_deblocking_filter_idc = 0;
         if pps.deblocking_filter_control_present_flag {
             disable_deblocking_filter_idc = {

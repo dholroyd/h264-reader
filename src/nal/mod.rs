@@ -9,13 +9,12 @@ pub mod pps;
 pub mod sei;
 pub mod slice;
 
-use std::hash::{Hash, Hasher};
 use crate::annexb::NalReader;
 use std::cell::RefCell;
 use crate::Context;
 use std::fmt;
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Hash, Debug, Copy, Clone)]
 pub enum UnitType {
     /// The values `0` and `24`-`31` are unspecified in the H264 spec
     Unspecified(u8),
@@ -77,8 +76,8 @@ impl UnitType {
         }
     }
 
-    pub fn id(&self) -> u8 {
-        match *self {
+    pub fn id(self) -> u8 {
+        match self {
             UnitType::Unspecified(v) => v,
             UnitType::SliceLayerWithoutPartitioningNonIdr => 1,
             UnitType::SliceDataPartitionALayer => 2,
@@ -101,11 +100,6 @@ impl UnitType {
             UnitType::SliceExtensionViewComponent => 21,
             UnitType::Reserved(v) => v,
         }
-    }
-}
-impl Hash for UnitType {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id().hash(state);
     }
 }
 
@@ -131,11 +125,11 @@ impl NalHeader {
         }
     }
 
-    pub fn nal_ref_idc(&self) -> u8 {
-        (self.0 & 0b01100000) >> 5
+    pub fn nal_ref_idc(self) -> u8 {
+        (self.0 & 0b0110_0000) >> 5
     }
 
-    pub fn nal_unit_type(&self) -> UnitType {
+    pub fn nal_unit_type(self) -> UnitType {
         UnitType::for_id(self.0 & 0b0001_1111).unwrap()
     }
 }
@@ -165,14 +159,15 @@ pub struct NalSwitch<Ctx> {
     readers_by_id: Vec<Option<Box<RefCell<dyn NalHandler<Ctx=Ctx>>>>>,
     state: NalSwitchState,
 }
-impl<Ctx> NalSwitch<Ctx> {
-    pub fn new() -> Self {
+impl<Ctx> Default for NalSwitch<Ctx> {
+    fn default() -> Self {
         NalSwitch {
             readers_by_id: Vec::new(),
             state: NalSwitchState::Start,
         }
     }
-
+}
+impl<Ctx> NalSwitch<Ctx> {
     pub fn put_handler(&mut self, unit_type: UnitType, handler: Box<RefCell<dyn NalHandler<Ctx=Ctx>>>) {
         let i = unit_type.id() as usize;
         while i >= self.readers_by_id.len() {
@@ -198,13 +193,13 @@ impl<Ctx> NalReader for NalSwitch<Ctx> {
     }
 
     fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
-        if buf.len() == 0 {
+        if buf.is_empty() {
             return;
         }
         match self.state {
             NalSwitchState::Start => {
                 let header = NalHeader::new(buf[0]).unwrap();
-                self.state = if let &Some(ref handler) = self.get_handler(header.nal_unit_type()) {
+                self.state = if let Some(ref handler) = self.get_handler(header.nal_unit_type()) {
                     handler.borrow_mut().start(ctx, header);
                     handler.borrow_mut().push(ctx, &buf[1..]);
                     NalSwitchState::Handling(header.nal_unit_type())
@@ -214,7 +209,7 @@ impl<Ctx> NalReader for NalSwitch<Ctx> {
             },
             NalSwitchState::Ignoring => (),
             NalSwitchState::Handling(unit_type) => {
-                if let &Some(ref handler) = self.get_handler(unit_type) {
+                if let Some(ref handler) = self.get_handler(unit_type) {
                     handler.borrow_mut().push(ctx, buf);
                 }
             }
@@ -223,7 +218,7 @@ impl<Ctx> NalReader for NalSwitch<Ctx> {
 
     fn end(&mut self, ctx: &mut Context<Ctx>) {
         if let NalSwitchState::Handling(unit_type) = self.state {
-            if let &Some(ref handler) = self.get_handler(unit_type) {
+            if let Some(ref handler) = self.get_handler(unit_type) {
                 handler.borrow_mut().end(ctx);
             }
         }
@@ -274,7 +269,7 @@ mod test {
     #[test]
     fn switch() {
         let handler = MockHandler;
-        let mut s = NalSwitch::new();
+        let mut s = NalSwitch::default();
         s.put_handler(UnitType::SeqParameterSet, Box::new(RefCell::new(handler)));
         let data = hex!(
            "67 64 00 0A AC 72 84 44 26 84 00 00

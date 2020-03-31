@@ -119,12 +119,12 @@ impl<'buf> AvcDecoderConfigurationRecord<'buf> {
     /// configuration record will be inserted into the resulting context.
     pub fn create_context<C>(&self, ctx: C) -> Result<Context<C>, AvccError> {
         let mut ctx = Context::new(ctx);
-        let mut sps_decode = rbsp::RbspDecoder::new(SeqParameterSetNalHandler::new());
+        let mut sps_decode = rbsp::RbspDecoder::new(SeqParameterSetNalHandler::default());
         for sps in self.sequence_parameter_sets() {
             sps_decode.push(&mut ctx, sps.map_err(AvccError::ParamSet)?);
             sps_decode.end(&mut ctx);
         }
-        let mut pps_decode = rbsp::RbspDecoder::new(PicParameterSetNalHandler::new());
+        let mut pps_decode = rbsp::RbspDecoder::new(PicParameterSetNalHandler::default());
         for pps in self.picture_parameter_sets() {
             pps_decode.push(&mut ctx, pps.map_err(AvccError::ParamSet)?);
             pps_decode.end(&mut ctx);

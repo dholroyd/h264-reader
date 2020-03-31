@@ -39,8 +39,8 @@ pub struct SeqParameterSetNalHandler<Ctx> {
     phantom: marker::PhantomData<Ctx>
 }
 
-impl<Ctx> SeqParameterSetNalHandler<Ctx> {
-    pub fn new() -> Self {
+impl<Ctx> Default for SeqParameterSetNalHandler<Ctx> {
+    fn default() -> Self {
         SeqParameterSetNalHandler {
             buf: Vec::new(),
             phantom: marker::PhantomData,
@@ -136,13 +136,13 @@ impl From<u8> for ConstraintFlags {
     }
 }
 impl ConstraintFlags {
-    pub fn flag0(&self) -> bool { self.0 & 0b1000_0000 != 0 }
-    pub fn flag1(&self) -> bool { self.0 & 0b0100_0000 != 0 }
-    pub fn flag2(&self) -> bool { self.0 & 0b0010_0000 != 0 }
-    pub fn flag3(&self) -> bool { self.0 & 0b0001_0000 != 0 }
-    pub fn flag4(&self) -> bool { self.0 & 0b0000_1000 != 0 }
-    pub fn flag5(&self) -> bool { self.0 & 0b0000_0100 != 0 }
-    pub fn reserved_zero_two_bits(&self) -> u8 { self.0 & 0b0000_0011 }
+    pub fn flag0(self) -> bool { self.0 & 0b1000_0000 != 0 }
+    pub fn flag1(self) -> bool { self.0 & 0b0100_0000 != 0 }
+    pub fn flag2(self) -> bool { self.0 & 0b0010_0000 != 0 }
+    pub fn flag3(self) -> bool { self.0 & 0b0001_0000 != 0 }
+    pub fn flag4(self) -> bool { self.0 & 0b0000_1000 != 0 }
+    pub fn flag5(self) -> bool { self.0 & 0b0000_0100 != 0 }
+    pub fn reserved_zero_two_bits(self) -> u8 { self.0 & 0b0000_0011 }
 }
 impl Debug for ConstraintFlags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -255,7 +255,7 @@ impl ChromaFormat {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ProfileIdc(u8);
 impl ProfileIdc {
-    pub fn has_chroma_info(&self) -> bool {
+    pub fn has_chroma_info(self) -> bool {
         match self.0 {
             100 | 110 | 122 | 244 | 44 | 83 | 86 => true,
             _ => false,
@@ -852,10 +852,10 @@ impl SeqParameterSet {
             profile_idc,
             constraint_flags: r.read_u8(8)?.into(),
             level_idc: r.read_u8(8)?,
-            seq_parameter_set_id: ParamSetId::from_u32(r.read_ue_named("seq_parameter_set_id")?).map_err(|e| SpsError::BadSeqParamSetId(e))?,
+            seq_parameter_set_id: ParamSetId::from_u32(r.read_ue_named("seq_parameter_set_id")?).map_err(SpsError::BadSeqParamSetId)?,
             chroma_info: ChromaInfo::read(&mut r, profile_idc)?,
             log2_max_frame_num_minus4: Self::read_log2_max_frame_num_minus4(&mut r)?,
-            pic_order_cnt: PicOrderCntType::read(&mut r).map_err(|e| SpsError::PicOrderCnt(e))?,
+            pic_order_cnt: PicOrderCntType::read(&mut r).map_err(SpsError::PicOrderCnt)?,
             max_num_ref_frames: r.read_ue()?,
             gaps_in_frame_num_value_allowed_flag: r.read_bool()?,
             pic_width_in_mbs_minus1: r.read_ue()?,

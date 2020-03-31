@@ -205,7 +205,7 @@ impl ParamSetId {
             Ok(ParamSetId(id as u8))
         }
     }
-    pub fn id(&self) -> u8 {
+    pub fn id(self) -> u8 {
         self.0
     }
 }
@@ -233,9 +233,9 @@ impl PicParameterSet {
     pub fn from_bytes<Ctx>(ctx: &Context<Ctx>, buf: &[u8]) -> Result<PicParameterSet, PpsError> {
         let mut r = RbspBitReader::new(buf);
         let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue_named("pic_parameter_set_id")?)
-            .map_err(|e| PpsError::BadPicParamSetId(e))?;
+            .map_err(PpsError::BadPicParamSetId)?;
         let seq_parameter_set_id = ParamSetId::from_u32(r.read_ue_named("seq_parameter_set_id")?)
-            .map_err(|e| PpsError::BadSeqParamSetId(e))?;
+            .map_err(PpsError::BadSeqParamSetId)?;
         let _seq_parameter_set = ctx.sps_by_id(seq_parameter_set_id)
             .ok_or_else(|| PpsError::UnknownSeqParamSetId(seq_parameter_set_id))?;
         Ok(PicParameterSet {
@@ -273,8 +273,8 @@ pub struct PicParameterSetNalHandler<Ctx> {
     phantom: marker::PhantomData<Ctx>
 }
 
-impl<Ctx> PicParameterSetNalHandler<Ctx> {
-    pub fn new() -> Self {
+impl<Ctx> Default for PicParameterSetNalHandler<Ctx> {
+    fn default() -> Self {
         PicParameterSetNalHandler {
             buf: Vec::new(),
             phantom: marker::PhantomData,

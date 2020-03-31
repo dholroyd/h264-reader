@@ -213,7 +213,6 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                             //
                             // We're not yet bothering to check that the trailing 0x00 come in
                             // pairs to make 16 bit elements mentioned above,
-                            ()
                         },
                         0x01 => {
                             if unit_start.is_some() && (unit_start.unwrap() > 0 || i > 3) {
