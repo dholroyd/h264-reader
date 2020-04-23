@@ -17,7 +17,7 @@ memchr = "2.1.1"
 [dev-dependencies]
 hex-literal = "0.2.1"
 hex-slice = "0.1.4"
-pretty_assertions = "0.5.1"
+pretty_assertions = "0.6.1"
 criterion = "0.2"
 
 [[bench]]
