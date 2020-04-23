@@ -18,7 +18,7 @@ memchr = "2.1.1"
 hex-literal = "0.2.1"
 hex-slice = "0.1.4"
 pretty_assertions = "0.6.1"
-criterion = "0.2"
+criterion = "0.3"
 
 [[bench]]
 name = "bench"
