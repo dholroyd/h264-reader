@@ -888,6 +888,41 @@ impl SeqParameterSet {
     pub fn log2_max_frame_num(&self) -> u8 {
         self.log2_max_frame_num_minus4 + 4
     }
+
+    /// Helper to calculate the pixel-dimensions of the video image specified by this SPS, taking
+    /// into account sample-format, interlacing and cropping.
+    pub fn pixel_dimensions(&self) -> (u32, u32) {
+        let width = (self.pic_width_in_mbs_minus1 + 1) * 16;
+        let mul = match self.frame_mbs_flags {
+            FrameMbsFlags::Fields { .. } => 2,
+            FrameMbsFlags::Frames => 1,
+        };
+        let vsub = if self.chroma_info.chroma_format == ChromaFormat::YUV420 {
+            1
+        } else {
+            0
+        };
+        let hsub = if self.chroma_info.chroma_format == ChromaFormat::YUV420
+            || self.chroma_info.chroma_format == ChromaFormat::YUV422
+        {
+            1
+        } else {
+            0
+        };
+
+        let step_x = 1 << hsub;
+        let step_y = mul << vsub;
+
+        let height = mul * (self.pic_height_in_map_units_minus1 + 1) * 16;
+        if let Some(ref crop) = self.frame_cropping {
+            (
+                width - crop.left_offset * step_x - crop.right_offset * step_x,
+                height - crop.top_offset * step_y - crop.bottom_offset * step_y,
+            )
+        } else {
+            (width, height)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -904,6 +939,7 @@ mod test {
         println!("sps: {:#?}", sps);
         assert_eq!(100, sps.profile_idc.0);
         assert_eq!(0, sps.constraint_flags.reserved_zero_two_bits());
+        assert_eq!((64, 64), sps.pixel_dimensions());
     }
 
     #[test]
