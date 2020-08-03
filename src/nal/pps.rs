@@ -190,7 +190,7 @@ impl PicParameterSetExtra {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParamSetIdError {
     IdTooLarge(u32)
 }

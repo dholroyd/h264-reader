@@ -190,7 +190,7 @@ impl From<bitreader::BitReaderError> for RbspBitReaderError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum RbspBitReaderError {
     ReaderError(bitreader::BitReaderError),
     ReaderErrorFor(&'static str, bitreader::BitReaderError),

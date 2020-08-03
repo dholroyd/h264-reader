@@ -10,7 +10,7 @@ use crate::nal::pps::ParamSetId;
 use crate::nal::pps::ParamSetIdError;
 use std::fmt::Debug;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SpsError {
     /// Signals that bit_depth_luma_minus8 was greater than the max value, 6
     BitDepthOutOfRange(u32),
@@ -20,6 +20,10 @@ pub enum SpsError {
     /// log2_max_frame_num_minus4 must be between 0 and 12
     Log2MaxFrameNumMinus4OutOfRange(u32),
     BadSeqParamSetId(ParamSetIdError),
+    /// A field in the bitstream had a value too large for a subsequent calculation
+    FieldValueTooLarge { name: &'static str, value: u32 },
+    /// The frame-cropping values are too large vs. the coded picture size,
+    CroppingError(FrameCropping),
 }
 
 impl From<bitreader::BitReaderError> for SpsError {
@@ -372,7 +376,7 @@ impl ChromaInfo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum PicOrderCntError {
     InvalidPicOrderCountType(u32),
     ReaderError(bitreader::BitReaderError),
@@ -464,7 +468,7 @@ impl FrameMbsFlags {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FrameCropping {
     pub left_offset: u32,
     pub right_offset: u32,
@@ -891,7 +895,7 @@ impl SeqParameterSet {
 
     /// Helper to calculate the pixel-dimensions of the video image specified by this SPS, taking
     /// into account sample-format, interlacing and cropping.
-    pub fn pixel_dimensions(&self) -> (u32, u32) {
+    pub fn pixel_dimensions(&self) -> Result<(u32, u32), SpsError> {
         let width = (self.pic_width_in_mbs_minus1 + 1) * 16;
         let mul = match self.frame_mbs_flags {
             FrameMbsFlags::Fields { .. } => 2,
@@ -913,14 +917,31 @@ impl SeqParameterSet {
         let step_x = 1 << hsub;
         let step_y = mul << vsub;
 
-        let height = mul * (self.pic_height_in_map_units_minus1 + 1) * 16;
+        let height = (self.pic_height_in_map_units_minus1 + 1)
+            .checked_mul(mul * 16)
+            .ok_or_else(|| SpsError::FieldValueTooLarge { name:"pic_height_in_map_units_minus1", value: self.pic_height_in_map_units_minus1 })?;
         if let Some(ref crop) = self.frame_cropping {
-            (
-                width - crop.left_offset * step_x - crop.right_offset * step_x,
-                height - crop.top_offset * step_y - crop.bottom_offset * step_y,
-            )
+            let left_offset = crop.left_offset.checked_mul(step_x)
+                .ok_or_else(|| SpsError::FieldValueTooLarge { name:"left_offset", value: crop.left_offset })?;
+            let right_offset = crop.right_offset.checked_mul(step_x)
+                .ok_or_else(|| SpsError::FieldValueTooLarge { name:"right_offset", value: crop.right_offset })?;
+            let top_offset = crop.top_offset.checked_mul(step_y)
+                .ok_or_else(|| SpsError::FieldValueTooLarge { name:"top_offset", value: crop.top_offset })?;
+            let bottom_offset = crop.bottom_offset.checked_mul(step_y)
+                .ok_or_else(|| SpsError::FieldValueTooLarge { name:"bottom_offset", value: crop.bottom_offset })?;
+            let width = width
+                .checked_sub(left_offset)
+                .and_then(|w| w.checked_sub(right_offset) );
+            let height = height
+                .checked_sub(top_offset)
+                .and_then(|w| w.checked_sub(bottom_offset) );
+            if let (Some(width), Some(height)) = (width, height) {
+                Ok((width, height))
+            } else {
+                Err(SpsError::CroppingError(crop.clone()))
+            }
         } else {
-            (width, height)
+            Ok((width, height))
         }
     }
 }
@@ -939,7 +960,7 @@ mod test {
         println!("sps: {:#?}", sps);
         assert_eq!(100, sps.profile_idc.0);
         assert_eq!(0, sps.constraint_flags.reserved_zero_two_bits());
-        assert_eq!((64, 64), sps.pixel_dimensions());
+        assert_eq!(Ok((64, 64)), sps.pixel_dimensions());
     }
 
     #[test]
@@ -954,5 +975,41 @@ mod test {
         let sps = SeqParameterSet::from_bytes(&data[..]).unwrap();
         println!("sps: {:#?}", sps);
         assert_eq!(sps.vui_parameters.unwrap().aspect_ratio_info.unwrap().get(), Some((40, 33)));
+    }
+
+    #[test]
+    fn crop_removes_all_pixels() {
+        let sps = SeqParameterSet {
+            profile_idc: ProfileIdc(0),
+            constraint_flags: ConstraintFlags(0),
+            level_idc: 0,
+            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo {
+                chroma_format: ChromaFormat::Monochrome,
+                separate_colour_plane_flag: false,
+                bit_depth_luma_minus8: 0,
+                bit_depth_chroma_minus8: 0,
+                qpprime_y_zero_transform_bypass_flag: false,
+                scaling_matrix: Default::default()
+            },
+            log2_max_frame_num_minus4: 0,
+            pic_order_cnt: PicOrderCntType::TypeTwo,
+            max_num_ref_frames: 0,
+            frame_cropping: Some(FrameCropping {
+                bottom_offset: 20,
+                left_offset: 20,
+                right_offset: 20,
+                top_offset: 20
+            }),
+            pic_width_in_mbs_minus1: 1,
+            pic_height_in_map_units_minus1: 1,
+            frame_mbs_flags: FrameMbsFlags::Frames,
+            gaps_in_frame_num_value_allowed_flag: false,
+            direct_8x8_inference_flag: false,
+            vui_parameters: None
+        };
+        /// should return Err, rather than assert due to integer underflow for example,
+        let dim = sps.pixel_dimensions();
+        assert!(matches!(dim, Err(SpsError::CroppingError(_))));
     }
 }
