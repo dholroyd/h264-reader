@@ -9,7 +9,6 @@ enum ParseState {
     Start,
     StartOneZero,
     StartTwoZero,
-    StartThreeZero,
     InUnitStart,
     InUnit,
     InUnitOneZero,
@@ -25,7 +24,6 @@ impl ParseState {
             ParseState::Start => false,
             ParseState::StartOneZero => false,
             ParseState::StartTwoZero => false,
-            ParseState::StartThreeZero => false,
             ParseState::InUnitStart => true,
             ParseState::InUnit => true,
             ParseState::InUnitOneZero => true,
@@ -42,7 +40,6 @@ impl ParseState {
             ParseState::Start => None,
             ParseState::StartOneZero => None,
             ParseState::StartTwoZero => None,
-            ParseState::StartThreeZero => None,
             ParseState::InUnitStart => Some(0),
             ParseState::InUnit => Some(0),
             ParseState::InUnitOneZero => Some(1),
@@ -116,12 +113,6 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                     }
                 },
                 ParseState::StartTwoZero => {
-                    match b {
-                        0x00 => self.to(ParseState::StartThreeZero),
-                        _ => self.err(b),
-                    }
-                },
-                ParseState::StartThreeZero => {
                     match b {
                         0x00 => (),   // keep ignoring further 0x00 bytes
                         0x01 => {
@@ -343,6 +334,31 @@ mod tests {
             0, 0, 0, 1,  // start-code
             3,           // NAL data
             0, 0, 1      // end-code
+        );
+        let mut ctx = Context::default();
+        r.start(&mut ctx);
+        r.push(&mut ctx, &data[..]);
+        {
+            let s = state.borrow();
+            assert_eq!(1, s.started);
+            assert_eq!(&s.data[..], &[3u8][..]);
+            assert_eq!(1, s.ended);
+        }
+    }
+
+    #[test]
+    fn short_start_code() {
+        let state = Rc::new(RefCell::new(State {
+            started: 0,
+            ended: 0,
+            data: Vec::new(),
+        }));
+        let mock = MockReader::new(Rc::clone(&state));
+        let mut r = AnnexBReader::new(mock);
+        let data = vec!(
+            0, 0, 1,  // start-code -- only three bytes rather than the usual 4
+            3,        // NAL data
+            0, 0, 1   // end-code
         );
         let mut ctx = Context::default();
         r.start(&mut ctx);
