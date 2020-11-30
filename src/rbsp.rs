@@ -184,6 +184,35 @@ impl<R> NalHandler for RbspDecoder<R>
 }
 
 
+/// Removes _Emulation Prevention_ from the given byte sequence of a single NAL unit, returning the
+/// NAL units _Raw Byte Sequence Payload_ (RBSP).
+pub fn decode_nal(nal_unit: &[u8]) -> Vec<u8> {
+    struct DecoderState {
+        data: Vec<u8>,
+    }
+
+    impl NalHandler for DecoderState {
+        type Ctx = ();
+
+        fn start(&mut self, _ctx: &mut Context<Self::Ctx>, _header: NalHeader) {}
+
+        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
+            self.data.extend_from_slice(buf);
+        }
+
+        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {}
+    }
+
+    let state = DecoderState { data: Vec::new() };
+
+    let mut decoder = RbspDecoder::new(state);
+    let mut ctx = Context::default();
+
+    decoder.push(&mut ctx, nal_unit);
+
+    decoder.into_handler().data
+}
+
 impl From<bitreader::BitReaderError> for RbspBitReaderError {
     fn from(e: bitreader::BitReaderError) -> Self {
         RbspBitReaderError::ReaderError(e)
@@ -330,5 +359,18 @@ mod tests {
             let s = state.borrow();
             assert_eq!(&s.data[..], &expected[..], "on split_at({})", i);
         }
+    }
+
+    #[test]
+    fn it_works2() {
+        let data = hex!(
+           "67 42 c0 15 d9 01 41 fb 01 6a 0c 02 0b
+            4a 00 00 03 00 02 00 00 03 00 79 1e 2c
+            5c 90");
+        let expected = hex!(
+           "67 42 c0 15 d9 01 41 fb 01 6a 0c 02 0b
+            4a 00 00 00 02 00 00 00 79 1e 2c 5c 90");
+
+        assert_eq!(decode_nal(&data), &expected);
     }
 }
