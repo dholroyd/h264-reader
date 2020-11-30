@@ -21,6 +21,7 @@
 //! yield byte sequences where the encoding is removed (i.e. the decoder will replace instances of
 //! the sequence `0x00 0x00 0x03` with `0x00 0x00`).
 
+use std::borrow::Cow;
 use std::ops::{Deref, DerefMut};
 use bitreader;
 use crate::nal::{NalHandler, NalHeader};
@@ -183,32 +184,52 @@ impl<R> NalHandler for RbspDecoder<R>
     }
 }
 
-
 /// Removes _Emulation Prevention_ from the given byte sequence of a single NAL unit, returning the
 /// NAL units _Raw Byte Sequence Payload_ (RBSP).
-pub fn decode_nal(nal_unit: &[u8]) -> Vec<u8> {
-    struct DecoderState {
-        data: Vec<u8>,
+pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Cow<'a, [u8]> {
+    struct DecoderState<'b> {
+        data: Cow<'b, [u8]>,
+        index: usize,
     }
 
-    impl NalHandler for DecoderState {
+    impl<'b> DecoderState<'b> {
+        pub fn new(data: Cow<'b, [u8]>) -> Self {
+            DecoderState { 
+                data,
+                index: 0,
+            }
+        }
+    }
+
+    impl<'b> NalHandler for DecoderState<'b> {
         type Ctx = ();
 
         fn start(&mut self, _ctx: &mut Context<Self::Ctx>, _header: NalHeader) {}
 
         fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-            self.data.extend_from_slice(buf);
+            let dest = self.index..(self.index + buf.len());
+
+            if &self.data[dest.clone()] != buf {
+                self.data.to_mut()[dest].copy_from_slice(buf);
+            }
+
+            self.index += buf.len();
         }
 
-        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {}
+        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
+            if let Cow::Owned(vec) = &mut self.data {
+                vec.truncate(self.index);
+            }
+        }
     }
 
-    let state = DecoderState { data: Vec::new() };
+    let state = DecoderState::new(Cow::Borrowed(nal_unit));
 
     let mut decoder = RbspDecoder::new(state);
     let mut ctx = Context::default();
 
     decoder.push(&mut ctx, nal_unit);
+    decoder.end(&mut ctx);
 
     decoder.into_handler().data
 }
@@ -362,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn it_works2() {
+    fn decode_single_nal() {
         let data = hex!(
            "67 42 c0 15 d9 01 41 fb 01 6a 0c 02 0b
             4a 00 00 03 00 02 00 00 03 00 79 1e 2c
@@ -371,6 +392,24 @@ mod tests {
            "67 42 c0 15 d9 01 41 fb 01 6a 0c 02 0b
             4a 00 00 00 02 00 00 00 79 1e 2c 5c 90");
 
-        assert_eq!(decode_nal(&data), &expected);
+        let decoded = decode_nal(&data);
+
+        assert_eq!(decoded, &expected[..]);
+        assert!(matches!(decoded, Cow::Owned(..)));
+    }
+
+    #[test]
+    fn decode_single_nal_no_emulation() {
+        let data = hex!(
+           "64 00 0A AC 72 84 44 26 84 00 00
+            00 04 00 00 00 CA 3C 48 96 11 80");
+        let expected = hex!(
+           "64 00 0A AC 72 84 44 26 84 00 00
+            00 04 00 00 00 CA 3C 48 96 11 80");
+
+        let decoded = decode_nal(&data);
+
+        assert_eq!(decoded, &expected[..]);
+        assert!(matches!(decoded, Cow::Borrowed(..)));
     }
 }
