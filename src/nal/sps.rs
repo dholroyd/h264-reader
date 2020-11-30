@@ -546,7 +546,7 @@ impl AspectRatioInfo {
     }
 
     /// Returns the aspect ratio as `(width, height)`, if specified.
-    pub fn get(self) -> Option<(u16, u16)> {
+    pub fn get(&self) -> Option<(u16, u16)> {
         match self {
             AspectRatioInfo::Unspecified => None,
             AspectRatioInfo::Ratio1_1 => Some((1, 1)),
@@ -566,7 +566,7 @@ impl AspectRatioInfo {
             AspectRatioInfo::Ratio3_2 => Some((3, 2)),
             AspectRatioInfo::Ratio2_1 => Some((2, 1)),
             AspectRatioInfo::Reserved(_) => None,
-            AspectRatioInfo::Extended(width, height) => {
+            &AspectRatioInfo::Extended(width, height) => {
                 // ISO/IEC 14496-10 section E.2.1: "When ... sar_width is equal to 0 or sar_height
                 // is equal to 0, the sample aspect ratio shall be considered unspecified by this
                 // Recommendation | International Standard."
