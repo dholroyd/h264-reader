@@ -690,9 +690,9 @@ impl ChromaLocInfo {
 
 #[derive(Debug, Clone)]
 pub struct TimingInfo {
-    num_units_in_tick: u32,
-    time_scale: u32,
-    fixed_frame_rate_flag: bool,
+    pub num_units_in_tick: u32,
+    pub time_scale: u32,
+    pub fixed_frame_rate_flag: bool,
 }
 impl TimingInfo {
     fn read(r: &mut RbspBitReader<'_>) -> Result<Option<TimingInfo>,bitreader::BitReaderError> {
