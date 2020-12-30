@@ -99,7 +99,7 @@ impl Profile {
             100 => Profile::High,
             122 => Profile::High422,
             110 => Profile::High10,
-            144 => Profile::High444,
+            244 => Profile::High444,
             88  => Profile::Extended,
             83  => Profile::ScalableBase,
             86  => Profile::ScalableHigh,
