@@ -198,14 +198,22 @@ impl<Ctx> NalReader for NalSwitch<Ctx> {
         }
         match self.state {
             NalSwitchState::Start => {
-                let header = NalHeader::new(buf[0]).unwrap();
-                self.state = if let Some(ref handler) = self.get_handler(header.nal_unit_type()) {
-                    handler.borrow_mut().start(ctx, header);
-                    handler.borrow_mut().push(ctx, &buf[1..]);
-                    NalSwitchState::Handling(header.nal_unit_type())
-                } else {
-                    NalSwitchState::Ignoring
-                }
+                self.state = match NalHeader::new(buf[0]) {
+                    Ok(header) => {
+                        if let Some(ref handler) = self.get_handler(header.nal_unit_type()) {
+                            handler.borrow_mut().start(ctx, header);
+                            handler.borrow_mut().push(ctx, &buf[1..]);
+                            NalSwitchState::Handling(header.nal_unit_type())
+                        } else {
+                            NalSwitchState::Ignoring
+                        }
+                    },
+                    Err(e) => {
+                        // TODO: proper error propagation
+                        eprintln!("Bad NAL header: {:?}", e);
+                        NalSwitchState::Ignoring
+                    }
+                };
             },
             NalSwitchState::Ignoring => (),
             NalSwitchState::Handling(unit_type) => {
