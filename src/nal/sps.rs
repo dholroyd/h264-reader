@@ -141,6 +141,11 @@ impl From<u8> for ConstraintFlags {
         ConstraintFlags(v)
     }
 }
+impl From<ConstraintFlags> for u8 {
+    fn from(v: ConstraintFlags) -> Self {
+        v.0
+    }
+}
 impl ConstraintFlags {
     pub fn flag0(self) -> bool { self.0 & 0b1000_0000 != 0 }
     pub fn flag1(self) -> bool { self.0 & 0b0100_0000 != 0 }
