@@ -24,6 +24,8 @@ pub enum SpsError {
     FieldValueTooLarge { name: &'static str, value: u32 },
     /// The frame-cropping values are too large vs. the coded picture size,
     CroppingError(FrameCropping),
+    /// The `cpb_cnt_minus1` field must be between 0 and 31 inclusive.
+    CpbCountOutOfRange(u32),
 }
 
 impl From<bitreader::BitReaderError> for SpsError {
@@ -737,11 +739,14 @@ pub struct HrdParameters {
     pub time_offset_length: u8,
 }
 impl HrdParameters {
-    fn read(r: &mut RbspBitReader<'_>, hrd_parameters_present: &mut bool) -> Result<Option<HrdParameters>,RbspBitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>, hrd_parameters_present: &mut bool) -> Result<Option<HrdParameters>, SpsError> {
         let hrd_parameters_present_flag = r.read_bool_named("hrd_parameters_present_flag")?;
         *hrd_parameters_present |= hrd_parameters_present_flag;
         Ok(if hrd_parameters_present_flag {
             let cpb_cnt_minus1 = r.read_ue_named("cpb_cnt_minus1")?;
+            if cpb_cnt_minus1 > 31 {
+                return Err(SpsError::CpbCountOutOfRange(cpb_cnt_minus1));
+            }
             let cpb_cnt = cpb_cnt_minus1 + 1;
             Some(HrdParameters {
                 bit_rate_scale: r.read_u8(4)?,
@@ -808,7 +813,7 @@ pub struct VuiParameters {
     pub bitstream_restrictions: Option<BitstreamRestrictions>,
 }
 impl VuiParameters {
-    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<VuiParameters>,RbspBitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<VuiParameters>, SpsError> {
         let vui_parameters_present_flag = r.read_bool()?;
         Ok(if vui_parameters_present_flag {
             let mut hrd_parameters_present = false;
