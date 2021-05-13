@@ -954,6 +954,10 @@ impl SeqParameterSet {
             Ok((width, height))
         }
     }
+
+    fn rfc6381(&self) -> rfc6381_codec::Codec {
+        rfc6381_codec::Codec::avc1(self.profile_idc.0, self.constraint_flags.0, self.level_idc)
+    }
 }
 
 #[cfg(test)]
@@ -967,10 +971,11 @@ mod test {
            "64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");
         let sps = SeqParameterSet::from_bytes(&data[..]).unwrap();
-        println!("sps: {:#?}", sps);
+        assert!(!format!("{:?}", sps).is_empty());
         assert_eq!(100, sps.profile_idc.0);
         assert_eq!(0, sps.constraint_flags.reserved_zero_two_bits());
         assert_eq!(Ok((64, 64)), sps.pixel_dimensions());
+        assert!(!sps.rfc6381().to_string().is_empty())
     }
 
     #[test]
@@ -1018,7 +1023,7 @@ mod test {
             direct_8x8_inference_flag: false,
             vui_parameters: None
         };
-        /// should return Err, rather than assert due to integer underflow for example,
+        // should return Err, rather than assert due to integer underflow for example,
         let dim = sps.pixel_dimensions();
         assert!(matches!(dim, Err(SpsError::CroppingError(_))));
     }
