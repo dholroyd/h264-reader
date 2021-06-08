@@ -15,6 +15,7 @@ pub enum PpsError {
     UnknownSeqParamSetId(ParamSetId),
     BadPicParamSetId(ParamSetIdError),
     BadSeqParamSetId(ParamSetIdError),
+    ScalingMatrix(sps::ScalingMatrixError),
 }
 
 impl From<bitreader::BitReaderError> for PpsError {
@@ -156,9 +157,9 @@ impl PicScalingMatrix {
                 let seq_scaling_list_present_flag = r.read_bool()?;
                 if seq_scaling_list_present_flag {
                     if i < 6 {
-                        scaling_list4x4.push(sps::ScalingList::read(r, 16)?);
+                        scaling_list4x4.push(sps::ScalingList::read(r, 16).map_err(PpsError::ScalingMatrix)?);
                     } else {
-                        scaling_list8x8.push(sps::ScalingList::read(r, 64)?);
+                        scaling_list8x8.push(sps::ScalingList::read(r, 64).map_err(PpsError::ScalingMatrix)?);
                     }
                 }
             }
