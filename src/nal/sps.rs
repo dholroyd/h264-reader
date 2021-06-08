@@ -17,6 +17,7 @@ pub enum SpsError {
     ReaderError(bitreader::BitReaderError),
     RbspReaderError(RbspBitReaderError),
     PicOrderCnt(PicOrderCntError),
+    ScalingMatrix(ScalingMatrixError),
     /// log2_max_frame_num_minus4 must be between 0 and 12
     Log2MaxFrameNumMinus4OutOfRange(u32),
     BadSeqParamSetId(ParamSetIdError),
@@ -286,7 +287,7 @@ pub struct ScalingList {
     // TODO
 }
 impl ScalingList {
-    pub fn read(r: &mut RbspBitReader<'_>, size: u8) -> Result<ScalingList,bitreader::BitReaderError> {
+    pub fn read(r: &mut RbspBitReader<'_>, size: u8) -> Result<ScalingList,ScalingMatrixError> {
         let mut scaling_list = vec!();
         let mut last_scale = 8;
         let mut next_scale = 8;
@@ -294,6 +295,9 @@ impl ScalingList {
         for j in 0..size {
             if next_scale != 0 {
                 let delta_scale = r.read_se()?;
+                if delta_scale < -128 || delta_scale > 127 {
+                    return Err(ScalingMatrixError::DeltaScaleOutOfRange(delta_scale));
+                }
                 next_scale = (last_scale + delta_scale + 256) % 256;
                 _use_default_scaling_matrix_flag = j == 0 && next_scale == 0;
             }
@@ -304,6 +308,20 @@ impl ScalingList {
         Ok(ScalingList { })
     }
 }
+
+#[derive(Debug, PartialEq)]
+pub enum ScalingMatrixError {
+    ReaderError(bitreader::BitReaderError),
+    /// The `delta_scale` field must be between -128 and 127 inclusive.
+    DeltaScaleOutOfRange(i32),
+}
+
+impl From<bitreader::BitReaderError> for ScalingMatrixError {
+    fn from(e: bitreader::BitReaderError) -> Self {
+        ScalingMatrixError::ReaderError(e)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SeqScalingMatrix {
     // TODO
@@ -314,7 +332,7 @@ impl Default for SeqScalingMatrix {
     }
 }
 impl SeqScalingMatrix {
-    fn read(r: &mut RbspBitReader<'_>, chroma_format_idc: u32) -> Result<SeqScalingMatrix,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>, chroma_format_idc: u32) -> Result<SeqScalingMatrix,ScalingMatrixError> {
         let mut scaling_list4x4 = vec!();
         let mut scaling_list8x8 = vec!();
 
@@ -376,7 +394,7 @@ impl ChromaInfo {
     fn read_scaling_matrix(r: &mut RbspBitReader<'_>, chroma_format_idc: u32) -> Result<SeqScalingMatrix, SpsError> {
         let scaling_matrix_present_flag = r.read_bool()?;
         if scaling_matrix_present_flag {
-            SeqScalingMatrix::read(r, chroma_format_idc).map_err(|e| e.into())
+            SeqScalingMatrix::read(r, chroma_format_idc).map_err(SpsError::ScalingMatrix)
         } else {
             Ok(SeqScalingMatrix::default())
         }
