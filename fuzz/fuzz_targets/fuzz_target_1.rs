@@ -140,4 +140,5 @@ fuzz_target!(|data: &[u8]| {
     annexb_reader.start(&mut ctx);
     annexb_reader.push(&mut ctx, data);
     annexb_reader.end_units(&mut ctx);
+    ctx.sps().for_each(|sps| { let _ = sps.pixel_dimensions(); });
 });
