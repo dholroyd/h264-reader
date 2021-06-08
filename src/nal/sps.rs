@@ -389,6 +389,8 @@ pub enum PicOrderCntError {
     ReaderError(bitreader::BitReaderError),
     /// log2_max_pic_order_cnt_lsb_minus4 must be between 0 and 12
     Log2MaxPicOrderCntLsbMinus4OutOfRange(u32),
+    /// num_ref_frames_in_pic_order_cnt_cycle must be between 0 and 255
+    NumRefFramesInPicOrderCntCycleOutOfRange(u32),
 }
 
 impl From<bitreader::BitReaderError> for PicOrderCntError {
@@ -447,6 +449,9 @@ impl PicOrderCntType {
 
     fn read_offsets_for_ref_frame(r: &mut RbspBitReader<'_>) -> Result<Vec<i32>, PicOrderCntError> {
         let num_ref_frames_in_pic_order_cnt_cycle = r.read_ue()?;
+        if num_ref_frames_in_pic_order_cnt_cycle > 255 {
+            return Err(PicOrderCntError::NumRefFramesInPicOrderCntCycleOutOfRange(num_ref_frames_in_pic_order_cnt_cycle));
+        }
         let mut offsets = Vec::with_capacity(num_ref_frames_in_pic_order_cnt_cycle as usize);
         for _ in 0..num_ref_frames_in_pic_order_cnt_cycle {
             offsets.push(r.read_se()?);
