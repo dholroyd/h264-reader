@@ -41,6 +41,9 @@ impl<Ctx> Context<Ctx> {
             self.seq_param_sets[id.id() as usize].as_ref()
         }
     }
+    pub fn sps(&self) -> impl Iterator<Item = &nal::sps::SeqParameterSet> {
+        self.seq_param_sets.iter().filter_map(Option::as_ref)
+    }
     pub fn put_seq_param_set(&mut self, sps: nal::sps::SeqParameterSet) {
         let i = sps.seq_parameter_set_id.id() as usize;
         self.seq_param_sets[i] = Some(sps);
@@ -51,6 +54,9 @@ impl<Ctx> Context<Ctx> {
         } else {
             self.pic_param_sets[id.id() as usize].as_ref()
         }
+    }
+    pub fn pps(&self) -> impl Iterator<Item = &nal::pps::PicParameterSet> {
+        self.pic_param_sets.iter().filter_map(Option::as_ref)
     }
     pub fn put_pic_param_set(&mut self, pps: nal::pps::PicParameterSet) {
         let i = pps.pic_parameter_set_id.id() as usize;
