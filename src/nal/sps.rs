@@ -906,7 +906,8 @@ impl SeqParameterSet {
     /// Helper to calculate the pixel-dimensions of the video image specified by this SPS, taking
     /// into account sample-format, interlacing and cropping.
     pub fn pixel_dimensions(&self) -> Result<(u32, u32), SpsError> {
-        let width = (self.pic_width_in_mbs_minus1 + 1) * 16;
+        let width = self.pic_width_in_mbs_minus1.checked_add(1).and_then(|w| w.checked_mul(16))
+            .ok_or_else(|| SpsError::FieldValueTooLarge { name:"pic_width_in_mbs_minus1", value: self.pic_width_in_mbs_minus1 })?;
         let mul = match self.frame_mbs_flags {
             FrameMbsFlags::Fields { .. } => 2,
             FrameMbsFlags::Frames => 1,
