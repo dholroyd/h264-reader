@@ -11,10 +11,12 @@ extern crate criterion;
 extern crate h264_reader;
 
 use criterion::Criterion;
+use h264_reader::nal::sps::SeqParameterSet;
 use std::fs::File;
 use criterion::Throughput;
 use std::convert::TryFrom;
 use std::io::Read;
+use hex_literal::hex;
 use h264_reader::annexb::AnnexBReader;
 use h264_reader::annexb::NalReader;
 use h264_reader::Context;
@@ -113,7 +115,7 @@ fn h264_reader(c: &mut Criterion) {
     let mut annexb_rbsp_reader = AnnexBReader::new(rbsp_nal_reader);
     let mut annexb_reader = AnnexBReader::new(nal_reader);
 
-    let mut group = c.benchmark_group("parse");
+    let mut group = c.benchmark_group("parse_annexb");
     group.throughput(Throughput::Bytes(len));
     group.bench_function("annexb_only", |b| {
         b.iter(|| {
@@ -131,5 +133,16 @@ fn h264_reader(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, h264_reader);
+fn parse_nal(c: &mut Criterion) {
+    let sps = hex!(
+        "64 00 16 AC 1B 1A 80 B0 3D FF FF
+        00 28 00 21 6E 0C 0C 0C 80 00 01
+        F4 00 00 27 10 74 30 07 D0 00 07
+        A1 25 DE 5C 68 60 0F A0 00 0F 42
+        4B BC B8 50");
+    let mut group = c.benchmark_group("parse_nal");
+    group.bench_function("sps", |b| b.iter(|| SeqParameterSet::from_bytes(&sps[..]).unwrap()));
+}
+
+criterion_group!(benches, h264_reader, parse_nal);
 criterion_main!(benches);
