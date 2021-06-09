@@ -21,8 +21,8 @@
 //! yield byte sequences where the encoding is removed (i.e. the decoder will replace instances of
 //! the sequence `0x00 0x00 0x03` with `0x00 0x00`).
 
+use bitstream_io::read::BitRead;
 use std::borrow::Cow;
-use bitreader;
 use crate::nal::{NalHandler, NalHeader};
 use crate::Context;
 
@@ -233,30 +233,30 @@ pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Cow<'a, [u8]> {
     decoder.into_handler().data
 }
 
-impl From<bitreader::BitReaderError> for RbspBitReaderError {
-    fn from(e: bitreader::BitReaderError) -> Self {
+impl From<std::io::Error> for RbspBitReaderError {
+    fn from(e: std::io::Error) -> Self {
         RbspBitReaderError::ReaderError(e)
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum RbspBitReaderError {
-    ReaderError(bitreader::BitReaderError),
-    ReaderErrorFor(&'static str, bitreader::BitReaderError),
+    ReaderError(std::io::Error),
+    ReaderErrorFor(&'static str, std::io::Error),
 
     /// An Exp-Golomb-coded syntax elements value has more than 32 bits.
     ExpGolombTooLarge(&'static str),
 }
 
-pub struct RbspBitReader<'a> {
+pub struct RbspBitReader<'buf> {
     total_size: usize,
-    reader: bitreader::BitReader<'a>,
+    reader: bitstream_io::read::BitReader<std::io::Cursor<&'buf [u8]>, bitstream_io::BigEndian>,
 }
-impl<'a> RbspBitReader<'a> {
-    pub fn new(buf: &'a[u8]) -> RbspBitReader<'a> {
+impl<'buf> RbspBitReader<'buf> {
+    pub fn new(buf: &'buf [u8]) -> Self {
         RbspBitReader {
             total_size: buf.len() * 8,
-            reader: bitreader::BitReader::new(buf),
+            reader: bitstream_io::read::BitReader::new(std::io::Cursor::new(buf)),
         }
     }
 
@@ -275,31 +275,33 @@ impl<'a> RbspBitReader<'a> {
     }
 
     pub fn read_bool(&mut self) -> Result<bool, RbspBitReaderError> {
-        self.reader.read_bool().map_err( |e| RbspBitReaderError::ReaderError(e) )
+        self.reader.read_bit().map_err( |e| RbspBitReaderError::ReaderError(e) )
     }
 
     pub fn read_bool_named(&mut self, name: &'static str) -> Result<bool, RbspBitReaderError> {
-        self.reader.read_bool().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
+        self.reader.read_bit().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
     }
 
-    pub fn read_u8(&mut self, bit_count: u8) -> Result<u8, RbspBitReaderError> {
-        self.reader.read_u8(bit_count).map_err( |e| RbspBitReaderError::ReaderError(e) )
+    pub fn read_u8(&mut self, bit_count: u32) -> Result<u8, RbspBitReaderError> {
+        self.reader.read(u32::from(bit_count)).map_err( |e| RbspBitReaderError::ReaderError(e) )
     }
 
     pub fn read_u16(&mut self, bit_count: u8) -> Result<u16, RbspBitReaderError> {
-        self.reader.read_u16(bit_count).map_err( |e| RbspBitReaderError::ReaderError(e) )
+        self.reader.read(u32::from(bit_count)).map_err( |e| RbspBitReaderError::ReaderError(e) )
     }
 
     pub fn read_u32(&mut self, bit_count: u8) -> Result<u32, RbspBitReaderError> {
-        self.reader.read_u32(bit_count).map_err( |e| RbspBitReaderError::ReaderError(e) )
+        self.reader.read(u32::from(bit_count)).map_err( |e| RbspBitReaderError::ReaderError(e) )
     }
 
     pub fn read_i32(&mut self, bit_count: u8) -> Result<i32, RbspBitReaderError> {
-        self.reader.read_i32(bit_count).map_err( |e| RbspBitReaderError::ReaderError(e) )
+        self.reader.read(u32::from(bit_count)).map_err( |e| RbspBitReaderError::ReaderError(e) )
     }
 
-    pub fn has_more_rbsp_data(&self) -> bool {
-        self.reader.position() < self.total_size as u64
+    pub fn has_more_rbsp_data(&mut self) -> bool {
+        // BitReader returns its reader iff at an aligned position.
+        let total_size = self.total_size;
+        self.reader.reader().map(|r| r.position() < total_size as u64).unwrap_or(true)
     }
 
     fn golomb_to_signed(val: u32) -> i32 {
@@ -307,9 +309,9 @@ impl<'a> RbspBitReader<'a> {
         ((val >> 1) as i32 + (val & 0x1) as i32) * sign
     }
 }
-fn count_zero_bits(r: &mut bitreader::BitReader<'_>, name: &'static str) -> Result<u8, RbspBitReaderError> {
+fn count_zero_bits<R: BitRead>(r: &mut R, name: &'static str) -> Result<u8, RbspBitReaderError> {
     let mut count = 0;
-    while !r.read_bool()? {
+    while !r.read_bit()? {
         count += 1;
         if count > 31 {
             return Err(RbspBitReaderError::ExpGolombTooLarge(name));

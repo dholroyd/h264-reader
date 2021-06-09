@@ -9,7 +9,7 @@ use crate::nal::pps::ParamSetId;
 use crate::nal::pps::ParamSetIdError;
 use std::fmt::Debug;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum SpsError {
     /// Signals that bit_depth_luma_minus8 was greater than the max value, 6
     BitDepthOutOfRange(u32),
@@ -301,7 +301,7 @@ impl ScalingList {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum ScalingMatrixError {
     ReaderError(RbspBitReaderError),
     /// The `delta_scale` field must be between -128 and 127 inclusive.
@@ -393,7 +393,7 @@ impl ChromaInfo {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum PicOrderCntError {
     InvalidPicOrderCountType(u32),
     ReaderError(RbspBitReaderError),
@@ -990,7 +990,7 @@ mod test {
         assert!(!format!("{:?}", sps).is_empty());
         assert_eq!(100, sps.profile_idc.0);
         assert_eq!(0, sps.constraint_flags.reserved_zero_two_bits());
-        assert_eq!(Ok((64, 64)), sps.pixel_dimensions());
+        assert_eq!((64, 64), sps.pixel_dimensions().unwrap());
         assert!(!sps.rfc6381().to_string().is_empty())
     }
 
