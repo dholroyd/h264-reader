@@ -23,25 +23,55 @@ use h264_reader::nal::NalHandler;
 use h264_reader::nal::NalHeader;
 
 struct NullNalHandler {
+    start: u64,
+    push: u64,
+    end: u64,
 }
 impl NalHandler for NullNalHandler {
     type Ctx = ();
 
     fn start(&mut self, _ctx: &mut Context<Self::Ctx>, _header: NalHeader) {
-        unimplemented!()
+        self.start += 1;
     }
 
     fn push(&mut self, _ctx: &mut Context<Self::Ctx>, _buf: &[u8]) {
-        unimplemented!()
+        self.push += 1;
     }
 
     fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
-        unimplemented!()
+        self.end += 1;
+    }
+}
+
+struct NullRbspNalReader {
+    decoder: RbspDecoder<NullNalHandler>,
+    decoder_started: bool,
+}
+impl NalReader for NullRbspNalReader {
+    type Ctx = ();
+
+    fn start(&mut self, _ctx: &mut Context<Self::Ctx>) {
+        assert!(!self.decoder_started);
+    }
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, mut buf: &[u8]) {
+        if !self.decoder_started && !buf.is_empty() {
+            let hdr = NalHeader::new(buf[0]).unwrap();
+            self.decoder.start(ctx, hdr);
+            buf = &buf[1..];
+            self.decoder_started = true;
+        }
+        if self.decoder_started {
+            self.decoder.push(ctx, buf);
+        }
+    }
+    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
+        assert!(self.decoder_started);
+        self.decoder.end(ctx);
+        self.decoder_started = false;
     }
 }
 
 struct NullNalReader {
-    _decoder: RbspDecoder<NullNalHandler>,
     start: u64,
     push: u64,
     end: u64,
@@ -66,22 +96,37 @@ fn h264_reader(c: &mut Criterion) {
     let mut buf = vec![0; usize::try_from(len).unwrap()];
     f.read(&mut buf[..]).unwrap();
     let mut ctx = Context::default();
-    let nal_handler = NullNalHandler {};
-    let nal_reader = NullNalReader {
-        _decoder: RbspDecoder::new(nal_handler),
+    let nal_handler = NullNalHandler {
         start: 0,
         push: 0,
         end: 0,
     };
+    let rbsp_nal_reader = NullRbspNalReader {
+        decoder: RbspDecoder::new(nal_handler),
+        decoder_started: false,
+    };
+    let nal_reader = NullNalReader {
+        start: 0,
+        push: 0,
+        end: 0,
+    };
+    let mut annexb_rbsp_reader = AnnexBReader::new(rbsp_nal_reader);
     let mut annexb_reader = AnnexBReader::new(nal_reader);
 
     let mut group = c.benchmark_group("parse");
     group.throughput(Throughput::Bytes(len));
-    group.bench_function("parse", move |b| {
+    group.bench_function("annexb_only", |b| {
         b.iter(|| {
             annexb_reader.start(&mut ctx);
             annexb_reader.push(&mut ctx, &buf[..]);
             annexb_reader.end_units(&mut ctx);
+        })
+    });
+    group.bench_function("annexb_rbsp", |b| {
+        b.iter(|| {
+            annexb_rbsp_reader.start(&mut ctx);
+            annexb_rbsp_reader.push(&mut ctx, &buf[..]);
+            annexb_rbsp_reader.end_units(&mut ctx);
         })
     });
 }
