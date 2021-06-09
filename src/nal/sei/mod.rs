@@ -6,6 +6,7 @@ use crate::Context;
 use crate::nal::NalHandler;
 use crate::nal::NalHeader;
 use crate::rbsp::RbspDecoder;
+use log::*;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum HeaderType {
@@ -370,15 +371,15 @@ impl<R: SeiIncrementalPayloadReader> NalHandler for SeiHeaderReader<R> {
                 //       be 0b10000000 in an SEI payload since SEI messages are byte-aligned).
             },
             SeiHeaderState::PayloadType { .. } => {
-                eprintln!("End of SEI data encountered while reading SEI payloadType");
+                error!("End of SEI data encountered while reading SEI payloadType");
                 self.reader.reset(ctx);
             },
             SeiHeaderState::PayloadSize { .. } => {
-                eprintln!("End of SEI data encountered while reading SEI payloadSize");
+                error!("End of SEI data encountered while reading SEI payloadSize");
                 self.reader.reset(ctx);
             },
             SeiHeaderState::Payload { payload_type, payload_size, consumed_size } => {
-                eprintln!("End of SEI data encountered having read {} bytes of payloadSize={} for header type {:?}", consumed_size, payload_size, payload_type);
+                error!("End of SEI data encountered having read {} bytes of payloadSize={} for header type {:?}", consumed_size, payload_size, payload_type);
                 self.reader.reset(ctx);
             },
         }

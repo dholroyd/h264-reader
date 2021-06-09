@@ -9,6 +9,7 @@ use crate::nal::sps;
 use std::marker;
 use crate::nal::sps::SeqParameterSet;
 use crate::nal::NalHeader;
+use log::*;
 
 enum ParseState {
     Unstarted,
@@ -542,7 +543,6 @@ impl<Ctx> super::NalHandler for SliceLayerWithoutPartitioningRbsp<Ctx> {
     type Ctx = Ctx;
 
     fn start(&mut self, _ctx: &mut Context<Ctx>, header: NalHeader) {
-        println!("SliceLayerWithoutPartitioningRbsp: start()");
         self.state = ParseState::Start(header);
     }
 
@@ -552,8 +552,8 @@ impl<Ctx> super::NalHandler for SliceLayerWithoutPartitioningRbsp<Ctx> {
             ParseState::Start(header) => {
                 let mut r = RbspBitReader::new(buf);
                 match SliceHeader::read(ctx, &mut r, header) {
-                    Ok(header) => println!("{:#?}", header),
-                    Err(e) => println!("slice_header() error: SliceHeaderError::{:?}", e),
+                    Ok(header) => info!("TODO: expose to caller: {:#?}", header),
+                    Err(e) => error!("slice_header() error: SliceHeaderError::{:?}", e),
                 }
                 self.state = ParseState::Continue(header);
             },
@@ -564,7 +564,7 @@ impl<Ctx> super::NalHandler for SliceLayerWithoutPartitioningRbsp<Ctx> {
     }
 
     fn end(&mut self, _ctx: &mut Context<Ctx>) {
-        println!("SliceLayerWithoutPartitioningRbsp: end()");
+        // TODO
     }
 }
 impl<Ctx> Default for SliceLayerWithoutPartitioningRbsp<Ctx> {

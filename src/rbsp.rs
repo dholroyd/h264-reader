@@ -26,6 +26,7 @@ use std::ops::{Deref, DerefMut};
 use bitreader;
 use crate::nal::{NalHandler, NalHeader};
 use crate::Context;
+use log::*;
 
 #[derive(Debug)]
 enum ParseState {
@@ -76,7 +77,7 @@ impl<R> RbspDecoder<R>
         if let Some(start) = start_index {
             self.nal_reader.push(ctx, &buf[start..end_index])
         } else {
-            eprintln!("RbspDecoder: no start_index");
+            error!("RbspDecoder: no start_index");
         }
     }
 

@@ -5,6 +5,7 @@ use super::sps;
 use std::marker;
 use crate::{rbsp, Context};
 use crate::rbsp::RbspBitReader;
+use log::*;
 
 #[derive(Debug)]
 pub enum PpsError {
@@ -301,7 +302,7 @@ impl<Ctx> NalHandler for PicParameterSetNalHandler<Ctx> {
                 ctx.put_pic_param_set(pps);
             },
             Err(e) => {
-                eprintln!("pps: {:?}", e);
+                error!("pps: {:?}", e);
             },
         }
     }

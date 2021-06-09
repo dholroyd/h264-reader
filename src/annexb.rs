@@ -3,6 +3,7 @@
 
 use crate::Context;
 use memchr;
+use log::*;
 
 #[derive(Debug)]
 enum ParseState {
@@ -95,7 +96,7 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
             let b = buf[i];
             match self.state {
                 ParseState::End => {
-                    eprintln!("no previous call to start()");
+                    error!("no previous call to start()");
                     self.state = ParseState::Error;
                     return;
                 },
@@ -214,7 +215,7 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                             self.to(ParseState::InUnitStart);
                         },
                         _ => {
-                            eprintln!("Expected either start code byte 0x01 or end_units(), got byte {:#x}", b);
+                            error!("Expected either start code byte 0x01 or end_units(), got byte {:#x}", b);
                             self.to(ParseState::Error);
                         },
                     }
@@ -273,12 +274,12 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
             };
             self.nal_reader.push(ctx, &buf[start..end_index])
         } else {
-            eprintln!("AnnexBReader: no start_index");
+            error!("AnnexBReader: no start_index");
         }
     }
 
     fn err(&mut self, b: u8) {
-        eprintln!("AnnexBReader: state={:?}, invalid byte {:#x}", self.state, b);
+        error!("AnnexBReader: state={:?}, invalid byte {:#x}", self.state, b);
         self.state = ParseState::Start;
     }
 }

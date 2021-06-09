@@ -13,6 +13,7 @@ use crate::annexb::NalReader;
 use std::cell::RefCell;
 use crate::Context;
 use std::fmt;
+use log::*;
 
 #[derive(PartialEq, Hash, Debug, Copy, Clone)]
 pub enum UnitType {
@@ -210,7 +211,7 @@ impl<Ctx> NalReader for NalSwitch<Ctx> {
                     },
                     Err(e) => {
                         // TODO: proper error propagation
-                        eprintln!("Bad NAL header: {:?}", e);
+                        error!("Bad NAL header: {:?}", e);
                         NalSwitchState::Ignoring
                     }
                 };

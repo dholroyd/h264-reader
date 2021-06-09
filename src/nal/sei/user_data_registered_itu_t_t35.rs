@@ -1,6 +1,7 @@
 use crate::nal::sei::HeaderType;
 use crate::Context;
 use crate::nal::sei::SeiCompletePayloadReader;
+use log::*;
 
 #[derive(Debug)]
 pub enum ItuTT35Error {
@@ -447,7 +448,7 @@ impl<R: Register> SeiCompletePayloadReader for UserDataRegisteredItuTT35Reader<R
                 self.register.handle(ctx, country_code, payload);
             },
             Err(e) => {
-                eprintln!("Failed to read user_data_registered_itu_t_t35 header: {:?}", e);
+                error!("Failed to read user_data_registered_itu_t_t35 header: {:?}", e);
             }
         }
     }
