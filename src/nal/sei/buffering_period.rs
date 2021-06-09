@@ -5,6 +5,7 @@ use crate::rbsp::RbspBitReader;
 use crate::Context;
 use crate::nal::sei::HeaderType;
 use crate::rbsp::RbspBitReaderError;
+use log::*;
 
 #[derive(Debug)]
 enum BufferingPeriodError {
@@ -94,9 +95,9 @@ impl<Ctx> SeiCompletePayloadReader for BufferingPeriodPayloadReader<Ctx> {
     fn header(&mut self, ctx: &mut Context<Ctx>, payload_type: HeaderType, buf: &[u8]) {
         assert_eq!(payload_type, HeaderType::BufferingPeriod);
         match BufferingPeriod::read(ctx, buf) {
-            Err(e) => eprintln!("Failure reading buffering_period: {:?}", e),
+            Err(e) => error!("Failure reading buffering_period: {:?}", e),
             Ok(buffering_period) => {
-println!("buffering_period {:#?}", buffering_period);
+                info!("TODO: expose buffering_period {:#?}", buffering_period);
             }
         }
     }

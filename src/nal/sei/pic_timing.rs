@@ -5,6 +5,7 @@ use crate::nal::pps::ParamSetId;
 use crate::rbsp::RbspBitReader;
 use crate::nal::sps;
 use crate::rbsp::RbspBitReaderError;
+use log::*;
 
 // FIXME: SPS selection
 //      We should really wait until we know what SPS is in use by the frame which follows the
@@ -324,7 +325,7 @@ impl<H: PicTimingHandler> SeiCompletePayloadReader for PicTimingReader<H> {
     fn header(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, buf: &[u8]) {
         assert_eq!(payload_type, HeaderType::PicTiming);
         match PicTiming::read(ctx, buf) {
-            Err(e) => eprintln!("Failure reading pic_timing: {:?}", e),
+            Err(e) => error!("Failure reading pic_timing: {:?}", e),
             Ok(pic_timing) => {
                 self.handler.handle(ctx, pic_timing);
             }
