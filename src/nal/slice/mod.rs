@@ -4,7 +4,6 @@ use crate::rbsp::RbspBitReader;
 use crate::rbsp::RbspBitReaderError;
 use crate::nal::pps::{ParamSetId, PicParameterSet};
 use crate::nal::pps;
-use bitreader::BitReaderError;
 use crate::nal::sps;
 use std::marker;
 use crate::nal::sps::SeqParameterSet;
@@ -56,7 +55,6 @@ impl SliceType {
 
 #[derive(Debug)]
 pub enum SliceHeaderError {
-    ReaderError(BitReaderError),
     RbspError(RbspBitReaderError),
     InvalidSliceType(u32),
     InvalidSeqParamSetId(pps::ParamSetIdError),
@@ -72,11 +70,6 @@ pub enum SliceHeaderError {
     InvalidSliceAlphaC0OffsetDiv2(i32),
     /// The header contained syntax elements that the parser isn't able to handle yet
     UnsupportedSyntax(&'static str),
-}
-impl From<BitReaderError> for SliceHeaderError {
-    fn from(e: BitReaderError) -> Self {
-        SliceHeaderError::ReaderError(e)
-    }
 }
 impl From<RbspBitReaderError> for SliceHeaderError {
     fn from(e: RbspBitReaderError) -> Self {

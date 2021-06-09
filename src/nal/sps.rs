@@ -2,7 +2,6 @@
 use crate::rbsp::RbspBitReader;
 use super::NalHandler;
 use super::NalHeader;
-use bitreader;
 use crate::Context;
 use crate::rbsp::RbspBitReaderError;
 use std::{marker, fmt};
@@ -14,7 +13,6 @@ use std::fmt::Debug;
 pub enum SpsError {
     /// Signals that bit_depth_luma_minus8 was greater than the max value, 6
     BitDepthOutOfRange(u32),
-    ReaderError(bitreader::BitReaderError),
     RbspReaderError(RbspBitReaderError),
     PicOrderCnt(PicOrderCntError),
     ScalingMatrix(ScalingMatrixError),
@@ -27,12 +25,6 @@ pub enum SpsError {
     CroppingError(FrameCropping),
     /// The `cpb_cnt_minus1` field must be between 0 and 31 inclusive.
     CpbCountOutOfRange(u32),
-}
-
-impl From<bitreader::BitReaderError> for SpsError {
-    fn from(e: bitreader::BitReaderError) -> Self {
-        SpsError::ReaderError(e)
-    }
 }
 
 impl From<RbspBitReaderError> for SpsError {
@@ -294,7 +286,7 @@ impl ScalingList {
         let mut _use_default_scaling_matrix_flag = false;
         for j in 0..size {
             if next_scale != 0 {
-                let delta_scale = r.read_se()?;
+                let delta_scale = r.read_se_named("delta_scale")?;
                 if delta_scale < -128 || delta_scale > 127 {
                     return Err(ScalingMatrixError::DeltaScaleOutOfRange(delta_scale));
                 }
@@ -311,13 +303,13 @@ impl ScalingList {
 
 #[derive(Debug, PartialEq)]
 pub enum ScalingMatrixError {
-    ReaderError(bitreader::BitReaderError),
+    ReaderError(RbspBitReaderError),
     /// The `delta_scale` field must be between -128 and 127 inclusive.
     DeltaScaleOutOfRange(i32),
 }
 
-impl From<bitreader::BitReaderError> for ScalingMatrixError {
-    fn from(e: bitreader::BitReaderError) -> Self {
+impl From<RbspBitReaderError> for ScalingMatrixError {
+    fn from(e: RbspBitReaderError) -> Self {
         ScalingMatrixError::ReaderError(e)
     }
 }
@@ -363,7 +355,7 @@ pub struct ChromaInfo {
 impl ChromaInfo {
     pub fn read(r: &mut RbspBitReader<'_>, profile_idc: ProfileIdc) -> Result<ChromaInfo, SpsError> {
         if profile_idc.has_chroma_info() {
-            let chroma_format_idc = r.read_ue()?;
+            let chroma_format_idc = r.read_ue_named("chroma_format_idc")?;
             Ok(ChromaInfo {
                 chroma_format: ChromaFormat::from_chroma_format_idc(chroma_format_idc),
                 separate_colour_plane_flag: if chroma_format_idc == 3 { r.read_bool()? } else { false },
@@ -384,7 +376,7 @@ impl ChromaInfo {
         }
     }
     fn read_bit_depth_minus8(r: &mut RbspBitReader<'_>) -> Result<u8, SpsError> {
-        let value = r.read_ue()?;
+        let value = r.read_ue_named("read_bit_depth_minus8")?;
         if value > 6 {
             Err(SpsError::BitDepthOutOfRange(value))
         } else {
@@ -404,15 +396,15 @@ impl ChromaInfo {
 #[derive(Debug, PartialEq)]
 pub enum PicOrderCntError {
     InvalidPicOrderCountType(u32),
-    ReaderError(bitreader::BitReaderError),
+    ReaderError(RbspBitReaderError),
     /// log2_max_pic_order_cnt_lsb_minus4 must be between 0 and 12
     Log2MaxPicOrderCntLsbMinus4OutOfRange(u32),
     /// num_ref_frames_in_pic_order_cnt_cycle must be between 0 and 255
     NumRefFramesInPicOrderCntCycleOutOfRange(u32),
 }
 
-impl From<bitreader::BitReaderError> for PicOrderCntError {
-    fn from(e: bitreader::BitReaderError) -> Self {
+impl From<RbspBitReaderError> for PicOrderCntError {
+    fn from(e: RbspBitReaderError) -> Self {
         PicOrderCntError::ReaderError(e)
     }
 }
@@ -432,7 +424,7 @@ pub enum PicOrderCntType {
 }
 impl PicOrderCntType {
     fn read(r: &mut RbspBitReader<'_>) -> Result<PicOrderCntType, PicOrderCntError> {
-        let pic_order_cnt_type = r.read_ue()?;
+        let pic_order_cnt_type = r.read_ue_named("pic_order_cnt_type")?;
         match pic_order_cnt_type {
             0 => {
                 Ok(PicOrderCntType::TypeZero {
@@ -442,8 +434,8 @@ impl PicOrderCntType {
             1 => {
                 Ok(PicOrderCntType::TypeOne {
                     delta_pic_order_always_zero_flag: r.read_bool()?,
-                    offset_for_non_ref_pic: r.read_se()?,
-                    offset_for_top_to_bottom_field: r.read_se()?,
+                    offset_for_non_ref_pic: r.read_se_named("offset_for_non_ref_pic")?,
+                    offset_for_top_to_bottom_field: r.read_se_named("offset_for_top_to_bottom_field")?,
                     offsets_for_ref_frame: Self::read_offsets_for_ref_frame(r)?,
                 })
             },
@@ -457,7 +449,7 @@ impl PicOrderCntType {
     }
 
     fn read_log2_max_pic_order_cnt_lsb_minus4(r: &mut RbspBitReader<'_>) -> Result<u8, PicOrderCntError> {
-        let val = r.read_ue()?;
+        let val = r.read_ue_named("log2_max_pic_order_cnt_lsb_minus4")?;
         if val > 12 {
             Err(PicOrderCntError::Log2MaxPicOrderCntLsbMinus4OutOfRange(val))
         } else {
@@ -466,13 +458,13 @@ impl PicOrderCntType {
     }
 
     fn read_offsets_for_ref_frame(r: &mut RbspBitReader<'_>) -> Result<Vec<i32>, PicOrderCntError> {
-        let num_ref_frames_in_pic_order_cnt_cycle = r.read_ue()?;
+        let num_ref_frames_in_pic_order_cnt_cycle = r.read_ue_named("num_ref_frames_in_pic_order_cnt_cycle")?;
         if num_ref_frames_in_pic_order_cnt_cycle > 255 {
             return Err(PicOrderCntError::NumRefFramesInPicOrderCntCycleOutOfRange(num_ref_frames_in_pic_order_cnt_cycle));
         }
         let mut offsets = Vec::with_capacity(num_ref_frames_in_pic_order_cnt_cycle as usize);
         for _ in 0..num_ref_frames_in_pic_order_cnt_cycle {
-            offsets.push(r.read_se()?);
+            offsets.push(r.read_se_named("offset_for_ref_frame")?);
         }
         Ok(offsets)
     }
@@ -486,7 +478,7 @@ pub enum FrameMbsFlags {
     }
 }
 impl FrameMbsFlags {
-    fn read(r: &mut RbspBitReader<'_>) -> Result<FrameMbsFlags, bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>) -> Result<FrameMbsFlags, RbspBitReaderError> {
         let frame_mbs_only_flag = r.read_bool()?;
         if frame_mbs_only_flag {
             Ok(FrameMbsFlags::Frames)
@@ -506,14 +498,14 @@ pub struct FrameCropping {
     pub bottom_offset: u32,
 }
 impl FrameCropping {
-    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<FrameCropping>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<FrameCropping>, RbspBitReaderError> {
         let frame_cropping_flag = r.read_bool()?;
         Ok(if frame_cropping_flag {
             Some(FrameCropping {
-                left_offset: r.read_ue()?,
-                right_offset: r.read_ue()?,
-                top_offset: r.read_ue()?,
-                bottom_offset: r.read_ue()?,
+                left_offset: r.read_ue_named("left_offset")?,
+                right_offset: r.read_ue_named("right_offset")?,
+                top_offset: r.read_ue_named("top_offset")?,
+                bottom_offset: r.read_ue_named("bottom_offset")?,
             })
         } else {
             None
@@ -545,7 +537,7 @@ pub enum AspectRatioInfo {
 
 }
 impl AspectRatioInfo {
-    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<AspectRatioInfo>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<AspectRatioInfo>, RbspBitReaderError> {
         let aspect_ratio_info_present_flag = r.read_bool()?;
         Ok(if aspect_ratio_info_present_flag {
             let aspect_ratio_idc = r.read_u8(8)?;
@@ -617,7 +609,7 @@ pub enum OverscanAppropriate {
     Inappropriate,
 }
 impl OverscanAppropriate {
-    fn read(r: &mut RbspBitReader<'_>) -> Result<OverscanAppropriate,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>) -> Result<OverscanAppropriate, RbspBitReaderError> {
         let overscan_info_present_flag = r.read_bool()?;
         Ok(if overscan_info_present_flag {
             let overscan_appropriate_flag = r.read_bool()?;
@@ -664,7 +656,7 @@ pub struct ColourDescription {
     matrix_coefficients: u8,
 }
 impl ColourDescription {
-    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<ColourDescription>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<ColourDescription>, RbspBitReaderError> {
         let colour_description_present_flag = r.read_bool()?;
         Ok(if colour_description_present_flag {
             Some(ColourDescription {
@@ -685,7 +677,7 @@ pub struct VideoSignalType {
     colour_description: Option<ColourDescription>,
 }
 impl VideoSignalType {
-    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<VideoSignalType>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<VideoSignalType>, RbspBitReaderError> {
         let video_signal_type_present_flag = r.read_bool()?;
         Ok(if video_signal_type_present_flag {
             Some(VideoSignalType {
@@ -705,12 +697,12 @@ pub struct ChromaLocInfo {
     chroma_sample_loc_type_bottom_field: u32,
 }
 impl ChromaLocInfo {
-    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<ChromaLocInfo>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<ChromaLocInfo>, RbspBitReaderError> {
         let chroma_loc_info_present_flag = r.read_bool()?;
         Ok(if chroma_loc_info_present_flag {
             Some(ChromaLocInfo {
-                chroma_sample_loc_type_top_field: r.read_ue()?,
-                chroma_sample_loc_type_bottom_field: r.read_ue()?,
+                chroma_sample_loc_type_top_field: r.read_ue_named("chroma_sample_loc_type_top_field")?,
+                chroma_sample_loc_type_bottom_field: r.read_ue_named("chroma_sample_loc_type_bottom_field")?,
             })
         } else {
             None
@@ -725,7 +717,7 @@ pub struct TimingInfo {
     pub fixed_frame_rate_flag: bool,
 }
 impl TimingInfo {
-    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<TimingInfo>,bitreader::BitReaderError> {
+    fn read(r: &mut RbspBitReader<'_>) -> Result<Option<TimingInfo>, RbspBitReaderError> {
         let timing_info_present_flag = r.read_bool()?;
         Ok(if timing_info_present_flag {
             Some(TimingInfo {
@@ -893,10 +885,10 @@ impl SeqParameterSet {
             chroma_info: ChromaInfo::read(&mut r, profile_idc)?,
             log2_max_frame_num_minus4: Self::read_log2_max_frame_num_minus4(&mut r)?,
             pic_order_cnt: PicOrderCntType::read(&mut r).map_err(SpsError::PicOrderCnt)?,
-            max_num_ref_frames: r.read_ue()?,
+            max_num_ref_frames: r.read_ue_named("max_num_ref_frames")?,
             gaps_in_frame_num_value_allowed_flag: r.read_bool()?,
-            pic_width_in_mbs_minus1: r.read_ue()?,
-            pic_height_in_map_units_minus1: r.read_ue()?,
+            pic_width_in_mbs_minus1: r.read_ue_named("pic_width_in_mbs_minus1")?,
+            pic_height_in_map_units_minus1: r.read_ue_named("pic_height_in_map_units_minus1")?,
             frame_mbs_flags: FrameMbsFlags::read(&mut r)?,
             direct_8x8_inference_flag: r.read_bool()?,
             frame_cropping: FrameCropping::read(&mut r)?,
@@ -906,7 +898,7 @@ impl SeqParameterSet {
     }
 
     fn read_log2_max_frame_num_minus4(r: &mut RbspBitReader<'_>) -> Result<u8, SpsError> {
-        let val = r.read_ue()?;
+        let val = r.read_ue_named("log2_max_frame_num_minus4")?;
         if val > 12 {
             Err(SpsError::Log2MaxFrameNumMinus4OutOfRange(val))
         } else {

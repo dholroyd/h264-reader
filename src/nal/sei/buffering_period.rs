@@ -1,19 +1,19 @@
 use super::SeiCompletePayloadReader;
-use bitreader;
 use std::marker;
 use crate::nal::pps;
 use crate::rbsp::RbspBitReader;
 use crate::Context;
 use crate::nal::sei::HeaderType;
+use crate::rbsp::RbspBitReaderError;
 
 #[derive(Debug)]
 enum BufferingPeriodError {
-    ReaderError(bitreader::BitReaderError),
+    ReaderError(RbspBitReaderError),
     UndefinedSeqParamSetId(pps::ParamSetId),
     InvalidSeqParamSetId(pps::ParamSetIdError),
 }
-impl From<bitreader::BitReaderError> for BufferingPeriodError {
-    fn from(e: bitreader::BitReaderError) -> Self {
+impl From<RbspBitReaderError> for BufferingPeriodError {
+    fn from(e: RbspBitReaderError) -> Self {
         BufferingPeriodError::ReaderError(e)
     }
 }
@@ -29,7 +29,7 @@ struct InitialCpbRemoval {
     initial_cpb_removal_delay_offset: u32,
 }
 
-fn read_cpb_removal_delay_list(r: &mut RbspBitReader<'_>, count: usize, length: u8) -> Result<Vec<InitialCpbRemoval>,bitreader::BitReaderError> {
+fn read_cpb_removal_delay_list(r: &mut RbspBitReader<'_>, count: usize, length: u8) -> Result<Vec<InitialCpbRemoval>,RbspBitReaderError> {
     let mut res = vec!();
     for _ in 0..count {
         res.push(InitialCpbRemoval {
@@ -48,7 +48,7 @@ struct BufferingPeriod {
 impl BufferingPeriod {
     fn read<Ctx>(ctx: &Context<Ctx>, buf: &[u8]) -> Result<BufferingPeriod,BufferingPeriodError> {
         let mut r = RbspBitReader::new(buf);
-        let seq_parameter_set_id = pps::ParamSetId::from_u32(r.read_ue()?)?;
+        let seq_parameter_set_id = pps::ParamSetId::from_u32(r.read_ue_named("seq_parameter_set_id")?)?;
         match ctx.sps_by_id(seq_parameter_set_id) {
             None => Err(BufferingPeriodError::UndefinedSeqParamSetId(seq_parameter_set_id)),
             Some(sps) => {

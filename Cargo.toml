@@ -1,9 +1,9 @@
 [package]
 name = "h264-reader"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["David Holroyd <dave@badgers-in-foil.co.uk>"]
 license = "MIT/Apache-2.0"
-description = "Reader for H264 bitsream syntax"
+description = "Reader for H264 bitstream syntax"
 categories = [ "multimedia::video" ]
 keywords = [ "H-264" ]
 readme = "README.md"

@@ -5,7 +5,6 @@ use crate::nal::pps::ParamSetId;
 use crate::rbsp::RbspBitReader;
 use crate::nal::sps;
 use crate::rbsp::RbspBitReaderError;
-use bitreader::BitReaderError;
 
 // FIXME: SPS selection
 //      We should really wait until we know what SPS is in use by the frame which follows the
@@ -14,15 +13,9 @@ use bitreader::BitReaderError;
 
 #[derive(Debug)]
 pub enum PicTimingError {
-    ReaderError(BitReaderError),
     RbspError(RbspBitReaderError),
     UndefinedSeqParamSetId(ParamSetId),
     InvalidPicStructId(u8),
-}
-impl From<BitReaderError> for PicTimingError {
-    fn from(e: BitReaderError) -> Self {
-        PicTimingError::ReaderError(e)
-    }
 }
 impl From<RbspBitReaderError> for PicTimingError {
     fn from(e: RbspBitReaderError) -> Self {

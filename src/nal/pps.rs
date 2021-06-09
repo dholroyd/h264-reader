@@ -1,4 +1,3 @@
-use bitreader;
 use super::NalHandler;
 use super::NalHeader;
 use super::sps;
@@ -8,7 +7,6 @@ use crate::rbsp::RbspBitReader;
 
 #[derive(Debug)]
 pub enum PpsError {
-    ReaderError(bitreader::BitReaderError),
     RbspReaderError(rbsp::RbspBitReaderError),
     InvalidSliceGroupMapType(u32),
     InvalidSliceGroupChangeType(u32),
@@ -18,11 +16,6 @@ pub enum PpsError {
     ScalingMatrix(sps::ScalingMatrixError),
 }
 
-impl From<bitreader::BitReaderError> for PpsError {
-    fn from(e: bitreader::BitReaderError) -> Self {
-        PpsError::ReaderError(e)
-    }
-}
 impl From<rbsp::RbspBitReaderError> for PpsError {
     fn from(e: rbsp::RbspBitReaderError) -> Self {
         PpsError::RbspReaderError(e)
@@ -54,8 +47,8 @@ pub struct SliceRect {
 impl SliceRect {
     fn read(r: &mut RbspBitReader<'_>) -> Result<SliceRect,PpsError> {
         Ok(SliceRect {
-            top_left: r.read_ue()?,
-            bottom_right: r.read_ue()?,
+            top_left: r.read_ue_named("top_left")?,
+            bottom_right: r.read_ue_named("bottom_right")?,
         })
     }
 }
@@ -84,7 +77,7 @@ pub enum SliceGroup {
 }
 impl SliceGroup {
     fn read(r: &mut RbspBitReader<'_>, num_slice_groups_minus1: u32) -> Result<SliceGroup,PpsError> {
-        let slice_group_map_type = r.read_ue()?;
+        let slice_group_map_type = r.read_ue_named("slice_group_map_type")?;
         match slice_group_map_type {
             0 => Ok(SliceGroup::Interleaved {
                 run_length_minus1: Self::read_run_lengths(r, num_slice_groups_minus1)?,
@@ -99,7 +92,7 @@ impl SliceGroup {
                 change_type: SliceGroupChangeType::from_id(slice_group_map_type)?,
                 num_slice_groups_minus1,
                 slice_group_change_direction_flag: r.read_bool()?,
-                slice_group_change_rate_minus1: r.read_ue()?,
+                slice_group_change_rate_minus1: r.read_ue_named("slice_group_change_rate_minus1")?,
             }),
             6 => Ok(SliceGroup::ExplicitAssignment {
                 num_slice_groups_minus1,
@@ -112,7 +105,7 @@ impl SliceGroup {
     fn read_run_lengths(r: &mut RbspBitReader<'_>, num_slice_groups_minus1: u32) -> Result<Vec<u32>,PpsError> {
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
         for _ in 0..num_slice_groups_minus1+1 {
-            run_length_minus1.push(r.read_ue()?);
+            run_length_minus1.push(r.read_ue_named("run_length_minus1")?);
         }
         Ok(run_length_minus1)
     }
@@ -126,7 +119,7 @@ impl SliceGroup {
     }
 
     fn read_group_ids(r: &mut RbspBitReader<'_>, num_slice_groups_minus1: u32) -> Result<Vec<u32>,PpsError> {
-        let pic_size_in_map_units_minus1 = r.read_ue()?;
+        let pic_size_in_map_units_minus1 = r.read_ue_named("pic_size_in_map_units_minus1")?;
         // TODO: avoid any panics due to failed conversions
         let size = ((1f64+f64::from(pic_size_in_map_units_minus1)).log2()) as u8;
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
@@ -245,13 +238,13 @@ impl PicParameterSet {
             entropy_coding_mode_flag: r.read_bool()?,
             bottom_field_pic_order_in_frame_present_flag: r.read_bool()?,
             slice_groups: Self::read_slice_groups(&mut r)?,
-            num_ref_idx_l0_default_active_minus1: r.read_ue()?,
-            num_ref_idx_l1_default_active_minus1: r.read_ue()?,
+            num_ref_idx_l0_default_active_minus1: r.read_ue_named("num_ref_idx_l0_default_active_minus1")?,
+            num_ref_idx_l1_default_active_minus1: r.read_ue_named("num_ref_idx_l1_default_active_minus1")?,
             weighted_pred_flag: r.read_bool()?,
             weighted_bipred_idc: r.read_u8(2)?,
-            pic_init_qp_minus26: r.read_se()?,
-            pic_init_qs_minus26: r.read_se()?,
-            chroma_qp_index_offset: r.read_se()?,
+            pic_init_qp_minus26: r.read_se_named("pic_init_qp_minus26")?,
+            pic_init_qs_minus26: r.read_se_named("pic_init_qs_minus26")?,
+            chroma_qp_index_offset: r.read_se_named("chroma_qp_index_offset")?,
             deblocking_filter_control_present_flag: r.read_bool()?,
             constrained_intra_pred_flag: r.read_bool()?,
             redundant_pic_cnt_present_flag: r.read_bool()?,
@@ -260,7 +253,7 @@ impl PicParameterSet {
     }
 
     fn read_slice_groups(r: &mut RbspBitReader<'_>) -> Result<Option<SliceGroup>,PpsError> {
-        let num_slice_groups_minus1 = r.read_ue()?;
+        let num_slice_groups_minus1 = r.read_ue_named("num_slice_groups_minus1")?;
         Ok(if num_slice_groups_minus1 > 0 {
             Some(SliceGroup::read(r, num_slice_groups_minus1)?)
         } else {

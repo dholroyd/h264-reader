@@ -22,7 +22,6 @@
 //! the sequence `0x00 0x00 0x03` with `0x00 0x00`).
 
 use std::borrow::Cow;
-use std::ops::{Deref, DerefMut};
 use bitreader;
 use crate::nal::{NalHandler, NalHeader};
 use crate::Context;
@@ -244,6 +243,9 @@ impl From<bitreader::BitReaderError> for RbspBitReaderError {
 pub enum RbspBitReaderError {
     ReaderError(bitreader::BitReaderError),
     ReaderErrorFor(&'static str, bitreader::BitReaderError),
+
+    /// An Exp-Golomb-coded syntax elements value has more than 32 bits.
+    ExpGolombTooLarge(&'static str),
 }
 
 pub struct RbspBitReader<'a> {
@@ -257,34 +259,47 @@ impl<'a> RbspBitReader<'a> {
             reader: bitreader::BitReader::new(buf),
         }
     }
-    pub fn read_ue(&mut self) -> Result<u32,bitreader::BitReaderError> {
-        let count = count_zero_bits(&mut self.reader)?;
+
+    pub fn read_ue_named(&mut self, name: &'static str) -> Result<u32,RbspBitReaderError> {
+        let count = count_zero_bits(&mut self.reader, name)?;
         if count > 0 {
-            let val = self.reader.read_u32(count)?;
+            let val = self.read_u32(count)?;
             Ok((1 << count) -1 + val)
         } else {
             Ok(0)
         }
     }
 
-    pub fn read_ue_named(&mut self, name: &'static str) -> Result<u32,RbspBitReaderError> {
-        self.read_ue().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
+    pub fn read_se_named(&mut self, name: &'static str) -> Result<i32, RbspBitReaderError> {
+        Ok(Self::golomb_to_signed(self.read_ue_named(name)?))
     }
 
-    pub fn read_se_named(&mut self, name: &'static str) -> Result<i32,RbspBitReaderError> {
-        self.read_se().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
+    pub fn read_bool(&mut self) -> Result<bool, RbspBitReaderError> {
+        self.reader.read_bool().map_err( |e| RbspBitReaderError::ReaderError(e) )
     }
 
     pub fn read_bool_named(&mut self, name: &'static str) -> Result<bool, RbspBitReaderError> {
-        self.read_bool().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
+        self.reader.read_bool().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
     }
 
-    pub fn read_se(&mut self) -> Result<i32,bitreader::BitReaderError> {
-        Ok(Self::golomb_to_signed(self.read_ue()?))
+    pub fn read_u8(&mut self, bit_count: u8) -> Result<u8, RbspBitReaderError> {
+        self.reader.read_u8(bit_count).map_err( |e| RbspBitReaderError::ReaderError(e) )
+    }
+
+    pub fn read_u16(&mut self, bit_count: u8) -> Result<u16, RbspBitReaderError> {
+        self.reader.read_u16(bit_count).map_err( |e| RbspBitReaderError::ReaderError(e) )
+    }
+
+    pub fn read_u32(&mut self, bit_count: u8) -> Result<u32, RbspBitReaderError> {
+        self.reader.read_u32(bit_count).map_err( |e| RbspBitReaderError::ReaderError(e) )
+    }
+
+    pub fn read_i32(&mut self, bit_count: u8) -> Result<i32, RbspBitReaderError> {
+        self.reader.read_i32(bit_count).map_err( |e| RbspBitReaderError::ReaderError(e) )
     }
 
     pub fn has_more_rbsp_data(&self) -> bool {
-        self.position() < self.total_size as u64
+        self.reader.position() < self.total_size as u64
     }
 
     fn golomb_to_signed(val: u32) -> i32 {
@@ -292,31 +307,15 @@ impl<'a> RbspBitReader<'a> {
         ((val >> 1) as i32 + (val & 0x1) as i32) * sign
     }
 }
-fn count_zero_bits(r: &mut bitreader::BitReader<'_>) -> Result<u8,bitreader::BitReaderError> {
+fn count_zero_bits(r: &mut bitreader::BitReader<'_>, name: &'static str) -> Result<u8, RbspBitReaderError> {
     let mut count = 0;
     while !r.read_bool()? {
         count += 1;
         if count > 31 {
-            return Err(bitreader::BitReaderError::TooManyBitsForType {
-                position: r.position(),
-                requested: 32,
-                allowed: 31,
-            })
+            return Err(RbspBitReaderError::ExpGolombTooLarge(name));
         }
     }
     Ok(count)
-}
-impl<'a> Deref for RbspBitReader<'a> {
-    type Target = bitreader::BitReader<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.reader
-    }
-}
-impl<'a> DerefMut for RbspBitReader<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.reader
-    }
 }
 
 #[cfg(test)]
