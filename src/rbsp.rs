@@ -250,13 +250,11 @@ pub enum RbspBitReaderError {
 }
 
 pub struct RbspBitReader<'buf> {
-    total_size: usize,
     reader: bitstream_io::read::BitReader<std::io::Cursor<&'buf [u8]>, bitstream_io::BigEndian>,
 }
 impl<'buf> RbspBitReader<'buf> {
     pub fn new(buf: &'buf [u8]) -> Self {
         RbspBitReader {
-            total_size: buf.len() * 8,
             reader: bitstream_io::read::BitReader::new(std::io::Cursor::new(buf)),
         }
     }
@@ -301,8 +299,7 @@ impl<'buf> RbspBitReader<'buf> {
 
     pub fn has_more_rbsp_data(&mut self) -> bool {
         // BitReader returns its reader iff at an aligned position.
-        let total_size = self.total_size;
-        self.reader.reader().map(|r| r.position() < total_size as u64).unwrap_or(true)
+        self.reader.reader().map(|r| (r.position() as usize) < r.get_ref().len()).unwrap_or(true)
     }
 
     fn golomb_to_signed(val: u32) -> i32 {
@@ -413,5 +410,19 @@ mod tests {
 
         assert_eq!(decoded, &expected[..]);
         assert!(matches!(decoded, Cow::Borrowed(..)));
+    }
+
+    #[test]
+    fn bitreader_has_more_data() {
+        let mut reader = RbspBitReader::new(&[0x12, 0x34]);
+        assert!(reader.has_more_rbsp_data());
+        assert_eq!(reader.read_u8(4).unwrap(), 0x1);
+        assert!(reader.has_more_rbsp_data()); // unaligned, backing reader not at EOF
+        assert_eq!(reader.read_u8(4).unwrap(), 0x2);
+        assert!(reader.has_more_rbsp_data()); // aligned, backing reader not at EOF
+        assert_eq!(reader.read_u8(4).unwrap(), 0x3);
+        assert!(reader.has_more_rbsp_data()); // unaligned, backing reader at EOF
+        assert_eq!(reader.read_u8(4).unwrap(), 0x4);
+        assert!(!reader.has_more_rbsp_data()); // aligned, backing reader at EOF
     }
 }
