@@ -25,7 +25,6 @@ use bitstream_io::read::BitRead;
 use std::borrow::Cow;
 use crate::nal::{NalHandler, NalHeader};
 use crate::Context;
-use log::*;
 
 #[derive(Debug)]
 enum ParseState {
@@ -33,23 +32,9 @@ enum ParseState {
     OneZero,
     TwoZero,
 }
-impl ParseState {
-    fn in_rbsp(&self) -> bool {
-        match *self {
-            ParseState::Start => true,
-            ParseState::OneZero => false,
-            ParseState::TwoZero => false,
-        }
-    }
 
-    fn end_backtrack_bytes(&self) -> usize {
-        match *self {
-            ParseState::Start => 0,
-            ParseState::OneZero => 1,
-            ParseState::TwoZero => 2,
-        }
-    }
-}
+/// Push parser which removes _emulation prevention_ as it calls
+/// an inner [NalHandler]. Expects to be called without the NAL header byte.
 pub struct RbspDecoder<R>
     where
         R: NalHandler
@@ -72,11 +57,9 @@ impl<R> RbspDecoder<R>
         self.state = new_state;
     }
 
-    fn emit(&mut self, ctx: &mut Context<R::Ctx>, buf:&[u8], start_index: Option<usize>, end_index: usize) {
-        if let Some(start) = start_index {
-            self.nal_reader.push(ctx, &buf[start..end_index])
-        } else {
-            error!("RbspDecoder: no start_index");
+    fn emit(&mut self, ctx: &mut Context<R::Ctx>, buf: &[u8]) {
+        if !buf.is_empty() {
+            self.nal_reader.push(ctx, &buf)
         }
     }
 
@@ -95,73 +78,49 @@ impl<R> NalHandler for RbspDecoder<R>
         self.nal_reader.start(ctx, header);
     }
 
-    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-        let mut rbsp_start: Option<usize> = if self.state.in_rbsp() {
-            Some(0)
-        } else {
-            None
-        };
-
-        for i in 0..buf.len() {
-            let b = buf[i];
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, mut buf: &[u8]) {
+        // buf[0..i] hasn't yet been emitted and is RBSP (has no emulation_prevention_three_bytes).
+        // self.state describes the state before buf[i].
+        // buf[i..] has yet to be examined.
+        let mut i = 0;
+        while i < buf.len() {
             match self.state {
-                ParseState::Start => {
-                    match b {
-                        0x00 => self.to(ParseState::OneZero),
-                        _ => self.to(ParseState::Start),
-                    }
+                ParseState::Start => match memchr::memchr(0x00, &buf[i..]) {
+                    Some(nonzero_len) => {
+                        i += nonzero_len;
+                        self.to(ParseState::OneZero);
+                    },
+                    None => break,
                 },
-                ParseState::OneZero => {
-                    match b {
-                        0x00 => self.to(ParseState::TwoZero),
-                        _ => {
-                            if rbsp_start.is_none() {
-                                let fake = [0x00];
-                                self.emit(ctx, &fake[..], Some(0), 1);
-                                rbsp_start = Some(i);
-                            }
-                            self.to(ParseState::Start)
-                        },
-                    }
+                ParseState::OneZero => match buf[i] {
+                    0x00 => self.to(ParseState::TwoZero),
+                    _ => self.to(ParseState::Start),
                 },
-                ParseState::TwoZero => {
-                    match b {
-                        0x03 => {
-                            // found an 'emulation prevention' byte; skip it,
-                            if rbsp_start.is_none() {
-                                let fake = [0x00, 0x00];
-                                self.emit(ctx, &fake[..], Some(0), 2);
-                            } else {
-                                self.emit(ctx, buf, rbsp_start, i);
-                            }
-                            rbsp_start = Some(i + 1);
-                            // TODO: per spec, the next byte should be either 0x00, 0x1, 0x02 or
-                            // 0x03, but at the moment we assume this without checking for
-                            // correctness
-                            self.to(ParseState::Start);
-                        },
-                        // I see example PES packet payloads that end with 0x80 0x00 0x00 0x00,
-                        // which triggered this error; guess the example is correct and this code
-                        // was wrong, but not sure why!
-                        // 0x00 => { self.err(b); },
-                        _ => {
-                            if rbsp_start.is_none() {
-                                let fake = [0x00, 0x00];
-                                self.emit(ctx, &fake[..], Some(0), 2);
-                                rbsp_start = Some(i);
-                            }
-                            self.to(ParseState::Start)
-                        },
-                    }
+                ParseState::TwoZero => match buf[i] {
+                    0x03 => {
+                        // Found an emulation_prevention_three_byte; skip it.
+                        let (rbsp, three_onward) = buf.split_at(i);
+                        self.emit(ctx, rbsp);
+                        buf = &three_onward[1..];
+                        i = 0;
+                        // TODO: per spec, the next byte should be either 0x00, 0x1, 0x02 or
+                        // 0x03, but at the moment we assume this without checking for
+                        // correctness
+                        self.to(ParseState::Start);
+                        continue; // don't increment i; buf[0] hasn't been examined yet.
+                    },
+                    // I see example PES packet payloads that end with 0x80 0x00 0x00 0x00,
+                    // which triggered this error; guess the example is correct and this code
+                    // was wrong, but not sure why!
+                    // 0x00 => { self.err(b); },
+                    _ => self.to(ParseState::Start),
                 },
             }
+            i += 1;
         }
-        if let Some(start) = rbsp_start {
-            let end = buf.len() - self.state.end_backtrack_bytes();
-            if start != end {
-                self.nal_reader.push(ctx, &buf[start..end])
-            }
-        }
+
+        // buf is now entirely RBSP.
+        self.emit(ctx, buf);
     }
 
     /// To be invoked when calling code knows that the end of a sequence of NAL Unit data has been
@@ -171,21 +130,13 @@ impl<R> NalHandler for RbspDecoder<R>
     /// Units explicitly, the parser for that structure should call `end_units()` once all data
     /// has been passed to the `push()` function.
     fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
-        let backtrack = self.state.end_backtrack_bytes();
-        if backtrack > 0 {
-            // if we were in the middle of parsing a sequence of 0x00 bytes that might have become
-            // a start-code, but actually reached the end of input, then we will now need to emit
-            // those 0x00 bytes that we had been holding back,
-            let tmp = [0u8; 3];
-            self.nal_reader.push(ctx, &tmp[0..backtrack]);
-        }
         self.to(ParseState::Start);
         self.nal_reader.end(ctx);
     }
 }
 
 /// Removes _Emulation Prevention_ from the given byte sequence of a single NAL unit, returning the
-/// NAL units _Raw Byte Sequence Payload_ (RBSP).
+/// NAL units _Raw Byte Sequence Payload_ (RBSP). Expects to be called without the NAL header byte.
 pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Cow<'a, [u8]> {
     struct DecoderState<'b> {
         data: Cow<'b, [u8]>,
