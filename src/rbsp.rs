@@ -23,14 +23,118 @@
 
 use bitstream_io::read::BitRead as _;
 use std::borrow::Cow;
+use std::io::BufRead;
+use std::io::Read;
 use crate::nal::{NalHandler, NalHeader};
 use crate::Context;
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 enum ParseState {
     Start,
     OneZero,
     TwoZero,
+    Skip,
+}
+
+/// [`BufRead`] adapter which removes `emulation-prevention-three-byte`s.
+/// Typically used via a [`h264_reader::nal::Nal`].
+#[derive(Clone)]
+pub struct ByteReader<R: BufRead> {
+    // self.inner[0..self.i] hasn't yet been emitted and is RBSP (has no
+    // emulation_prevention_three_bytes).
+    //
+    // self.state describes the state before self.inner[self.i].
+    //
+    // self.inner[self.i..] has yet to be examined.
+
+    inner: R,
+    state: ParseState,
+    i: usize,
+}
+impl<R: BufRead> ByteReader<R> {
+    /// Constructs an adapter from the given [BufRead]. The caller is expected to have skipped
+    /// the NAL header byte already.
+    pub fn new(inner: R) -> Self {
+        Self {
+            inner,
+            state: ParseState::Skip,
+            i: 0,
+        }
+    }
+}
+impl<R: BufRead> Read for ByteReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let chunk = self.fill_buf()?;
+        let amt = std::cmp::min(buf.len(), chunk.len());
+        if amt == 1 {
+            // Stolen from std::io::Read implementation for &[u8]:
+            // apparently this is faster to special-case.
+            buf[0] = chunk[0];
+        } else {
+            buf[..amt].copy_from_slice(&chunk[..amt]);
+        }
+        self.consume(amt);
+        Ok(amt)
+    }
+}
+impl<R: BufRead> BufRead for ByteReader<R> {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        while self.i == 0 { // slow path
+            let chunk = self.inner.fill_buf()?;
+            if chunk.is_empty() {
+                return Ok(b"");
+            }
+            if matches!(self.state, ParseState::Skip) {
+                self.inner.consume(1);
+                self.state = ParseState::Start;
+                continue;
+            }
+            if find_three(&mut self.state, &mut self.i, chunk) {
+                self.state = ParseState::Skip;
+            }
+        }
+        Ok(&self.inner.fill_buf()?[0..self.i])
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.i = self.i.checked_sub(amt).unwrap();
+        self.inner.consume(amt);
+    }
+}
+
+/// Searches for an emulation_prevention_three_byte, updating `state` and `i` as a side effect.
+/// Returns true if one is found; caller needs to further update `state`/`i` then.
+/// (The two callers do different things.)
+fn find_three(state: &mut ParseState, i: &mut usize, chunk: &[u8]) -> bool {
+    while *i < chunk.len() {
+        match *state {
+            ParseState::Start => match memchr::memchr(0x00, &chunk[*i..]) {
+                Some(nonzero_len) => {
+                    *i += nonzero_len;
+                    *state = ParseState::OneZero;
+                },
+                None => {
+                    *i = chunk.len();
+                    break
+                },
+            },
+            ParseState::OneZero => match chunk[*i] {
+                0x00 => *state = ParseState::TwoZero,
+                _ => *state = ParseState::Start,
+            },
+            ParseState::TwoZero => match chunk[*i] {
+                0x03 => return true,
+                0x00 => {
+                    eprintln!("RbspDecoder: state={:?}, invalid byte {:#x}", *state, chunk[*i]);
+                    *state = ParseState::Start;
+                },
+                _ => *state = ParseState::Start,
+            },
+            ParseState::Skip => unreachable!(),
+        }
+        *i += 1;
+    }
+    false
 }
 
 /// Push parser which removes _emulation prevention_ as it calls
@@ -63,11 +167,6 @@ impl<R> RbspDecoder<R>
         }
     }
 
-    fn err(&mut self, b: u8) {
-        eprintln!("RbspDecoder: state={:?}, invalid byte {:#x}", self.state, b);
-        self.state = ParseState::Start;
-    }
-
     pub fn handler_ref(&self) -> &R {
         &self.nal_reader
     }
@@ -93,43 +192,14 @@ impl<R> NalHandler for RbspDecoder<R>
         // buf[i..] has yet to be examined.
         let mut i = 0;
         while i < buf.len() {
-            match self.state {
-                ParseState::Start => match memchr::memchr(0x00, &buf[i..]) {
-                    Some(nonzero_len) => {
-                        i += nonzero_len;
-                        self.to(ParseState::OneZero);
-                    },
-                    None => break,
-                },
-                ParseState::OneZero => match buf[i] {
-                    0x00 => self.to(ParseState::TwoZero),
-                    _ => self.to(ParseState::Start),
-                },
-                ParseState::TwoZero => match buf[i] {
-                    0x03 => {
-                        // Found an emulation_prevention_three_byte; skip it.
-                        let (rbsp, three_onward) = buf.split_at(i);
-                        self.emit(ctx, rbsp);
-                        buf = &three_onward[1..];
-                        i = 0;
-                        // TODO: per spec, the next byte should be either 0x00, 0x1, 0x02 or
-                        // 0x03, but at the moment we assume this without checking for
-                        // correctness
-                        self.to(ParseState::Start);
-                        continue; // don't increment i; buf[0] hasn't been examined yet.
-                    },
-
-                    // H.264 section 7.4.1:
-                    // > Within the NAL unit, the following three-byte sequences shall not occur at
-                    // > any byte-aligned position:
-                    // > *   0x000000
-                    // > *   0x000001
-                    // > *   0x000002
-                    b @ 0x00 | b @ 0x01 | b @ 0x02 => { self.err(b); },
-                    _ => self.to(ParseState::Start),
-                },
+            if find_three(&mut self.state, &mut i, buf) {
+                // i now indexes the emulation_prevention_three_byte.
+                let (rbsp, three_onward) = buf.split_at(i);
+                self.emit(ctx, rbsp);
+                buf = &three_onward[1..];
+                i = 0;
+                self.state = ParseState::Start;
             }
-            i += 1;
         }
 
         // buf is now entirely RBSP.
@@ -296,6 +366,7 @@ mod tests {
     use std::rc::Rc;
     use std::cell::RefCell;
     use hex_literal::*;
+    use hex_slice::AsHex;
 
     struct State {
         started: bool,
@@ -329,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn it_works() {
+    fn push_decoder() {
         let data = hex!(
            "67 64 00 0A AC 72 84 44 26 84 00 00 03
             00 04 00 00 03 00 CA 3C 48 96 11 80");
@@ -350,6 +421,26 @@ mod tests {
             00 04 00 00 00 CA 3C 48 96 11 80");
             let s = state.borrow();
             assert_eq!(&s.data[..], &expected[..], "on split_at({})", i);
+        }
+    }
+
+    #[test]
+    fn byte_reader() {
+        let data = hex!(
+           "67 64 00 0A AC 72 84 44 26 84 00 00 03
+            00 04 00 00 03 00 CA 3C 48 96 11 80");
+        for i in 1..data.len()-1 {
+            let (head, tail) = data.split_at(i);
+            let r = head.chain(tail);
+            let mut r = ByteReader::new(r);
+            let mut rbsp = Vec::new();
+            r.read_to_end(&mut rbsp).unwrap();
+            let expected = hex!(
+           "64 00 0A AC 72 84 44 26 84 00 00
+            00 04 00 00 00 CA 3C 48 96 11 80");
+            assert!(rbsp == &expected[..],
+                    "Mismatch with on split_at({}):\nrbsp     {:02x}\nexpected {:02x}",
+                    i, rbsp.as_hex(), expected.as_hex());
         }
     }
 
