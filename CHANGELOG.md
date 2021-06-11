@@ -1,4 +1,9 @@
-# 0.5.0 (unreleased)
+# Change Log
+
+## Unreleased
+
+
+## 0.5.0 - 2021-06-09
 
 *   BREAKING CHANGE: changes to error enums; switched several
     `h264_reader::rbsp::RbspBitReader` methods to return `RbspBitReaderError`
@@ -13,6 +18,6 @@
 *   removed `read_ue` and `read_se` from
     `h264_reader::rbsp::RbspBitReader`, in favor of `_named` variants.
 
-# 0.4.0 (31 Mar 2020, 5ef73dc)
+## 0.4.0 (31 Mar 2020, 5ef73dc)
 
 ...
