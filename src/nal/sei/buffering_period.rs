@@ -1,20 +1,20 @@
 use super::SeiCompletePayloadReader;
 use std::marker;
 use crate::nal::{sps, pps};
-use crate::rbsp::RbspBitReader;
+use crate::rbsp::BitRead;
 use crate::Context;
 use crate::nal::sei::HeaderType;
-use crate::rbsp::RbspBitReaderError;
+use crate::rbsp::BitReaderError;
 use log::*;
 
 #[derive(Debug)]
 enum BufferingPeriodError {
-    ReaderError(RbspBitReaderError),
+    ReaderError(BitReaderError),
     UndefinedSeqParamSetId(pps::ParamSetId),
     InvalidSeqParamSetId(pps::ParamSetIdError),
 }
-impl From<RbspBitReaderError> for BufferingPeriodError {
-    fn from(e: RbspBitReaderError) -> Self {
+impl From<BitReaderError> for BufferingPeriodError {
+    fn from(e: BitReaderError) -> Self {
         BufferingPeriodError::ReaderError(e)
     }
 }
@@ -30,12 +30,12 @@ struct InitialCpbRemoval {
     initial_cpb_removal_delay_offset: u32,
 }
 
-fn read_cpb_removal_delay_list(r: &mut RbspBitReader<'_>, count: usize, length: u8) -> Result<Vec<InitialCpbRemoval>,RbspBitReaderError> {
+fn read_cpb_removal_delay_list<R: BitRead>(r: &mut R, count: usize, length: u32) -> Result<Vec<InitialCpbRemoval>,BitReaderError> {
     let mut res = vec!();
     for _ in 0..count {
         res.push(InitialCpbRemoval {
-            initial_cpb_removal_delay: r.read_u32(length)?,
-            initial_cpb_removal_delay_offset: r.read_u32(length)?,
+            initial_cpb_removal_delay: r.read_u32(length, "initial_cpb_removal_delay")?,
+            initial_cpb_removal_delay_offset: r.read_u32(length, "initial_cpb_removal_delay_offset")?,
         });
     }
     Ok(res)
@@ -48,15 +48,15 @@ struct BufferingPeriod {
 }
 impl BufferingPeriod {
     fn read<Ctx>(ctx: &Context<Ctx>, buf: &[u8]) -> Result<BufferingPeriod,BufferingPeriodError> {
-        let mut r = RbspBitReader::new(buf);
-        let seq_parameter_set_id = pps::ParamSetId::from_u32(r.read_ue_named("seq_parameter_set_id")?)?;
+        let mut r = crate::rbsp::BitReader::new(buf);
+        let seq_parameter_set_id = pps::ParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)?;
         let sps = ctx.sps_by_id(seq_parameter_set_id)
             .ok_or_else(|| BufferingPeriodError::UndefinedSeqParamSetId(seq_parameter_set_id))?;
         let vui = sps.vui_parameters.as_ref();
         let mut read = |p: &sps::HrdParameters| read_cpb_removal_delay_list(
             &mut r,
             p.cpb_specs.len(),
-            p.initial_cpb_removal_delay_length_minus1 + 1,
+            u32::from(p.initial_cpb_removal_delay_length_minus1) + 1,
         );
         let nal_hrd_bp = vui.and_then(|v| v.nal_hrd_parameters.as_ref()).map(&mut read).transpose()?;
         let vcl_hrd_bp = vui.and_then(|v| v.vcl_hrd_parameters.as_ref()).map(&mut read).transpose()?;

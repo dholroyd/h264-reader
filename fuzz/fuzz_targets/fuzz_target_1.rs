@@ -113,7 +113,7 @@ impl h264_reader::nal::NalHandler for SliceFuzz {
         decode.push(ctx, &current_slice.buf[..]);
         decode.end(ctx);
         let capture = decode.into_handler();
-        let mut r = rbsp::RbspBitReader::new(&capture.buf[1..]);
+        let mut r = rbsp::BitReader::new(&capture.buf[1..]);
         match nal::slice::SliceHeader::read(ctx, &mut r, current_slice.header) {
             Ok((header, sps, pps)) => {
                 println!("{:#?}", header);
