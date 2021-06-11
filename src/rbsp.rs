@@ -21,7 +21,7 @@
 //! yield byte sequences where the encoding is removed (i.e. the decoder will replace instances of
 //! the sequence `0x00 0x00 0x03` with `0x00 0x00`).
 
-use bitstream_io::read::BitRead;
+use bitstream_io::read::BitRead as _;
 use std::borrow::Cow;
 use crate::nal::{NalHandler, NalHeader};
 use crate::Context;
@@ -194,14 +194,8 @@ pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Cow<'a, [u8]> {
     decoder.into_handler().data
 }
 
-impl From<std::io::Error> for RbspBitReaderError {
-    fn from(e: std::io::Error) -> Self {
-        RbspBitReaderError::ReaderError(e)
-    }
-}
-
 #[derive(Debug)]
-pub enum RbspBitReaderError {
+pub enum BitReaderError {
     ReaderError(std::io::Error),
     ReaderErrorFor(&'static str, std::io::Error),
 
@@ -209,64 +203,71 @@ pub enum RbspBitReaderError {
     ExpGolombTooLarge(&'static str),
 }
 
-pub struct RbspBitReader<'buf> {
-    reader: bitstream_io::read::BitReader<std::io::Cursor<&'buf [u8]>, bitstream_io::BigEndian>,
-}
-impl<'buf> RbspBitReader<'buf> {
-    pub fn new(buf: &'buf [u8]) -> Self {
-        RbspBitReader {
-            reader: bitstream_io::read::BitReader::new(std::io::Cursor::new(buf)),
-        }
-    }
+pub trait BitRead {
+    fn read_ue(&mut self, name: &'static str) -> Result<u32,BitReaderError>;
+    fn read_se(&mut self, name: &'static str) -> Result<i32, BitReaderError>;
+    fn read_bool(&mut self, name: &'static str) -> Result<bool, BitReaderError>;
+    fn read_u8(&mut self, bit_count: u32, name: &'static str) -> Result<u8, BitReaderError>;
+    fn read_u16(&mut self, bit_count: u32, name: &'static str) -> Result<u16, BitReaderError>;
+    fn read_u32(&mut self, bit_count: u32, name: &'static str) -> Result<u32, BitReaderError>;
+    fn read_i32(&mut self, bit_count: u32, name: &'static str) -> Result<i32, BitReaderError>;
 
-    pub fn read_ue_named(&mut self, name: &'static str) -> Result<u32,RbspBitReaderError> {
-        let count = self.reader.read_unary1()
-            .map_err(|e| RbspBitReaderError::ReaderErrorFor(name, e))?;
+    /// Returns true if positioned before the RBSP trailing bits.
+    ///
+    /// This matches the definition of `more_rbsp_data()` in Rec. ITU-T H.264
+    /// (03/2010) section 7.2.
+    fn has_more_rbsp_data(&mut self, name: &'static str) -> Result<bool, BitReaderError>;
+}
+
+/// Reads H.264 bitstream syntax elements from an RBSP representation (no NAL
+/// header byte or emulation prevention three bytes).
+pub struct BitReader<R: std::io::BufRead + Clone> {
+    reader: bitstream_io::read::BitReader<R, bitstream_io::BigEndian>,
+}
+impl<R: std::io::BufRead + Clone> BitReader<R> {
+    pub fn new(inner: R) -> Self {
+        Self { reader: bitstream_io::read::BitReader::new(inner) }
+    }
+}
+
+impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
+    fn read_ue(&mut self, name: &'static str) -> Result<u32,BitReaderError> {
+        let count = self.reader.read_unary1().map_err(|e| BitReaderError::ReaderErrorFor(name, e))?;
         if count > 31 {
-            return Err(RbspBitReaderError::ExpGolombTooLarge(name));
+            return Err(BitReaderError::ExpGolombTooLarge(name));
         } else if count > 0 {
-            let val = self.read_u32(count as u8)?;
+            let val = self.read_u32(count, name)?;
             Ok((1 << count) -1 + val)
         } else {
             Ok(0)
         }
     }
 
-    pub fn read_se_named(&mut self, name: &'static str) -> Result<i32, RbspBitReaderError> {
-        Ok(Self::golomb_to_signed(self.read_ue_named(name)?))
+    fn read_se(&mut self, name: &'static str) -> Result<i32, BitReaderError> {
+        Ok(golomb_to_signed(self.read_ue(name)?))
     }
 
-    pub fn read_bool(&mut self) -> Result<bool, RbspBitReaderError> {
-        self.reader.read_bit().map_err( |e| RbspBitReaderError::ReaderError(e) )
+    fn read_bool(&mut self, name: &'static str) -> Result<bool, BitReaderError> {
+        self.reader.read_bit().map_err(|e| BitReaderError::ReaderErrorFor(name, e) )
     }
 
-    pub fn read_bool_named(&mut self, name: &'static str) -> Result<bool, RbspBitReaderError> {
-        self.reader.read_bit().map_err( |e| RbspBitReaderError::ReaderErrorFor(name, e) )
+    fn read_u8(&mut self, bit_count: u32, name: &'static str) -> Result<u8, BitReaderError> {
+        self.reader.read(bit_count).map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
-    pub fn read_u8(&mut self, bit_count: u32) -> Result<u8, RbspBitReaderError> {
-        self.reader.read(u32::from(bit_count)).map_err( |e| RbspBitReaderError::ReaderError(e) )
+    fn read_u16(&mut self, bit_count: u32, name: &'static str) -> Result<u16, BitReaderError> {
+        self.reader.read(bit_count).map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
-    pub fn read_u16(&mut self, bit_count: u8) -> Result<u16, RbspBitReaderError> {
-        self.reader.read(u32::from(bit_count)).map_err( |e| RbspBitReaderError::ReaderError(e) )
+    fn read_u32(&mut self, bit_count: u32, name: &'static str) -> Result<u32, BitReaderError> {
+        self.reader.read(bit_count).map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
-    pub fn read_u32(&mut self, bit_count: u8) -> Result<u32, RbspBitReaderError> {
-        self.reader.read(u32::from(bit_count)).map_err( |e| RbspBitReaderError::ReaderError(e) )
+    fn read_i32(&mut self, bit_count: u32, name: &'static str) -> Result<i32, BitReaderError> {
+        self.reader.read(bit_count).map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
-    pub fn read_i32(&mut self, bit_count: u8) -> Result<i32, RbspBitReaderError> {
-        self.reader.read(u32::from(bit_count)).map_err( |e| RbspBitReaderError::ReaderError(e) )
-    }
-
-    /// Returns true if positioned before the RBSP trailing bits.
-    ///
-    /// This matches the definition of `more_rbsp_data()` in Rec. ITU-T H.264
-    /// (03/2010) section 7.2.
-    pub fn has_more_rbsp_data(&mut self, name: &'static str) -> Result<bool, RbspBitReaderError> {
-        // BitReader returns its reader iff at an aligned position.
-        //self.reader.reader().map(|r| (r.position() as usize) < r.get_ref().len()).unwrap_or(true)
+    fn has_more_rbsp_data(&mut self, name: &'static str) -> Result<bool, BitReaderError> {
         let mut throwaway = self.reader.clone();
         let r = (move || {
             throwaway.skip(1)?;
@@ -275,15 +276,14 @@ impl<'buf> RbspBitReader<'buf> {
         })();
         match r {
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
-            Err(e) => Err(RbspBitReaderError::ReaderErrorFor(name, e)),
+            Err(e) => Err(BitReaderError::ReaderErrorFor(name, e)),
             Ok(_) => Ok(true),
         }
     }
-
-    fn golomb_to_signed(val: u32) -> i32 {
-        let sign = (((val & 0x1) as i32) << 1) - 1;
-        ((val >> 1) as i32 + (val & 0x1) as i32) * sign
-    }
+}
+fn golomb_to_signed(val: u32) -> i32 {
+    let sign = (((val & 0x1) as i32) << 1) - 1;
+    ((val >> 1) as i32 + (val & 0x1) as i32) * sign
 }
 
 #[cfg(test)]
@@ -383,26 +383,25 @@ mod tests {
     #[test]
     fn bitreader_has_more_data() {
         // Should work when the end bit is byte-aligned.
-        let mut reader = RbspBitReader::new(&[0x12, 0x80]);
+        let mut reader = BitReader::new(&[0x12, 0x80][..]);
         assert!(reader.has_more_rbsp_data("call 1").unwrap());
-        assert_eq!(reader.read_u8(8).unwrap(), 0x12);
+        assert_eq!(reader.read_u8(8, "u8 1").unwrap(), 0x12);
         assert!(!reader.has_more_rbsp_data("call 2").unwrap());
 
         // and when it's not.
-        let mut reader = RbspBitReader::new(&[0x18]);
+        let mut reader = BitReader::new(&[0x18][..]);
         assert!(reader.has_more_rbsp_data("call 3").unwrap());
-        assert_eq!(reader.read_u8(4).unwrap(), 0x1);
+        assert_eq!(reader.read_u8(4, "u8 2").unwrap(), 0x1);
         assert!(!reader.has_more_rbsp_data("call 4").unwrap());
 
         // should also work when there are cabac-zero-words.
-        let mut reader = RbspBitReader::new(&[0x80, 0x00, 0x00]);
+        let mut reader = BitReader::new(&[0x80, 0x00, 0x00][..]);
         assert!(!reader.has_more_rbsp_data("at end with cabac-zero-words").unwrap());
     }
 
     #[test]
     fn read_ue_overflow() {
-        let mut reader = RbspBitReader::new(&[0, 0, 0, 0, 255, 255, 255, 255, 255]);
-        assert!(matches!(reader.read_ue_named("test"),
-                         Err(RbspBitReaderError::ExpGolombTooLarge("test"))));
+        let mut reader = BitReader::new(&[0, 0, 0, 0, 255, 255, 255, 255, 255][..]);
+        assert!(matches!(reader.read_ue("test"), Err(BitReaderError::ExpGolombTooLarge("test"))));
     }
 }

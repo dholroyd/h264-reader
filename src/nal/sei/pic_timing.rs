@@ -2,9 +2,10 @@ use crate::nal::sei::SeiCompletePayloadReader;
 use crate::Context;
 use crate::nal::sei::HeaderType;
 use crate::nal::pps::ParamSetId;
-use crate::rbsp::RbspBitReader;
+use crate::rbsp::BitRead;
+use crate::rbsp::BitReader;
 use crate::nal::sps;
-use crate::rbsp::RbspBitReaderError;
+use crate::rbsp::BitReaderError;
 use log::*;
 
 // FIXME: SPS selection
@@ -14,12 +15,12 @@ use log::*;
 
 #[derive(Debug)]
 pub enum PicTimingError {
-    RbspError(RbspBitReaderError),
+    RbspError(BitReaderError),
     UndefinedSeqParamSetId(ParamSetId),
     InvalidPicStructId(u8),
 }
-impl From<RbspBitReaderError> for PicTimingError {
-    fn from(e: RbspBitReaderError) -> Self {
+impl From<BitReaderError> for PicTimingError {
+    fn from(e: BitReaderError) -> Self {
         PicTimingError::RbspError(e)
     }
 }
@@ -175,26 +176,26 @@ pub struct ClockTimestamp {
     pub time_offset: Option<i32>,
 }
 impl ClockTimestamp {
-    fn read(r: &mut RbspBitReader<'_>, sps: &sps::SeqParameterSet) -> Result<ClockTimestamp, PicTimingError> {
-        let ct_type = CtType::from_id(r.read_u8(2)?);
-        let nuit_field_based_flag = r.read_bool_named("nuit_field_based_flag")?;
-        let counting_type = CountingType::from_id(r.read_u8(5)?);
-        let full_timestamp_flag = r.read_bool_named("full_timestamp_flag")?;
-        let discontinuity_flag = r.read_bool_named("discontinuity_flag")?;
-        let cnt_dropped_flag = r.read_bool_named("cnt_dropped_flag")?;
-        let n_frames = r.read_u8(8)?;
+    fn read<R: BitRead>(r: &mut R, sps: &sps::SeqParameterSet) -> Result<ClockTimestamp, PicTimingError> {
+        let ct_type = CtType::from_id(r.read_u8(2, "ct_type")?);
+        let nuit_field_based_flag = r.read_bool("nuit_field_based_flag")?;
+        let counting_type = CountingType::from_id(r.read_u8(5, "counting_type")?);
+        let full_timestamp_flag = r.read_bool("full_timestamp_flag")?;
+        let discontinuity_flag = r.read_bool("discontinuity_flag")?;
+        let cnt_dropped_flag = r.read_bool("cnt_dropped_flag")?;
+        let n_frames = r.read_u8(8, "n_frames")?;
         let smh = if full_timestamp_flag {
             SecMinHour::SMH(
-                r.read_u8(6)?,
-                r.read_u8(6)?,
-                r.read_u8(5)?,
+                r.read_u8(6, "seconds_value")?,
+                r.read_u8(6, "minutes_value")?,
+                r.read_u8(5, "hours_value")?,
             )
-        } else if r.read_bool_named("seconds_flag")? {
-            let seconds = r.read_u8(6)?;
-            if r.read_bool_named("minutes_flag")? {
-                let minutes = r.read_u8(6)?;
-                if r.read_bool_named("hours_flag")? {
-                    let hours = r.read_u8(5)?;
+        } else if r.read_bool("seconds_flag")? {
+            let seconds = r.read_u8(6, "seconds_value")?;
+            if r.read_bool("minutes_flag")? {
+                let minutes = r.read_u8(6, "minutes_value")?;
+                if r.read_bool("hours_flag")? {
+                    let hours = r.read_u8(5, "hours_value")?;
                     SecMinHour::SMH(seconds, minutes, hours)
                 } else {
                     SecMinHour::SM(seconds, minutes)
@@ -219,7 +220,7 @@ impl ClockTimestamp {
         let time_offset = if time_offset_length == 0 {
             None
         } else {
-            Some(r.read_i32(time_offset_length)?)
+            Some(r.read_i32(u32::from(time_offset_length), "time_offset_length")?)
         };
         Ok(ClockTimestamp {
             ct_type,
@@ -247,7 +248,7 @@ pub struct PicTiming {
 }
 impl PicTiming {
     pub fn read<Ctx>(ctx: &mut Context<Ctx>, buf: &[u8]) -> Result<PicTiming, PicTimingError> {
-        let mut r = RbspBitReader::new(buf);
+        let mut r = BitReader::new(buf);
         let seq_parameter_set_id = ParamSetId::from_u32(0).unwrap();
         match ctx.sps_by_id(seq_parameter_set_id) {
             None => Err(PicTimingError::UndefinedSeqParamSetId(seq_parameter_set_id)),
@@ -260,12 +261,12 @@ impl PicTiming {
         }
     }
 
-    fn read_delays(r: &mut RbspBitReader<'_>, sps: &sps::SeqParameterSet) -> Result<Option<Delays>,PicTimingError> {
+    fn read_delays<R: BitRead>(r: &mut R, sps: &sps::SeqParameterSet) -> Result<Option<Delays>,PicTimingError> {
         Ok(if let Some(ref vui_params) = sps.vui_parameters {
             if let Some(ref hrd) = vui_params.nal_hrd_parameters.as_ref().or_else(|| vui_params.nal_hrd_parameters.as_ref() ) {
                 Some(Delays {
-                    cpb_removal_delay: r.read_u32(hrd.cpb_removal_delay_length_minus1+1)?,
-                    dpb_output_delay: r.read_u32(hrd.dpb_output_delay_length_minus1+1)?,
+                    cpb_removal_delay: r.read_u32(u32::from(hrd.cpb_removal_delay_length_minus1)+1, "cpb_removal_delay")?,
+                    dpb_output_delay: r.read_u32(u32::from(hrd.dpb_output_delay_length_minus1)+1, "dpb_output_delay")?,
                 })
             } else {
                 None
@@ -275,10 +276,10 @@ impl PicTiming {
         })
     }
 
-    fn read_pic_struct(r: &mut RbspBitReader<'_>, sps: &sps::SeqParameterSet) -> Result<Option<PicStruct>,PicTimingError> {
+    fn read_pic_struct<R: BitRead>(r: &mut R, sps: &sps::SeqParameterSet) -> Result<Option<PicStruct>,PicTimingError> {
         Ok(if let Some(ref vui_params) = sps.vui_parameters {
             if vui_params.pic_struct_present_flag {
-                let pic_struct = PicStructType::from_id(r.read_u8(4)?)?;
+                let pic_struct = PicStructType::from_id(r.read_u8(4, "pic_struct")?)?;
                 let clock_timestamps = Self::read_clock_timestamps(r, &pic_struct, sps)?;
 
                 Some(PicStruct {
@@ -293,10 +294,10 @@ impl PicTiming {
         })
     }
 
-    fn read_clock_timestamps(r: &mut RbspBitReader<'_>, pic_struct: &PicStructType, sps: &sps::SeqParameterSet) -> Result<Vec<Option<ClockTimestamp>>,PicTimingError> {
+    fn read_clock_timestamps<R: BitRead>(r: &mut R, pic_struct: &PicStructType, sps: &sps::SeqParameterSet) -> Result<Vec<Option<ClockTimestamp>>,PicTimingError> {
         let mut res = Vec::new();
         for _ in 0..pic_struct.num_clock_timestamps() {
-            res.push(if r.read_bool_named("clock_timestamp_flag")? {
+            res.push(if r.read_bool("clock_timestamp_flag")? {
                 Some(ClockTimestamp::read(r, sps)?)
             } else {
                 None
