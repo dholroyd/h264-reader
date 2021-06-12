@@ -366,10 +366,6 @@ impl<R: SeiIncrementalPayloadReader> NalHandler for SeiHeaderReader<R> {
         match self.state {
             SeiHeaderState::Begin => (),
             SeiHeaderState::End => panic!("SeiHeaderReader already ended and end() called again"),
-            SeiHeaderState::PayloadSize { payload_type: HeaderType::ReservedSeiMessage(0x80), payload_size: 0 } => {
-                // TODO: this is a bit of a hack to ignore rbsp_trailing_bits (which will always
-                //       be 0b10000000 in an SEI payload since SEI messages are byte-aligned).
-            },
             SeiHeaderState::PayloadType { .. } => {
                 error!("End of SEI data encountered while reading SEI payloadType");
                 self.reader.reset(ctx);
