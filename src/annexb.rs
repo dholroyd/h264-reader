@@ -14,8 +14,6 @@ enum ParseState {
     InUnit,
     InUnitOneZero,
     InUnitTwoZero,
-    InUnitThreeZero,
-    InUnitTrailingZeros,
     Error,
     End,
 }
@@ -29,8 +27,6 @@ impl ParseState {
             ParseState::InUnit => true,
             ParseState::InUnitOneZero => true,
             ParseState::InUnitTwoZero => true,
-            ParseState::InUnitThreeZero => true,
-            ParseState::InUnitTrailingZeros => true,
             ParseState::Error => false,
             ParseState::End => false,
         }
@@ -45,8 +41,6 @@ impl ParseState {
             ParseState::InUnit => Some(0),
             ParseState::InUnitOneZero => Some(1),
             ParseState::InUnitTwoZero => Some(2),
-            ParseState::InUnitThreeZero => Some(3),
-            ParseState::InUnitTrailingZeros => Some(3),
             ParseState::Error => None,
             ParseState::End => None,
         }
@@ -117,9 +111,8 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                     match b {
                         0x00 => (),   // keep ignoring further 0x00 bytes
                         0x01 => {
-                            self.to(ParseState::InUnit);
+                            self.to(ParseState::InUnitStart);
                             unit_start = Some(i as isize + 1);
-                            self.nal_reader.start(ctx);
                         },
                         _ => self.err(b),
                     }
@@ -155,7 +148,14 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                 },
                 ParseState::InUnitTwoZero => {
                     match b {
-                        0x00 => self.to(ParseState::InUnitThreeZero),
+                        0x00 => {
+                            if unit_start.is_some() && (unit_start.unwrap() > 0 || i > 2) {
+                                self.emit(ctx, buf, unit_start, i - 2);
+                            }
+                            self.nal_reader.end(ctx);
+                            unit_start = None;
+                            self.to(ParseState::StartTwoZero);
+                        },
                         0x01 => {
                             if unit_start.is_some() && (unit_start.unwrap() > 0 || i > 2) {
                                 self.emit(ctx, buf, unit_start, i - 2);
@@ -167,56 +167,6 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                         _ => {
                             if i < 2 { self.emit_fake(ctx, 2-i) }
                             self.to(ParseState::InUnit)
-                        },
-                    }
-                },
-                ParseState::InUnitThreeZero => {
-                    match b {
-                        0x00 => {
-                            self.to(ParseState::InUnitTrailingZeros)
-                        },
-                        0x01 => {
-                            if unit_start.is_some() && (unit_start.unwrap() > 0 || i > 3) {
-                                self.emit(ctx, buf, unit_start, i - 3);
-                            }
-                            self.nal_reader.end(ctx);
-                            unit_start = Some(i as isize + 1);
-                            self.to(ParseState::InUnitStart);
-                        },
-                        _ => {
-                            if i < 3 { self.emit_fake(ctx, 3-i) }
-                            self.to(ParseState::InUnit)
-                        },
-                    }
-                },
-                ParseState::InUnitTrailingZeros => {
-                    match b {
-                        0x00 => {
-                            // We now presume that the earliest of the three zeros was part of
-                            // cabac_zero_word, but we can't yet know how many more zeros might be
-                            // part of further cabac_zero_word entries, and how many might
-                            // become part of a 0x00000001 start code (because we've not seen
-                            // the 0x01 yet); so we stay in InUnitThreeZero state
-                            //
-                            // Spec:
-                            // "One or more cabac_zero_word 16-bit syntax elements equal to 0x0000
-                            //  may be present in some RBSPs after the rbsp_trailing_bits( ) at
-                            //  the end of the RBSP."
-                            //
-                            // We're not yet bothering to check that the trailing 0x00 come in
-                            // pairs to make 16 bit elements mentioned above,
-                        },
-                        0x01 => {
-                            if unit_start.is_some() && (unit_start.unwrap() > 0 || i > 3) {
-                                self.emit(ctx, buf, unit_start, i - 3);
-                            }
-                            self.nal_reader.end(ctx);
-                            unit_start = Some(i as isize + 1);
-                            self.to(ParseState::InUnitStart);
-                        },
-                        _ => {
-                            error!("Expected either start code byte 0x01 or end_units(), got byte {:#x}", b);
-                            self.to(ParseState::Error);
                         },
                     }
                 },
@@ -247,8 +197,7 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
             // a start-code, but actually reached the end of input, then we will now need to emit
             // those 0x00 bytes that we had been holding back,
             if backtrack > 0 {
-                let tmp = [0u8; 3];
-                self.nal_reader.push(ctx, &tmp[0..backtrack]);
+                self.emit_fake(ctx, backtrack);
             }
         }
         self.to(ParseState::End);
@@ -259,9 +208,9 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
         self.state = new_state;
     }
 
-    /// count must be 4 or less
+    /// count must be 2 or less
     fn emit_fake(&mut self, ctx: &mut Context<Ctx>, count: usize) {
-        let fake = [0u8; 4];
+        let fake = [0u8; 2];
         self.nal_reader.push(ctx, &fake[..count]);
     }
 
@@ -372,9 +321,9 @@ mod tests {
         }
     }
 
-    // Several trailing 0x00 bytes
+    // Several trailing 0x00 0x00 0x03 bytes
     #[test]
-    fn rbsp_trailing() {
+    fn rbsp_cabac() {
         let state = Rc::new(RefCell::new(State {
             started: 0,
             ended: 0,
@@ -386,8 +335,8 @@ mod tests {
             0, 0, 0, 1,  // start-code
             3,           // NAL data
             0x80,        // 1 stop-bit + 7 alignment-zero-bits
-            0, 0,        // cabac_zero_word
-            0, 0,        // cabac_zero_word
+            0, 0, 3,     // cabac_zero_word + emulation_prevention_three_byte
+            0, 0, 3,     // cabac_zero_word + emulation_prevention_three_byte
             0, 0, 0, 1,  // start-code
         );
         let mut ctx = Context::default();
@@ -396,8 +345,69 @@ mod tests {
         {
             let s = state.borrow();
             assert_eq!(1, s.started);
-            assert_eq!(&s.data[..], &[3, 0x80, 0, 0, 0, 0][..]);
+            assert_eq!(&s.data[..], &[3, 0x80, 0, 0, 3, 0, 0, 3][..]);
             assert_eq!(1, s.ended);
+        }
+    }
+
+    // Several trailing 0x00 bytes
+    #[test]
+    fn trailing_zero() {
+        let state = Rc::new(RefCell::new(State {
+            started: 0,
+            ended: 0,
+            data: Vec::new(),
+        }));
+        let mock = MockReader::new(Rc::clone(&state));
+        let mut r = AnnexBReader::new(mock);
+        let data = vec!(
+            0, 0, 0, 1,  // start-code
+            3,           // NAL data
+            0x80,        // 1 stop-bit + 7 alignment-zero-bits
+            0,           // trailing_zero_8bits
+            0,           // trailing_zero_8bits
+            0, 0, 0, 1,  // start-code
+        );
+        let mut ctx = Context::default();
+        r.start(&mut ctx);
+        r.push(&mut ctx, &data[..]);
+        {
+            let s = state.borrow();
+            assert_eq!(1, s.started);
+            assert_eq!(&s.data[..], &[3, 0x80][..]);
+            assert_eq!(1, s.ended);
+        }
+    }
+
+    // If there's bad data after a trailing zero, the parser recovers after the next start code.
+    #[test]
+    fn recovery_on_corrupt_trailing_zero() {
+        let state = Rc::new(RefCell::new(State {
+            started: 0,
+            ended: 0,
+            data: Vec::new(),
+        }));
+        let mock = MockReader::new(Rc::clone(&state));
+        let mut r = AnnexBReader::new(mock);
+        let data = vec!(
+            0, 0, 0, 1,  // start-code
+            3,           // NAL data
+            0x80,        // 1 stop-bit + 7 alignment-zero-bits
+            0, 0, 0,     // trailing_zero_8bits
+            42,          // unexpected byte
+            0, 0, 1,     // start-code
+            2, 3,        // NAL data
+            0x80,        // 1 stop-bit + 7 alignment-zero-bits
+            0, 0, 1,     // start-code
+        );
+        let mut ctx = Context::default();
+        r.start(&mut ctx);
+        r.push(&mut ctx, &data[..]);
+        {
+            let s = state.borrow();
+            assert_eq!(2, s.started);
+            assert_eq!(&s.data[..], &[3, 0x80, 2, 3, 0x80][..]);
+            assert_eq!(2, s.ended);
         }
     }
 

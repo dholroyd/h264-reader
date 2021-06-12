@@ -63,6 +63,11 @@ impl<R> RbspDecoder<R>
         }
     }
 
+    fn err(&mut self, b: u8) {
+        eprintln!("RbspDecoder: state={:?}, invalid byte {:#x}", self.state, b);
+        self.state = ParseState::Start;
+    }
+
     pub fn into_handler(self) -> R {
         self.nal_reader
     }
@@ -109,10 +114,14 @@ impl<R> NalHandler for RbspDecoder<R>
                         self.to(ParseState::Start);
                         continue; // don't increment i; buf[0] hasn't been examined yet.
                     },
-                    // I see example PES packet payloads that end with 0x80 0x00 0x00 0x00,
-                    // which triggered this error; guess the example is correct and this code
-                    // was wrong, but not sure why!
-                    // 0x00 => { self.err(b); },
+
+                    // H.264 section 7.4.1:
+                    // > Within the NAL unit, the following three-byte sequences shall not occur at
+                    // > any byte-aligned position:
+                    // > *   0x000000
+                    // > *   0x000001
+                    // > *   0x000002
+                    b @ 0x00 | b @ 0x01 | b @ 0x02 => { self.err(b); },
                     _ => self.to(ParseState::Start),
                 },
             }
