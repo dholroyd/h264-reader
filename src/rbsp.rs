@@ -248,9 +248,24 @@ impl<'buf> RbspBitReader<'buf> {
         self.reader.read(u32::from(bit_count)).map_err( |e| RbspBitReaderError::ReaderError(e) )
     }
 
-    pub fn has_more_rbsp_data(&mut self) -> bool {
+    /// Returns true if positioned before the RBSP trailing bits.
+    ///
+    /// This matches the definition of `more_rbsp_data()` in Rec. ITU-T H.264
+    /// (03/2010) section 7.2.
+    pub fn has_more_rbsp_data(&mut self, name: &'static str) -> Result<bool, RbspBitReaderError> {
         // BitReader returns its reader iff at an aligned position.
-        self.reader.reader().map(|r| (r.position() as usize) < r.get_ref().len()).unwrap_or(true)
+        //self.reader.reader().map(|r| (r.position() as usize) < r.get_ref().len()).unwrap_or(true)
+        let mut throwaway = self.reader.clone();
+        let r = (move || {
+            throwaway.skip(1)?;
+            throwaway.read_unary1()?;
+            Ok::<_, std::io::Error>(())
+        })();
+        match r {
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+            Err(e) => Err(RbspBitReaderError::ReaderErrorFor(name, e)),
+            Ok(_) => Ok(true),
+        }
     }
 
     fn golomb_to_signed(val: u32) -> i32 {
@@ -365,15 +380,20 @@ mod tests {
 
     #[test]
     fn bitreader_has_more_data() {
-        let mut reader = RbspBitReader::new(&[0x12, 0x34]);
-        assert!(reader.has_more_rbsp_data());
+        // Should work when the end bit is byte-aligned.
+        let mut reader = RbspBitReader::new(&[0x12, 0x80]);
+        assert!(reader.has_more_rbsp_data("call 1").unwrap());
+        assert_eq!(reader.read_u8(8).unwrap(), 0x12);
+        assert!(!reader.has_more_rbsp_data("call 2").unwrap());
+
+        // and when it's not.
+        let mut reader = RbspBitReader::new(&[0x18]);
+        assert!(reader.has_more_rbsp_data("call 3").unwrap());
         assert_eq!(reader.read_u8(4).unwrap(), 0x1);
-        assert!(reader.has_more_rbsp_data()); // unaligned, backing reader not at EOF
-        assert_eq!(reader.read_u8(4).unwrap(), 0x2);
-        assert!(reader.has_more_rbsp_data()); // aligned, backing reader not at EOF
-        assert_eq!(reader.read_u8(4).unwrap(), 0x3);
-        assert!(reader.has_more_rbsp_data()); // unaligned, backing reader at EOF
-        assert_eq!(reader.read_u8(4).unwrap(), 0x4);
-        assert!(!reader.has_more_rbsp_data()); // aligned, backing reader at EOF
+        assert!(!reader.has_more_rbsp_data("call 4").unwrap());
+
+        // should also work when there are cabac-zero-words.
+        let mut reader = RbspBitReader::new(&[0x80, 0x00, 0x00]);
+        assert!(!reader.has_more_rbsp_data("at end with cabac-zero-words").unwrap());
     }
 }

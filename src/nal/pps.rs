@@ -172,7 +172,7 @@ pub struct PicParameterSetExtra {
 }
 impl PicParameterSetExtra {
     fn read(r: &mut RbspBitReader<'_>, sps: &sps::SeqParameterSet) -> Result<Option<PicParameterSetExtra>,PpsError> {
-        Ok(if r.has_more_rbsp_data() {
+        Ok(if r.has_more_rbsp_data("pic_parameter_set_extra")? {
             let transform_8x8_mode_flag = r.read_bool()?;
             Some(PicParameterSetExtra {
                 transform_8x8_mode_flag,
@@ -231,7 +231,7 @@ impl PicParameterSet {
             .map_err(PpsError::BadPicParamSetId)?;
         let seq_parameter_set_id = ParamSetId::from_u32(r.read_ue_named("seq_parameter_set_id")?)
             .map_err(PpsError::BadSeqParamSetId)?;
-        let _seq_parameter_set = ctx.sps_by_id(seq_parameter_set_id)
+        let seq_parameter_set = ctx.sps_by_id(seq_parameter_set_id)
             .ok_or_else(|| PpsError::UnknownSeqParamSetId(seq_parameter_set_id))?;
         Ok(PicParameterSet {
             pic_parameter_set_id,
@@ -249,7 +249,7 @@ impl PicParameterSet {
             deblocking_filter_control_present_flag: r.read_bool()?,
             constrained_intra_pred_flag: r.read_bool()?,
             redundant_pic_cnt_present_flag: r.read_bool()?,
-            extension: None, // TODO: buggy?: PicParameterSetExtra::read(&mut r, seq_parameter_set)?,
+            extension: PicParameterSetExtra::read(&mut r, seq_parameter_set)?,
         })
     }
 
