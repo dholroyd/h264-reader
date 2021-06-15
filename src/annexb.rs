@@ -1,9 +1,10 @@
 //! A reader for the NAL Unit framing format defined in _ITU-T Recommendation H.264 - Annex B_,
 //! as used when H264 data is embedded in an MPEG2 Transport Stream
 
-use crate::Context;
 use memchr;
 use log::*;
+
+use crate::push::{AccumulatedNalHandler, NalAccumulator, NalFragmentHandler};
 
 /// The current state, named for the most recently examined byte.
 #[derive(Debug)]
@@ -36,44 +37,105 @@ struct InUnitState {
     backtrack_bytes: usize,
 }
 
-pub trait NalReader {
-    type Ctx;
-
-    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8], end: bool);
-}
-
-/// Push parser for Annex B format which delegates to a [NalReader].
+/// Push parser for Annex B format which delegates to a [NalFragmentHandler], most commonly a
+/// [NalAccumulator]:
 ///
-/// Guarantees that the bytes supplied to `NalReader`—the concatenation of all
-/// `buf`s supplied to `NalReader::push`—will be exactly the same for a given
+/// ```
+/// use h264_reader::annexb::AnnexBReader;
+/// use h264_reader::nal::{Nal, RefNal, UnitType};
+/// use h264_reader::push::NalInterest;
+///
+/// let mut calls = Vec::new();
+/// let mut reader = AnnexBReader::accumulate(|nal: RefNal<'_>| {
+///     let nal_unit_type = nal.header().unwrap().nal_unit_type();
+///     calls.push((nal_unit_type, nal.is_complete()));
+///     match nal_unit_type {
+///         UnitType::SeqParameterSet => NalInterest::Buffer,
+///         _ => NalInterest::Ignore,
+///     }
+/// });
+///
+/// // Push a couple NALs. Pushes don't have to match up to Annex B framing.
+/// reader.push(&b"\x00\x00"[..]);
+/// reader.push(&b"\x01\x67\x64\x00\x0A\xAC\x72\x84\x44\x26\x84\x00\x00"[..]);
+/// reader.push(&b"\x03\x00\x04\x00\x00\x03\x00\xCA\x3C\x48\x96\x11\x80\x00\x00\x01"[..]);
+/// reader.push(&b"\x68"[..]);
+/// reader.push(&b"\xE8\x43\x8F\x13\x21\x30"[..]);
+///
+/// assert_eq!(calls, &[
+///     (UnitType::SeqParameterSet, false),
+///     (UnitType::SeqParameterSet, true),
+///     (UnitType::PicParameterSet, false),
+///     // no second call on the PicParameterSet because the handler returned Ignore.
+/// ]);
+/// ```
+///
+/// See [NalAccumulator] for an example with a handler that *owns* state.
+///
+/// When corruption is detected, the `AnnexbReader` logs error and recovers on
+/// the next start code boundary.
+/// 
+/// Guarantees that the bytes supplied to [`NalFragmentHandler`]—the concatenation of all
+/// `buf`s supplied to `NalFragmentHandler::nal_fragment`—will be exactly the same for a given
 /// Annex B stream, regardless of boundaries of `AnnexBReader::push` calls.
-pub struct AnnexBReader<R, Ctx>
-    where
-        R: NalReader<Ctx=Ctx>
-{
+pub struct AnnexBReader<H: NalFragmentHandler> {
     state: ParseState,
-    nal_reader: R,
+    inner: H,
 }
-impl<R, Ctx> AnnexBReader<R, Ctx>
-    where
-        R: NalReader<Ctx=Ctx>
-{
-    pub fn new(nal_reader: R) -> Self {
+impl<H: AccumulatedNalHandler> AnnexBReader<NalAccumulator<H>> {
+    /// Constructs an `AnnexBReader` with a `NalAccumulator`.
+    pub fn accumulate(inner: H) -> Self {
+        Self::for_fragment_handler(NalAccumulator::new(inner))
+    }
+
+    /// Gets a reference to the underlying [AccumulatedNalHandler].
+    pub fn nal_handler_ref(&self) -> &H {
+        self.inner.handler()
+    }
+
+    /// Gets a mutable reference to the underlying [AccumulatedNalHandler].
+    pub fn nal_handler_mut(&mut self) -> &mut H {
+        self.inner.handler_mut()
+    }
+
+    /// Unwraps the `AnnexBReader<H>`, returning the inner [AccumulatedNalHandler].
+    pub fn into_nal_handler(self) -> H {
+        self.inner.into_handler()
+    }
+}
+impl<H: NalFragmentHandler> AnnexBReader<H> {
+    /// Constructs an `AnnexBReader` with a custom [`NalFragmentHandler`].
+    pub fn for_fragment_handler(inner: H) -> Self {
         AnnexBReader {
             state: ParseState::Start,
-            nal_reader,
+            inner,
         }
     }
 
-    pub fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
+    /// Gets a reference to the underlying [NalFragmentHandler].
+    pub fn fragment_handler_ref(&self) -> &H {
+        &self.inner
+    }
+
+    /// Gets a mutable reference to the underlying [NalFragmentHandler].
+    pub fn fragment_handler_mut(&mut self) -> &mut H {
+        &mut self.inner
+    }
+
+    /// Unwraps the `AnnexBReader<H>`, returning the inner [NalFragmentHandler].
+    pub fn into_fragment_handler(self) -> H {
+        self.inner
+    }
+
+    pub fn push(&mut self, buf: &[u8]) {
         // When in a NAL unit, start is the first index in buf with a byte to
         // be pushed. Note that due to backtracking, sometimes 0x00 bytes
         // must be pushed that logically precede buf.
-        let mut start = self.state.in_unit().map(|_| 0);
+        let mut fake_and_start = self.state.in_unit().map(|s| (s.backtrack_bytes, 0));
 
         let mut i = 0;
         while i < buf.len() {
-            debug_assert!(start.is_some() == self.state.in_unit().is_some());
+            debug_assert!(fake_and_start.is_some() == self.state.in_unit().is_some());
             let b = buf[i];
             match self.state {
                 ParseState::Start => {
@@ -92,7 +154,7 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                     match b {
                         0x00 => (),   // keep ignoring further 0x00 bytes
                         0x01 => {
-                            start = Some(i + 1);
+                            fake_and_start = Some((0, i + 1));
                             self.to(ParseState::InUnit);
                         },
                         _ => self.err(b),
@@ -114,41 +176,29 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                 ParseState::InUnitOneZero => {
                     match b {
                         0x00 => self.to(ParseState::InUnitTwoZero),
-                        _ => {
-                            if i < 1 {
-                                self.emit_fake(ctx, 1, false);
-                                start = Some(i);
-                            }
-                            self.to(ParseState::InUnit)
-                        },
+                        _ => self.to(ParseState::InUnit),
                     }
                 },
                 ParseState::InUnitTwoZero => {
                     match b {
                         0x00 => {
-                            self.maybe_emit(ctx, buf, start, i, 2, true);
-                            start = None;
+                            self.maybe_emit(buf, fake_and_start, i, 2, true);
+                            fake_and_start = None;
                             self.to(ParseState::StartTwoZero);
                         },
                         0x01 => {
-                            self.maybe_emit(ctx, buf, start, i, 2, true);
-                            start = Some(i + 1);
+                            self.maybe_emit(buf, fake_and_start, i, 2, true);
+                            fake_and_start = Some((0, i + 1));
                             self.to(ParseState::InUnit);
                         },
-                        _ => {
-                            if i < 2 {
-                                self.emit_fake(ctx, 2, false);
-                                start = Some(i);
-                            }
-                            self.to(ParseState::InUnit)
-                        },
+                        _ => self.to(ParseState::InUnit),
                     }
                 },
             }
             i += 1;
         }
         if let Some(in_unit) = self.state.in_unit() {
-            self.maybe_emit(ctx, buf, start, buf.len(), in_unit.backtrack_bytes, false);
+            self.maybe_emit(buf, fake_and_start, buf.len(), in_unit.backtrack_bytes, false);
         }
     }
 
@@ -158,12 +208,16 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
     /// For example, if the containing data structure demarcates the end of a sequence of NAL
     /// Units explicitly, the parser for that structure should call `end_units()` once all data
     /// has been passed to the `push()` function.
-    pub fn reset(&mut self, ctx: &mut Context<Ctx>) {
+    pub fn reset(&mut self) {
         if let Some(in_unit) = self.state.in_unit() {
             // if we were in the middle of parsing a sequence of 0x00 bytes that might have become
             // a start-code, but actually reached the end of input, then we will now need to emit
             // those 0x00 bytes that we had been holding back,
-            self.emit_fake(ctx, in_unit.backtrack_bytes, true);
+            if in_unit.backtrack_bytes > 0 {
+                self.inner.nal_fragment(&[&[0u8; 2][..in_unit.backtrack_bytes]], true);
+            } else {
+                self.inner.nal_fragment(&[], true);
+            }
         }
         self.to(ParseState::Start);
     }
@@ -172,18 +226,16 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
         self.state = new_state;
     }
 
-    /// count must be 2 or less
-    fn emit_fake(&mut self, ctx: &mut Context<Ctx>, count: usize, end: bool) {
-        let fake = [0u8; 2];
-        self.nal_reader.push(ctx, &fake[..count], end);
-    }
-
-    fn maybe_emit(&mut self, ctx: &mut Context<Ctx>, buf:&[u8], start: Option<usize>, end: usize, backtrack: usize, is_end: bool) {
-        match start {
-            Some(s) if s + backtrack < end => {
-                self.nal_reader.push(ctx, &buf[s..end - backtrack], is_end);
+    fn maybe_emit(&mut self, buf: &[u8], fake_and_start: Option<(usize, usize)>, end: usize, backtrack: usize, is_end: bool) {
+        match fake_and_start {
+            Some((fake, start)) if start + backtrack < end => {
+                if fake > 0 {
+                    self.inner.nal_fragment(&[&[0u8; 2][..fake], &buf[start..end - backtrack]][..], is_end);
+                } else {
+                    self.inner.nal_fragment(&[&buf[start..end - backtrack]][..], is_end);
+                };
             },
-            Some(_) if is_end => self.nal_reader.push(ctx, b"", true),
+            Some(_) if is_end => self.inner.nal_fragment(&[], true),
             _ => {},
         }
     }
@@ -197,90 +249,60 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::rc::Rc;
-    use std::cell::RefCell;
     use hex_literal::*;
 
-    struct State {
+    #[derive(Default)]
+    struct MockFragmentHandler {
         ended: u32,
         data: Vec<u8>,
     }
-    struct MockReader {
-        state: Rc<RefCell<State>>
-    }
-    impl MockReader {
-        fn new(state: Rc<RefCell<State>>) -> MockReader {
-            MockReader {
-                state
+    impl NalFragmentHandler for MockFragmentHandler {
+        fn nal_fragment(&mut self, bufs: &[&[u8]], end: bool) {
+            assert!(!bufs.is_empty() || end);
+            for buf in bufs {
+                self.data.extend_from_slice(buf);
             }
-        }
-    }
-    impl NalReader for MockReader {
-        type Ctx = ();
-
-        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8], end: bool) {
-            let mut state = self.state.borrow_mut();
-            assert!(!buf.is_empty() || end);
-            state.data.extend_from_slice(buf);
             if end {
-                state.ended += 1;
+                self.ended += 1;
             }
         }
     }
 
     #[test]
     fn simple_nal() {
-        let state = Rc::new(RefCell::new(State {
-            ended: 0,
-            data: Vec::new(),
-        }));
-        let mock = MockReader::new(Rc::clone(&state));
-        let mut r = AnnexBReader::new(mock);
+        let mock = MockFragmentHandler::default();
+        let mut r = AnnexBReader::for_fragment_handler(mock);
         let data = vec!(
             0, 0, 0, 1,  // start-code
             3,           // NAL data
             0, 0, 1      // end-code
         );
-        let mut ctx = Context::default();
-        r.push(&mut ctx, &data[..]);
-        {
-            let s = state.borrow();
-            assert_eq!(&s.data[..], &[3u8][..]);
-            assert_eq!(1, s.ended);
-        }
+        r.push(&data[..]);
+        let mock = r.into_fragment_handler();
+        assert_eq!(&mock.data[..], &[3u8][..]);
+        assert_eq!(1, mock.ended);
     }
 
     #[test]
     fn short_start_code() {
-        let state = Rc::new(RefCell::new(State {
-            ended: 0,
-            data: Vec::new(),
-        }));
-        let mock = MockReader::new(Rc::clone(&state));
-        let mut r = AnnexBReader::new(mock);
+        let mock = MockFragmentHandler::default();
+        let mut r = AnnexBReader::for_fragment_handler(mock);
         let data = vec!(
             0, 0, 1,  // start-code -- only three bytes rather than the usual 4
             3,        // NAL data
             0, 0, 1   // end-code
         );
-        let mut ctx = Context::default();
-        r.push(&mut ctx, &data[..]);
-        {
-            let s = state.borrow();
-            assert_eq!(&s.data[..], &[3u8][..]);
-            assert_eq!(1, s.ended);
-        }
+        r.push(&data[..]);
+        let mock = r.into_fragment_handler();
+        assert_eq!(&mock.data[..], &[3u8][..]);
+        assert_eq!(1, mock.ended);
     }
 
     // Several trailing 0x00 0x00 0x03 bytes
     #[test]
     fn rbsp_cabac() {
-        let state = Rc::new(RefCell::new(State {
-            ended: 0,
-            data: Vec::new(),
-        }));
-        let mock = MockReader::new(Rc::clone(&state));
-        let mut r = AnnexBReader::new(mock);
+        let mock = MockFragmentHandler::default();
+        let mut r = AnnexBReader::for_fragment_handler(mock);
         let data = vec!(
             0, 0, 0, 1,  // start-code
             3,           // NAL data
@@ -289,24 +311,17 @@ mod tests {
             0, 0, 3,     // cabac_zero_word + emulation_prevention_three_byte
             0, 0, 0, 1,  // start-code
         );
-        let mut ctx = Context::default();
-        r.push(&mut ctx, &data[..]);
-        {
-            let s = state.borrow();
-            assert_eq!(&s.data[..], &[3, 0x80, 0, 0, 3, 0, 0, 3][..]);
-            assert_eq!(1, s.ended);
-        }
+        r.push(&data[..]);
+        let mock = r.into_fragment_handler();
+        assert_eq!(&mock.data[..], &[3, 0x80, 0, 0, 3, 0, 0, 3][..]);
+        assert_eq!(1, mock.ended);
     }
 
     // Several trailing 0x00 bytes
     #[test]
     fn trailing_zero() {
-        let state = Rc::new(RefCell::new(State {
-            ended: 0,
-            data: Vec::new(),
-        }));
-        let mock = MockReader::new(Rc::clone(&state));
-        let mut r = AnnexBReader::new(mock);
+        let mock = MockFragmentHandler::default();
+        let mut r = AnnexBReader::for_fragment_handler(mock);
         let data = vec!(
             0, 0, 0, 1,  // start-code
             3,           // NAL data
@@ -315,24 +330,17 @@ mod tests {
             0,           // trailing_zero_8bits
             0, 0, 0, 1,  // start-code
         );
-        let mut ctx = Context::default();
-        r.push(&mut ctx, &data[..]);
-        {
-            let s = state.borrow();
-            assert_eq!(&s.data[..], &[3, 0x80][..]);
-            assert_eq!(1, s.ended);
-        }
+        r.push(&data[..]);
+        let mock = r.into_fragment_handler();
+        assert_eq!(&mock.data[..], &[3, 0x80][..]);
+        assert_eq!(1, mock.ended);
     }
 
     // If there's bad data after a trailing zero, the parser recovers after the next start code.
     #[test]
     fn recovery_on_corrupt_trailing_zero() {
-        let state = Rc::new(RefCell::new(State {
-            ended: 0,
-            data: Vec::new(),
-        }));
-        let mock = MockReader::new(Rc::clone(&state));
-        let mut r = AnnexBReader::new(mock);
+        let mock = MockFragmentHandler::default();
+        let mut r = AnnexBReader::for_fragment_handler(mock);
         let data = vec!(
             0, 0, 0, 1,  // start-code
             3,           // NAL data
@@ -344,63 +352,44 @@ mod tests {
             0x80,        // 1 stop-bit + 7 alignment-zero-bits
             0, 0, 1,     // start-code
         );
-        let mut ctx = Context::default();
-        r.push(&mut ctx, &data[..]);
-        {
-            let s = state.borrow();
-            assert_eq!(&s.data[..], &[3, 0x80, 2, 3, 0x80][..]);
-            assert_eq!(2, s.ended);
-        }
+        r.push(&data[..]);
+        let mock = r.into_fragment_handler();
+        assert_eq!(&mock.data[..], &[3, 0x80, 2, 3, 0x80][..]);
+        assert_eq!(2, mock.ended);
     }
 
     #[test]
     fn implicit_end() {
-        let state = Rc::new(RefCell::new(State {
-            ended: 0,
-            data: Vec::new(),
-        }));
-        let mock = MockReader::new(Rc::clone(&state));
-        let mut r = AnnexBReader::new(mock);
+        let mock = MockFragmentHandler::default();
+        let mut r = AnnexBReader::for_fragment_handler(mock);
         let data = vec!(
             0, 0, 0, 1,  // start-code
             3, 0         // NAL data
         );
-        let mut ctx = Context::default();
-        r.push(&mut ctx, &data[..]);
-        r.reset(&mut ctx);
-        {
-            let s = state.borrow();
-            assert_eq!(&s.data[..], &[3u8, 0u8][..]);
-            assert_eq!(1, s.ended);
-        }
+        r.push(&data[..]);
+        r.reset();
+        let mock = r.into_fragment_handler();
+        assert_eq!(&mock.data[..], &[3u8, 0u8][..]);
+        assert_eq!(1, mock.ended);
     }
 
     #[test]
     fn split_nal() {
-        let state = Rc::new(RefCell::new(State {
-            ended: 0,
-            data: Vec::new(),
-        }));
-        let mock = MockReader::new(Rc::clone(&state));
-        let mut r = AnnexBReader::new(mock);
+        let mock = MockFragmentHandler::default();
+        let mut r = AnnexBReader::for_fragment_handler(mock);
         let data = vec!(
             0, 0, 0, 1,  // start-code
             2, 3,        // NAL data
             0, 0, 1      // nd-code
         );
-        let mut ctx = Context::default();
-        r.push(&mut ctx, &data[..5]);  // half-way through the NAL Unit
-        {
-            let s = state.borrow();
-            assert_eq!(&s.data[..], &[2u8][..]);
-            assert_eq!(0, s.ended);
-        }
-        r.push(&mut ctx, &data[5..]);  // second half of the NAL Unit
-        {
-            let s = state.borrow();
-            assert_eq!(&s.data[..], &[2u8, 3u8][..]);
-            assert_eq!(1, s.ended);
-        }
+        r.push(&data[..5]);  // half-way through the NAL Unit
+        let mock = r.fragment_handler_ref();
+        assert_eq!(&mock.data[..], &[2u8][..]);
+        assert_eq!(0, mock.ended);
+        r.push(&data[5..]);  // second half of the NAL Unit
+        let mock = r.fragment_handler_ref();
+        assert_eq!(&mock.data[..], &[2u8, 3u8][..]);
+        assert_eq!(1, mock.ended);
     }
 
     #[test]
@@ -486,19 +475,15 @@ mod tests {
             F8 5E 9B 86 B3 B3 03 B3 AC 75 6F A6 11 69 2F 3D
             3A CE FA 53 86 60 95 6C BB C5 4E F3");
         for i in 1..data.len()-1 {
-            let state = Rc::new(RefCell::new(State {
-                ended: 0,
-                data: Vec::new(),
-            }));
-            let mock = MockReader::new(Rc::clone(&state));
-            let mut r = AnnexBReader::new(mock);
-            let mut ctx = Context::default();
+            let mock = MockFragmentHandler::default();
+            let mut r = AnnexBReader::for_fragment_handler(mock);
             let (head, tail) = data.split_at(i);
-            r.push(&mut ctx, &head[..]);
-            r.push(&mut ctx, &tail[..]);
-            r.reset(&mut ctx);
-            assert_eq!(3, state.borrow().ended);
-            assert_eq!(&state.borrow().data[..], &expected[..]);
+            r.push(&head[..]);
+            r.push(&tail[..]);
+            r.reset();
+            let mock = r.into_fragment_handler();
+            assert_eq!(3, mock.ended);
+            assert_eq!(&mock.data[..], &expected[..]);
         }
     }
     #[test]
@@ -583,18 +568,14 @@ mod tests {
             A9 A4 8E 9C 8B 84 DE 73 F0 91 29 97 AE DB AF D6
             F8 5E 9B 86 B3 B3 03 B3 AC 75 6F A6 11 69 2F 3D
             3A CE FA 53 86 60 95 6C BB C5 4E F3");
-        let state = Rc::new(RefCell::new(State {
-            ended: 0,
-            data: Vec::new(),
-        }));
-        let mock = MockReader::new(Rc::clone(&state));
-        let mut r = AnnexBReader::new(mock);
-        let mut ctx = Context::default();
+        let mock = MockFragmentHandler::default();
+        let mut r = AnnexBReader::for_fragment_handler(mock);
         for i in 0..data.len() {
-            r.push(&mut ctx, &data[i..i+1]);
+            r.push(&data[i..i+1]);
         }
-        r.reset(&mut ctx);
-        assert_eq!(3, state.borrow().ended);
-        assert_eq!(&state.borrow().data[..], &expected[..]);
+        r.reset();
+        let mock = r.into_fragment_handler();
+        assert_eq!(3, mock.ended);
+        assert_eq!(&mock.data[..], &expected[..]);
     }
 }

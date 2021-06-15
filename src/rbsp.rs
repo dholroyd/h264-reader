@@ -25,8 +25,6 @@ use bitstream_io::read::BitRead as _;
 use std::borrow::Cow;
 use std::io::BufRead;
 use std::io::Read;
-use crate::nal::{NalHandler, NalHeader};
-use crate::Context;
 
 #[derive(Copy, Clone, Debug)]
 enum ParseState {
@@ -137,135 +135,17 @@ fn find_three(state: &mut ParseState, i: &mut usize, chunk: &[u8]) -> bool {
     false
 }
 
-/// Push parser which removes _emulation prevention_ as it calls
-/// an inner [NalHandler]. Expects to be called without the NAL header byte.
-pub struct RbspDecoder<R>
-    where
-        R: NalHandler
-{
-    state: ParseState,
-    nal_reader: R,
-}
-impl<R> RbspDecoder<R>
-    where
-        R: NalHandler
-{
-    pub fn new(nal_reader: R) -> Self {
-        RbspDecoder {
-            state: ParseState::Start,
-            nal_reader,
-        }
+/// Returns the given buffer minus NAL header and emulation prevention bytes.
+pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Result<Cow<'a, [u8]>, std::io::Error> {
+    let mut reader = ByteReader::new(nal_unit);
+    let buf = reader.fill_buf()?;
+    if buf.len() + 1 == nal_unit.len() {
+        return Ok(Cow::Borrowed(&nal_unit[1..]));
     }
-
-    fn to(&mut self, new_state: ParseState) {
-        self.state = new_state;
-    }
-
-    fn emit(&mut self, ctx: &mut Context<R::Ctx>, buf: &[u8]) {
-        if !buf.is_empty() {
-            self.nal_reader.push(ctx, &buf)
-        }
-    }
-
-    pub fn handler_ref(&self) -> &R {
-        &self.nal_reader
-    }
-
-    pub fn into_handler(self) -> R {
-        self.nal_reader
-    }
-}
-impl<R> NalHandler for RbspDecoder<R>
-    where
-        R: NalHandler
-{
-    type Ctx = R::Ctx;
-
-    fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader) {
-        self.state = ParseState::Start;
-        self.nal_reader.start(ctx, header);
-    }
-
-    fn push(&mut self, ctx: &mut Context<Self::Ctx>, mut buf: &[u8]) {
-        // buf[0..i] hasn't yet been emitted and is RBSP (has no emulation_prevention_three_bytes).
-        // self.state describes the state before buf[i].
-        // buf[i..] has yet to be examined.
-        let mut i = 0;
-        while i < buf.len() {
-            if find_three(&mut self.state, &mut i, buf) {
-                // i now indexes the emulation_prevention_three_byte.
-                let (rbsp, three_onward) = buf.split_at(i);
-                self.emit(ctx, rbsp);
-                buf = &three_onward[1..];
-                i = 0;
-                self.state = ParseState::Start;
-            }
-        }
-
-        // buf is now entirely RBSP.
-        self.emit(ctx, buf);
-    }
-
-    /// To be invoked when calling code knows that the end of a sequence of NAL Unit data has been
-    /// reached.
-    ///
-    /// For example, if the containing data structure demarcates the end of a sequence of NAL
-    /// Units explicitly, the parser for that structure should call `end_units()` once all data
-    /// has been passed to the `push()` function.
-    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
-        self.to(ParseState::Start);
-        self.nal_reader.end(ctx);
-    }
-}
-
-/// Removes _Emulation Prevention_ from the given byte sequence of a single NAL unit, returning the
-/// NAL units _Raw Byte Sequence Payload_ (RBSP). Expects to be called without the NAL header byte.
-pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Cow<'a, [u8]> {
-    struct DecoderState<'b> {
-        data: Cow<'b, [u8]>,
-        index: usize,
-    }
-
-    impl<'b> DecoderState<'b> {
-        pub fn new(data: Cow<'b, [u8]>) -> Self {
-            DecoderState { 
-                data,
-                index: 0,
-            }
-        }
-    }
-
-    impl<'b> NalHandler for DecoderState<'b> {
-        type Ctx = ();
-
-        fn start(&mut self, _ctx: &mut Context<Self::Ctx>, _header: NalHeader) {}
-
-        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-            let dest = self.index..(self.index + buf.len());
-
-            if &self.data[dest.clone()] != buf {
-                self.data.to_mut()[dest].copy_from_slice(buf);
-            }
-
-            self.index += buf.len();
-        }
-
-        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
-            if let Cow::Owned(vec) = &mut self.data {
-                vec.truncate(self.index);
-            }
-        }
-    }
-
-    let state = DecoderState::new(Cow::Borrowed(nal_unit));
-
-    let mut decoder = RbspDecoder::new(state);
-    let mut ctx = Context::default();
-
-    decoder.push(&mut ctx, nal_unit);
-    decoder.end(&mut ctx);
-
-    decoder.into_handler().data
+    // Upper bound estimate; skipping the NAL header and at least one emulation prevention byte.
+    let mut dst = Vec::with_capacity(nal_unit.len() - 2);
+    reader.read_to_end(&mut dst)?;
+    Ok(Cow::Owned(dst))
 }
 
 #[derive(Debug)]
@@ -275,6 +155,11 @@ pub enum BitReaderError {
 
     /// An Exp-Golomb-coded syntax elements value has more than 32 bits.
     ExpGolombTooLarge(&'static str),
+
+    /// The stream was positioned before the final one bit on [BitRead::finish_rbsp].
+    RemainingData,
+
+    Unaligned,
 }
 
 pub trait BitRead {
@@ -291,6 +176,15 @@ pub trait BitRead {
     /// This matches the definition of `more_rbsp_data()` in Rec. ITU-T H.264
     /// (03/2010) section 7.2.
     fn has_more_rbsp_data(&mut self, name: &'static str) -> Result<bool, BitReaderError>;
+
+    /// Consumes the reader, returning error if it's not positioned at the RBSP trailing bits.
+    fn finish_rbsp(self) -> Result<(), BitReaderError>;
+
+    /// Consumes the reader, returning error if this `sei_payload` message is unfinished.
+    ///
+    /// This is similar to `finish_rbsp`, but SEI payloads have no trailing bits if
+    /// already byte-aligned.
+    fn finish_sei_payload(self) -> Result<(), BitReaderError>;
 }
 
 /// Reads H.264 bitstream syntax elements from an RBSP representation (no NAL
@@ -301,6 +195,11 @@ pub struct BitReader<R: std::io::BufRead + Clone> {
 impl<R: std::io::BufRead + Clone> BitReader<R> {
     pub fn new(inner: R) -> Self {
         Self { reader: bitstream_io::read::BitReader::new(inner) }
+    }
+
+    /// Borrows the underlying reader if byte-aligned.
+    pub fn reader(&mut self) -> Option<&mut R> {
+        self.reader.reader()
     }
 }
 
@@ -354,6 +253,37 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
             Ok(_) => Ok(true),
         }
     }
+
+    fn finish_rbsp(mut self) -> Result<(), BitReaderError> {
+        // The next bit is expected to be the final one bit.
+        if !self.reader.read_bit().map_err(|e| BitReaderError::ReaderErrorFor("finish", e))? {
+            // It was a zero! Determine if we're past the end or haven't reached it yet.
+            match self.reader.read_unary1() {
+                Err(e) => return Err(BitReaderError::ReaderErrorFor("finish", e)),
+                Ok(_) => return Err(BitReaderError::RemainingData),
+            }
+        }
+        // All remaining bits in the stream must then be zeros.
+        match self.reader.read_unary1() {
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(()),
+            Err(e) => Err(BitReaderError::ReaderErrorFor("finish", e)),
+            Ok(_) => Err(BitReaderError::RemainingData),
+        }
+    }
+
+    fn finish_sei_payload(mut self) -> Result<(), BitReaderError> {
+        match self.reader.read_bit() {
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(e) => return Err(BitReaderError::ReaderErrorFor("finish", e)),
+            Ok(false) => return Err(BitReaderError::RemainingData),
+            Ok(true) => {},
+        }
+        match self.reader.read_unary1() {
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(()),
+            Err(e) => Err(BitReaderError::ReaderErrorFor("finish", e)),
+            Ok(_) => Err(BitReaderError::RemainingData),
+        }
+    }
 }
 fn golomb_to_signed(val: u32) -> i32 {
     let sign = (((val & 0x1) as i32) << 1) - 1;
@@ -363,66 +293,8 @@ fn golomb_to_signed(val: u32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::rc::Rc;
-    use std::cell::RefCell;
     use hex_literal::*;
     use hex_slice::AsHex;
-
-    struct State {
-        started: bool,
-        ended: bool,
-        data: Vec<u8>,
-    }
-    struct MockReader {
-        state: Rc<RefCell<State>>
-    }
-    impl MockReader {
-        fn new(state: Rc<RefCell<State>>) -> MockReader {
-            MockReader {
-                state
-            }
-        }
-    }
-    impl NalHandler for MockReader {
-        type Ctx = ();
-
-        fn start(&mut self, _ctx: &mut Context<Self::Ctx>, _header: NalHeader) {
-            self.state.borrow_mut().started = true;
-        }
-
-        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-            self.state.borrow_mut().data.extend_from_slice(buf);
-        }
-
-        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
-            self.state.borrow_mut().ended = true;
-        }
-    }
-
-    #[test]
-    fn push_decoder() {
-        let data = hex!(
-           "67 64 00 0A AC 72 84 44 26 84 00 00 03
-            00 04 00 00 03 00 CA 3C 48 96 11 80");
-        for i in 1..data.len()-1 {
-            let state = Rc::new(RefCell::new(State {
-                started: false,
-                ended: false,
-                data: Vec::new(),
-            }));
-            let mock = MockReader::new(Rc::clone(&state));
-            let mut r = RbspDecoder::new(mock);
-            let mut ctx = Context::default();
-            let (head, tail) = data.split_at(i);
-            r.push(&mut ctx, head);
-            r.push(&mut ctx, tail);
-            let expected = hex!(
-           "67 64 00 0A AC 72 84 44 26 84 00 00
-            00 04 00 00 00 CA 3C 48 96 11 80");
-            let s = state.borrow();
-            assert_eq!(&s.data[..], &expected[..], "on split_at({})", i);
-        }
-    }
 
     #[test]
     fn byte_reader() {
@@ -451,10 +323,10 @@ mod tests {
             4a 00 00 03 00 02 00 00 03 00 79 1e 2c
             5c 90");
         let expected = hex!(
-           "67 42 c0 15 d9 01 41 fb 01 6a 0c 02 0b
+           "42 c0 15 d9 01 41 fb 01 6a 0c 02 0b
             4a 00 00 00 02 00 00 00 79 1e 2c 5c 90");
 
-        let decoded = decode_nal(&data);
+        let decoded = decode_nal(&data).unwrap();
 
         assert_eq!(decoded, &expected[..]);
         assert!(matches!(decoded, Cow::Owned(..)));
@@ -463,13 +335,13 @@ mod tests {
     #[test]
     fn decode_single_nal_no_emulation() {
         let data = hex!(
-           "64 00 0A AC 72 84 44 26 84 00 00
+           "67 64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");
         let expected = hex!(
            "64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");
 
-        let decoded = decode_nal(&data);
+        let decoded = decode_nal(&data).unwrap();
 
         assert_eq!(decoded, &expected[..]);
         assert!(matches!(decoded, Cow::Borrowed(..)));

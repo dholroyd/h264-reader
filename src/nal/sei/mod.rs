@@ -2,13 +2,11 @@ pub mod buffering_period;
 pub mod user_data_registered_itu_t_t35;
 pub mod pic_timing;
 
-use crate::Context;
-use crate::nal::NalHandler;
-use crate::nal::NalHeader;
-use crate::rbsp::RbspDecoder;
-use log::*;
+use crate::rbsp::BitReaderError;
+use std::convert::TryFrom;
+use std::io::BufRead;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum HeaderType {
     BufferingPeriod,
     PicTiming,
@@ -140,322 +138,101 @@ impl HeaderType {
     }
 }
 
-#[macro_export]
-macro_rules! sei_switch {
-    (
-        $struct_name:ident<$ctx:ty> {
-            $( $name:ident : $t:ty => $v:expr ),*,
-        }
-    ) => {
-        #[allow(non_snake_case)]
-        struct $struct_name {
-            current_type: Option<$crate::nal::sei::HeaderType>,
-            $( $name: $crate::nal::sei::SeiBuffer<$t>, )*
-        }
-        impl Default for $struct_name {
-            fn default() -> SeiSwitch {
-                SeiSwitch {
-                    current_type: None,
-                    $( $name: $crate::nal::sei::SeiBuffer::new($v), )*
-                }
-            }
-        }
-        impl $crate::nal::sei::SeiIncrementalPayloadReader for $struct_name {
-            type Ctx = $ctx;
-
-            fn start(&mut self, ctx: &mut $crate::Context<Self::Ctx>, payload_type: $crate::nal::sei::HeaderType, payload_size: u32) {
-                self.current_type = Some(payload_type);
-                match payload_type {
-                    $(
-                    $crate::nal::sei::HeaderType::$name => self.$name.start(ctx, payload_type, payload_size),
-                    )*
-                    _ => (),
-                }
-            }
-
-            fn push(&mut self, ctx: &mut $crate::Context<Self::Ctx>, buf: &[u8]) {
-                match self.current_type {
-                    $(
-                    Some($crate::nal::sei::HeaderType::$name) => self.$name.push(ctx, buf),
-                    )*
-                    Some(_) => (),
-                    None => panic!("no previous call to start()"),
-                }
-            }
-
-            fn end(&mut self, ctx: &mut $crate::Context<Self::Ctx>) {
-                match self.current_type {
-                    $(
-                    Some($crate::nal::sei::HeaderType::$name) => self.$name.end(ctx),
-                    )*
-                    Some(_) => (),
-                    None => panic!("no previous call to start()"),
-                }
-                self.current_type = None;
-            }
-
-            fn reset(&mut self, ctx: &mut $crate::Context<Self::Ctx>) {
-                match self.current_type {
-                    $(
-                    Some($crate::nal::sei::HeaderType::$name) => self.$name.reset(ctx),
-                    )*
-                    Some(_) => (),
-                    None => (),
-                }
-                self.current_type = None;
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum SeiHeaderState {
-    Begin,
-    PayloadType { payload_type: u32 },
-    PayloadSize { payload_type: HeaderType, payload_size: u32 },
-    Payload { payload_type: HeaderType, payload_size: u32, consumed_size: u32 },
-    End,
-}
-
-pub trait SeiCompletePayloadReader {
-    type Ctx;
-    fn header(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, buf: &[u8]);
-}
-
-pub trait SeiIncrementalPayloadReader {
-    type Ctx;
-    fn start(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, payload_size: u32);
-    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]);
-    fn end(&mut self, ctx: &mut Context<Self::Ctx>);
-    fn reset(&mut self, ctx: &mut Context<Self::Ctx>);
-}
-
-pub struct SeiBuffer<R: SeiCompletePayloadReader> {
-    payload_type: Option<HeaderType>,
-    buf: Vec<u8>,
+/// Reader of messages in an SEI NAL.
+pub struct SeiReader<'a, R: BufRead + Clone> {
     reader: R,
+    scratch: &'a mut Vec<u8>,
+    payloads_seen: usize,
+    done: bool,
 }
-impl<R: SeiCompletePayloadReader> SeiBuffer<R> {
-    pub fn new(reader: R) -> Self {
-        SeiBuffer {
-            payload_type: None,
-            buf: Vec::new(),
+
+impl<'a, R: BufRead + Clone> SeiReader<'a, R> {
+    pub fn from_rbsp_bytes(reader: R, scratch: &'a mut Vec<u8>) -> Self {
+        Self {
             reader,
+            scratch,
+            payloads_seen: 0,
+            done: false,
         }
     }
-}
-impl<R: SeiCompletePayloadReader> SeiIncrementalPayloadReader for SeiBuffer<R> {
-    type Ctx = R::Ctx;
 
-    fn start(&mut self, _ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, _payload_size: u32) {
-        self.payload_type = Some(payload_type);
-    }
-
-    fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-        self.buf.extend_from_slice(buf);
-    }
-
-    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
-        self.reader.header(ctx, self.payload_type.unwrap(), &self.buf[..]);
-        self.buf.clear();
-        self.payload_type = None;
-    }
-
-    fn reset(&mut self, _ctx: &mut Context<Self::Ctx>) {
-        self.buf.clear();
-    }
-}
-
-pub struct SeiHeaderReader<R: SeiIncrementalPayloadReader> {
-    state: SeiHeaderState,
-    reader: R,
-}
-impl<R: SeiIncrementalPayloadReader> SeiHeaderReader<R> {
-    pub fn new(reader: R) -> Self {
-        SeiHeaderReader {
-            state: SeiHeaderState::Begin,
-            reader,
+    /// Returns the next payload.
+    ///
+    /// This is unfortunately not compatible with `std::iter::Iterator` because
+    /// of lifetime constraints.
+    pub fn next(&mut self) -> Result<Option<SeiMessage<'_>>, BitReaderError> {
+        if self.done {
+            return Ok(None);
         }
-    }
-}
-impl<R: SeiIncrementalPayloadReader> NalHandler for SeiHeaderReader<R> {
-    type Ctx = R::Ctx;
 
-    fn start(&mut self, _ctx: &mut Context<Self::Ctx>, header: NalHeader) {
-        assert_eq!(header.nal_unit_type(), crate::nal::UnitType::SEI);
-        self.state = SeiHeaderState::Begin;
-    }
+        // Fused iterator: once this returns `None` or `Err`, don't try to parse
+        // again and return a strange result. (Set done preemptively then clear
+        // it on success, rather than adjust each failure path.)
+        self.done = true;
+        let payload_type = read_u32(&mut self.reader, "payload_type")?;
 
-    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-        assert!(!buf.is_empty());
-        let mut input = &buf[..];
-        loop {
-            if input.is_empty() {
-                break;
-            }
-            let b = input[0];
-            let mut exit = false;
-            self.state = match self.state {
-                SeiHeaderState::End => {
-                    panic!("SeiHeaderReader no preceding call to start()");
-                },
-                SeiHeaderState::Begin => {
-                    match b {
-                        0xff => {
-                            SeiHeaderState::PayloadType { payload_type: b as u32 }
-                        },
-                        _ => {
-                            SeiHeaderState::PayloadSize { payload_type: HeaderType::from_id(b as u32), payload_size: 0 }
-                        }
-                    }
-                },
-                SeiHeaderState::PayloadType { payload_type } => {
-                    let new_type = b as u32 + payload_type;
-                    match b {
-                        0xff => {
-                            SeiHeaderState::PayloadType { payload_type: new_type }
-                        },
-                        _ => {
-                            SeiHeaderState::PayloadSize { payload_type: HeaderType::from_id(new_type), payload_size: 0 }
-                        }
-                    }
-                },
-                SeiHeaderState::PayloadSize { payload_type, payload_size } => {
-                    let new_size = b as u32 + payload_size;
-                    match b {
-                        0xff => {
-                            SeiHeaderState::PayloadSize { payload_type, payload_size: new_size }
-                        },
-                        _ => {
-                            self.reader.start(ctx, payload_type, new_size);
-                            SeiHeaderState::Payload { payload_type, payload_size: new_size, consumed_size: 0 }
-                        }
-                    }
-                },
-                SeiHeaderState::Payload { payload_type, payload_size, consumed_size } => {
-                    let remaining = (payload_size - consumed_size) as usize;
-                    if remaining >= input.len() {
-                        exit = true;
-                        self.reader.push(ctx, input);
-                        let consumed_size = consumed_size + input.len() as u32;
-                        if consumed_size == payload_size {
-                            self.reader.end(ctx);
-                            SeiHeaderState::Begin
-                        } else {
-                            SeiHeaderState::Payload { payload_type, payload_size, consumed_size }
-                        }
-                    } else {
-                        let (head, tail) = input.split_at(remaining);
-                        self.reader.push(ctx, head);
-                        self.reader.end(ctx);
-                        input = tail;
-                        SeiHeaderState::Begin
-                    }
-                },
-            };
-            if exit { break; }
-            if let SeiHeaderState::Begin = self.state {
-
-            } else {
-                input = &input[1..];
+        // If this is not the first payload, the byte we just read may actually
+        // be a rbsp_trailing_bits (which is always byte-aligned). Check for EOF.
+        if payload_type == 0x80 && self.payloads_seen > 0 {
+            let buf = self.reader.fill_buf()
+                .map_err(|e| BitReaderError::ReaderErrorFor("payload_type", e))?;
+            if buf.is_empty() {
+                return Ok(None);
             }
         }
-    }
+        let payload_type = HeaderType::from_id(payload_type);
+        let payload_len = usize::try_from(read_u32(&mut self.reader, "payload_len")?).unwrap();
 
-    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
-        match self.state {
-            SeiHeaderState::Begin => {
-                error!("End of SEI data without rbsp_trailing_bits");
-                self.reader.reset(ctx);
-            },
-            SeiHeaderState::End => panic!("SeiHeaderReader already ended and end() called again"),
-            SeiHeaderState::PayloadType { .. } => {
-                error!("End of SEI data encountered while reading SEI payloadType");
-                self.reader.reset(ctx);
-            },
-            SeiHeaderState::PayloadSize { payload_type: HeaderType::ReservedSeiMessage(0x80), payload_size: 0 } => {
-                // TODO: this is a bit of a hack to ignore rbsp_trailing_bits (which will always
-                //       be 0b10000000 in an SEI payload since SEI messages are byte-aligned).
-            },
-            SeiHeaderState::PayloadSize { .. } => {
-                error!("End of SEI data encountered while reading SEI payloadSize");
-                self.reader.reset(ctx);
-            },
-            SeiHeaderState::Payload { payload_type, payload_size, consumed_size } => {
-                error!("End of SEI data encountered having read {} bytes of payloadSize={} for header type {:?}", consumed_size, payload_size, payload_type);
-                self.reader.reset(ctx);
-            },
+        // Read into scratch. We could instead directly use reader's buffer if
+        // the next chunk is long enough, or pass along a BufRead that uses
+        // something like std::io::Take, but it's probably not worth the
+        // complexity.
+        self.scratch.resize(payload_len, 0);
+        self.reader.read_exact(&mut self.scratch)
+            .map_err(|e| BitReaderError::ReaderErrorFor("payload", e))?;
+
+        self.payloads_seen += 1;
+        self.done = false;
+        Ok(Some(SeiMessage {
+            payload_type,
+            payload: &self.scratch[..],
+        }))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct SeiMessage<'a> {
+    pub payload_type: HeaderType,
+    pub payload: &'a [u8],
+}
+
+/// Reads a u32 in the special `sei_message` format used for payload type and size.
+fn read_u32<R: BufRead>(reader: &mut R, name: &'static str) -> Result<u32, BitReaderError> {
+    let mut acc = 0u32;
+    loop {
+        let mut buf = [0];
+        reader.read_exact(&mut buf[..]).map_err(|e| BitReaderError::ReaderErrorFor(name, e))?;
+        let byte = buf[0];
+        acc = acc.checked_add(u32::from(byte)).ok_or_else(|| BitReaderError::ReaderErrorFor(
+            name,
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "overflowed u32")))?;
+        if byte != 0xFF {
+            return Ok(acc)
         }
-        self.state = SeiHeaderState::End;
-    }
-}
-
-pub struct SeiNalHandler<R: SeiIncrementalPayloadReader> {
-    reader: RbspDecoder<SeiHeaderReader<R>>,
-}
-impl<R: SeiIncrementalPayloadReader> SeiNalHandler<R> {
-    pub fn new(r: R) -> Self {
-        SeiNalHandler {
-            reader: RbspDecoder::new(SeiHeaderReader::new(r)),
-        }
-    }
-}
-
-impl<R: SeiIncrementalPayloadReader> NalHandler for SeiNalHandler<R> {
-    type Ctx = R::Ctx;
-
-    fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader) {
-        assert_eq!(header.nal_unit_type(), super::UnitType::SEI);
-        self.reader.start(ctx, header);
-    }
-
-    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-        self.reader.push(ctx, buf);
-    }
-
-    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
-        self.reader.end(ctx);
     }
 }
 
 #[cfg(test)]
 mod test {
+    use crate::nal::{Nal, RefNal};
+
     use super::*;
-    use std::rc::Rc;
-    use std::cell::RefCell;
-
-    #[derive(Default)]
-    struct State {
-        started: u32,
-        ended: u32,
-        data: Vec<u8>,
-    }
-    struct MockReader {
-        state: Rc<RefCell<State>>
-    }
-    impl SeiIncrementalPayloadReader for MockReader {
-        type Ctx = ();
-
-        fn start(&mut self, _ctx: &mut Context<Self::Ctx>, _payload_type: HeaderType, _payload_size: u32) {
-            self.state.borrow_mut().started += 1;
-        }
-
-        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-            self.state.borrow_mut().data.extend_from_slice(buf);
-        }
-
-        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
-            self.state.borrow_mut().ended += 1;
-        }
-
-        fn reset(&mut self, _ctx: &mut Context<Self::Ctx>) {
-            panic!("reset called"); // SeiHeaderReader's NalHandler::end() error paths call reset.
-        }
-    }
 
     #[test]
     fn it_works() {
         let data = [
+            0x06,  // SEI
+
             // header 1
             0x01,  // type
             0x01,  // len
@@ -465,43 +242,18 @@ mod test {
             0x02,  // type
             0x02,  // len
             0x02, 0x02, // payload
-
-            0x80, // trailing bits
-        ];
-        let state = Rc::new(RefCell::new(State::default()));
-        let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
-        let ctx = &mut Context::default();
-        let header = NalHeader::new(6).unwrap();
-        r.start(ctx, header);
-        r.push(ctx, &data[..]);
-        r.end(ctx);
-        let st = state.borrow();
-        assert_eq!(st.started, 2);
-        assert_eq!(&st.data[..], [0x01, 0x02, 0x02]);
-        assert_eq!(st.ended, 2);
-    }
-
-    #[test]
-    fn split() {
-        let data = [
-            // header 2
-            0x02,  // type
-            0x06,  // len
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, // payload
             0x80,  // rbsp_trailing_bits
         ];
-        let state = Rc::new(RefCell::new(State::default()));
-        let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
-        let ctx = &mut Context::default();
-        let header = NalHeader::new(6).unwrap();
-        r.start(ctx, header);
-        let (head, tail) = data.split_at(data.len()-4);  // just before end of payload
-        r.push(ctx, head);
-        r.push(ctx, tail);
-        r.end(ctx);
-        let st = state.borrow();
-        assert_eq!(st.started, 1);
-        assert_eq!(&st.data[..], [0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
-        assert_eq!(st.ended, 1);
+        let nal = RefNal::new(&data[..], &[], true);
+        let mut scratch = Vec::new();
+        let mut r = SeiReader::from_rbsp_bytes(nal.rbsp_bytes(), &mut scratch);
+        let m1 = r.next().unwrap().unwrap();
+        assert_eq!(m1.payload_type, HeaderType::PicTiming);
+        assert_eq!(m1.payload, &[0x01]);
+        let m2 = r.next().unwrap().unwrap();
+        assert_eq!(m2.payload_type, HeaderType::PanScanRect);
+        assert_eq!(m2.payload, &[0x02, 0x02]);
+        assert_eq!(r.next().unwrap(), None);
+        assert_eq!(r.next().unwrap(), None);
     }
 }

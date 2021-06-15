@@ -1,10 +1,6 @@
-use super::NalHandler;
-use super::NalHeader;
 use super::sps;
-use std::marker;
 use crate::{rbsp, Context};
 use crate::rbsp::BitRead;
-use log::*;
 
 #[derive(Debug)]
 pub enum PpsError {
@@ -225,15 +221,14 @@ pub struct PicParameterSet {
     pub extension: Option<PicParameterSetExtra>,
 }
 impl PicParameterSet {
-    pub fn from_bytes<Ctx>(ctx: &Context<Ctx>, buf: &[u8]) -> Result<PicParameterSet, PpsError> {
-        let mut r = crate::rbsp::BitReader::new(buf);
+    pub fn from_bits<R: BitRead>(ctx: &Context, mut r: R) -> Result<PicParameterSet, PpsError> {
         let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue("pic_parameter_set_id")?)
             .map_err(PpsError::BadPicParamSetId)?;
         let seq_parameter_set_id = ParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)
             .map_err(PpsError::BadSeqParamSetId)?;
         let seq_parameter_set = ctx.sps_by_id(seq_parameter_set_id)
             .ok_or_else(|| PpsError::UnknownSeqParamSetId(seq_parameter_set_id))?;
-        Ok(PicParameterSet {
+        let pps = PicParameterSet {
             pic_parameter_set_id,
             seq_parameter_set_id,
             entropy_coding_mode_flag: r.read_bool("entropy_coding_mode_flag")?,
@@ -250,7 +245,9 @@ impl PicParameterSet {
             constrained_intra_pred_flag: r.read_bool("constrained_intra_pred_flag")?,
             redundant_pic_cnt_present_flag: r.read_bool("redundant_pic_cnt_present_flag")?,
             extension: PicParameterSetExtra::read(&mut r, seq_parameter_set)?,
-        })
+        };
+        r.finish_rbsp()?;
+        Ok(pps)
     }
 
     fn read_slice_groups<R: BitRead>(r: &mut R) -> Result<Option<SliceGroup>,PpsError> {
@@ -263,44 +260,6 @@ impl PicParameterSet {
     }
 }
 
-pub struct PicParameterSetNalHandler<Ctx> {
-    buf: Vec<u8>,
-    phantom: marker::PhantomData<Ctx>
-}
-
-impl<Ctx> Default for PicParameterSetNalHandler<Ctx> {
-    fn default() -> Self {
-        PicParameterSetNalHandler {
-            buf: Vec::new(),
-            phantom: marker::PhantomData,
-        }
-    }
-}
-impl<Ctx> NalHandler for PicParameterSetNalHandler<Ctx> {
-    type Ctx = Ctx;
-
-    fn start(&mut self, _ctx: &mut Context<Ctx>, header: NalHeader) {
-        assert_eq!(header.nal_unit_type(), super::UnitType::PicParameterSet);
-    }
-
-    fn push(&mut self, _ctx: &mut Context<Ctx>, buf: &[u8]) {
-        self.buf.extend_from_slice(buf);
-    }
-
-    fn end(&mut self, ctx: &mut Context<Ctx>) {
-        let pps = PicParameterSet::from_bytes(ctx, &self.buf[..]);
-        self.buf.clear();
-        match pps {
-            Ok(pps) => {
-                ctx.put_pic_param_set(pps);
-            },
-            Err(e) => {
-                error!("pps: {:?}", e);
-            },
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -308,14 +267,15 @@ mod test {
 
     #[test]
     fn test_it() {
-        let sps_data = hex!(
+        let data = hex!(
            "64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");
-        let sps = super::sps::SeqParameterSet::from_bytes(&sps_data[..]).expect("unexpected test data");
+        let sps = super::sps::SeqParameterSet::from_bits(rbsp::BitReader::new(&data[..]))
+            .expect("unexpected test data");
         let mut ctx = Context::default();
         ctx.put_seq_param_set(sps);
         let data = hex!("E8 43 8F 13 21 30");
-        match PicParameterSet::from_bytes(&mut ctx, &data[..]) {
+        match PicParameterSet::from_bits(&ctx, rbsp::BitReader::new(&data[..])) {
             Err(e) => panic!("failed: {:?}", e),
             Ok(pps) => {
                 println!("pps: {:#?}", pps);

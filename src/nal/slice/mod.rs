@@ -1,21 +1,12 @@
 
 use crate::Context;
 use crate::rbsp::BitRead;
-use crate::rbsp::BitReader;
 use crate::rbsp::BitReaderError;
 use crate::nal::pps::{ParamSetId, PicParameterSet};
 use crate::nal::pps;
 use crate::nal::sps;
-use std::marker;
 use crate::nal::sps::SeqParameterSet;
 use crate::nal::NalHeader;
-use log::*;
-
-enum ParseState {
-    Unstarted,
-    Start(NalHeader),
-    Continue(NalHeader),
-}
 
 #[derive(Debug,PartialEq)]
 enum SliceFamily {
@@ -364,7 +355,7 @@ pub struct SliceHeader {
     disable_deblocking_filter_idc: u8,
 }
 impl SliceHeader {
-    pub fn read<'a, Ctx, R: BitRead>(ctx: &'a mut Context<Ctx>, r: &mut R, header: NalHeader) -> Result<(SliceHeader, &'a SeqParameterSet, &'a PicParameterSet), SliceHeaderError> {
+    pub fn from_bits<'a, R: BitRead>(ctx: &'a Context, r: &mut R, header: NalHeader) -> Result<(SliceHeader, &'a SeqParameterSet, &'a PicParameterSet), SliceHeaderError> {
         let first_mb_in_slice = r.read_ue("first_mb_in_slice")?;
         let slice_type = SliceType::from_id(r.read_ue("slice_type")?)?;
         let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue("pic_parameter_set_id")?)?;
@@ -505,6 +496,11 @@ impl SliceHeader {
                 let _slice_beta_offset_div2 = r.read_se("slice_beta_offset_div2")?;
             }
         }
+        if !r.has_more_rbsp_data("slice_header")? {
+            return Err(SliceHeaderError::RbspError(BitReaderError::ReaderErrorFor(
+                "slice_header",
+                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "slice header overran rbsp trailing bits"))));
+        }
         let header = SliceHeader {
             first_mb_in_slice,
             slice_type,
@@ -526,46 +522,5 @@ impl SliceHeader {
             disable_deblocking_filter_idc,
         };
         Ok((header, sps, pps))
-    }
-}
-
-pub struct SliceLayerWithoutPartitioningRbsp<Ctx> {
-    state: ParseState,
-    phantom: marker::PhantomData<Ctx>
-}
-impl<Ctx> super::NalHandler for SliceLayerWithoutPartitioningRbsp<Ctx> {
-    type Ctx = Ctx;
-
-    fn start(&mut self, _ctx: &mut Context<Ctx>, header: NalHeader) {
-        self.state = ParseState::Start(header);
-    }
-
-    fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
-        match self.state {
-            ParseState::Unstarted => panic!("start() not yet called"),
-            ParseState::Start(header) => {
-                let mut r = BitReader::new(buf);
-                match SliceHeader::read(ctx, &mut r, header) {
-                    Ok(header) => info!("TODO: expose to caller: {:#?}", header),
-                    Err(e) => error!("slice_header() error: SliceHeaderError::{:?}", e),
-                }
-                self.state = ParseState::Continue(header);
-            },
-            ParseState::Continue(_header) => {
-                // TODO
-            }
-        }
-    }
-
-    fn end(&mut self, _ctx: &mut Context<Ctx>) {
-        // TODO
-    }
-}
-impl<Ctx> Default for SliceLayerWithoutPartitioningRbsp<Ctx> {
-    fn default() -> Self {
-        SliceLayerWithoutPartitioningRbsp {
-            state: ParseState::Unstarted,
-            phantom: marker::PhantomData,
-        }
     }
 }

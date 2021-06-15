@@ -28,6 +28,18 @@ impl<F: FnMut(RefNal<'_>) -> NalInterest> AccumulatedNalHandler for F {
     }
 }
 
+/// Handles arbitrary fragments of NALs. See [NalAccumulator].
+///
+/// It's probably unnecessary to provide your own implementation of this trait
+/// except when benchmarking or testing a parser.
+pub trait NalFragmentHandler {
+    /// Pushes a fragment of a NAL.
+    ///
+    /// The caller must ensure that each element of `bufs` (if there are any)
+    /// is non-empty.
+    fn nal_fragment(&mut self, bufs: &[&[u8]], end: bool);
+}
+
 /// NAL accumulator for push parsers.
 ///
 /// This is meant to be used by parsers for a specific format: Annex B, AVC, MPEG-TS, RTP, etc.
@@ -35,7 +47,7 @@ impl<F: FnMut(RefNal<'_>) -> NalInterest> AccumulatedNalHandler for F {
 ///
 /// ```
 /// use h264_reader::nal::{Nal, RefNal, UnitType};
-/// use h264_reader::push::{NalAccumulator, NalInterest};
+/// use h264_reader::push::{NalAccumulator, NalFragmentHandler, NalInterest};
 /// let mut calls = Vec::new();
 /// let mut acc = NalAccumulator::new(|nal: RefNal<'_>| {
 ///     let nal_unit_type = nal.header().unwrap().nal_unit_type();
@@ -47,12 +59,12 @@ impl<F: FnMut(RefNal<'_>) -> NalInterest> AccumulatedNalHandler for F {
 /// });
 ///
 /// // Push a SeqParameterSet in two calls (the latter with two byte slices).
-/// acc.push(&[&b"\x67\x64\x00\x0A\xAC\x72\x84\x44\x26\x84\x00\x00\x03"[..]], false);
-/// acc.push(&[&b"\x00"[..], &b"\x04\x00\x00\x03\x00\xCA\x3C\x48\x96\x11\x80"[..]], true);
+/// acc.nal_fragment(&[&b"\x67\x64\x00\x0A\xAC\x72\x84\x44\x26\x84\x00\x00\x03"[..]], false);
+/// acc.nal_fragment(&[&b"\x00"[..], &b"\x04\x00\x00\x03\x00\xCA\x3C\x48\x96\x11\x80"[..]], true);
 ///
 /// // Push a PicParameterSet in two calls.
-/// acc.push(&[&b"\x68"[..]], false);
-/// acc.push(&[&b"\xE8\x43\x8F\x13\x21\x30"[..]], true);
+/// acc.nal_fragment(&[&b"\x68"[..]], false);
+/// acc.nal_fragment(&[&b"\xE8\x43\x8F\x13\x21\x30"[..]], true);
 ///
 /// assert_eq!(calls, &[
 ///     (UnitType::SeqParameterSet, false),
@@ -66,7 +78,7 @@ impl<F: FnMut(RefNal<'_>) -> NalInterest> AccumulatedNalHandler for F {
 ///
 /// ```
 /// use h264_reader::nal::{Nal, RefNal, UnitType};
-/// use h264_reader::push::{AccumulatedNalHandler, NalAccumulator, NalInterest};
+/// use h264_reader::push::{AccumulatedNalHandler, NalAccumulator, NalFragmentHandler, NalInterest};
 /// struct MyHandler(Vec<UnitType>);
 /// impl AccumulatedNalHandler for MyHandler {
 ///     fn nal(&mut self, nal: RefNal<'_>) -> NalInterest {
@@ -75,10 +87,10 @@ impl<F: FnMut(RefNal<'_>) -> NalInterest> AccumulatedNalHandler for F {
 ///     }
 /// }
 /// let mut acc = NalAccumulator::new(MyHandler(Vec::new()));
-/// acc.push(&[&b"\x67\x64\x00\x0A\xAC\x72\x84\x44\x26\x84\x00\x00\x03"[..]], false);
-/// acc.push(&[&b"\x00"[..], &b"\x04\x00\x00\x03\x00\xCA\x3C\x48\x96\x11\x80"[..]], true);
-/// acc.push(&[&b"\x68"[..]], false);
-/// acc.push(&[&b"\xE8\x43\x8F\x13\x21\x30"[..]], true);
+/// acc.nal_fragment(&[&b"\x67\x64\x00\x0A\xAC\x72\x84\x44\x26\x84\x00\x00\x03"[..]], false);
+/// acc.nal_fragment(&[&b"\x00"[..], &b"\x04\x00\x00\x03\x00\xCA\x3C\x48\x96\x11\x80"[..]], true);
+/// acc.nal_fragment(&[&b"\x68"[..]], false);
+/// acc.nal_fragment(&[&b"\xE8\x43\x8F\x13\x21\x30"[..]], true);
 /// assert_eq!(acc.handler().0, &[
 ///     UnitType::SeqParameterSet,
 ///     UnitType::PicParameterSet,
@@ -100,16 +112,27 @@ impl<H: AccumulatedNalHandler> NalAccumulator<H> {
         }
     }
 
-    /// Pushes a portion of a NAL.
-    ///
-    /// The caller must ensure that each element of `bufs` (if there are any)
-    /// is non-empty.
-    ///
-    /// This calls `nal_handler` unless any of the following are true:
+    /// Gets a reference to the handler.
+    pub fn handler(&self) -> &H {
+        &self.nal_handler
+    }
+
+    /// Gets a mutable reference to the handler.
+    pub fn handler_mut(&mut self) -> &mut H {
+        &mut self.nal_handler
+    }
+
+    /// Unwraps this `NalAccumulator<h>`, returning the inner handler.
+    pub fn into_handler(self) -> H {
+        self.nal_handler
+    }
+}
+impl<H: AccumulatedNalHandler> NalFragmentHandler for NalAccumulator<H> {
+    /// Calls `nal_handler` with accumulated NAL unless any of the following are true:
     /// *   a previous call on the same NAL returned [`NalInterest::Ignore`].
     /// *   the NAL is totally empty.
     /// *   `bufs` is empty and `end` is false.
-    pub fn push(&mut self, bufs: &[&[u8]], end: bool) {
+    fn nal_fragment(&mut self, bufs: &[&[u8]], end: bool) {
         if self.interest != NalInterest::Ignore {
             let nal = if !self.buf.is_empty() {
                 RefNal::new(&self.buf[..], bufs, end)
@@ -136,21 +159,6 @@ impl<H: AccumulatedNalHandler> NalAccumulator<H> {
             self.buf.clear();
             self.interest = NalInterest::Buffer;
         }
-    }
-
-    /// Gets a reference to the handler.
-    pub fn handler(&self) -> &H {
-        &self.nal_handler
-    }
-
-    /// Gets a mutable reference to the handler.
-    pub fn handler_mut(&mut self) -> &mut H {
-        &mut self.nal_handler
-    }
-
-    /// Unwraps this `NalAccumulator<h>`, returning the inner handler.
-    pub fn into_inner(self) -> H {
-        self.nal_handler
     }
 }
 impl<H: AccumulatedNalHandler + std::fmt::Debug> std::fmt::Debug for NalAccumulator<H> {
@@ -184,16 +192,16 @@ mod test {
             NalInterest::Buffer
         };
         let mut accumulator = NalAccumulator::new(handler);
-        accumulator.push(&[], false);
-        accumulator.push(&[], true);
-        accumulator.push(&[&[0b0101_0001], &[1]], true);
-        accumulator.push(&[&[0b0101_0001]], false);
-        accumulator.push(&[], false);
-        accumulator.push(&[&[2]], true);
-        accumulator.push(&[&[0b0101_0001]], false);
-        accumulator.push(&[], false);
-        accumulator.push(&[&[3]], false);
-        accumulator.push(&[], true);
+        accumulator.nal_fragment(&[], false);
+        accumulator.nal_fragment(&[], true);
+        accumulator.nal_fragment(&[&[0b0101_0001], &[1]], true);
+        accumulator.nal_fragment(&[&[0b0101_0001]], false);
+        accumulator.nal_fragment(&[], false);
+        accumulator.nal_fragment(&[&[2]], true);
+        accumulator.nal_fragment(&[&[0b0101_0001]], false);
+        accumulator.nal_fragment(&[], false);
+        accumulator.nal_fragment(&[&[3]], false);
+        accumulator.nal_fragment(&[], true);
         assert_eq!(nals, &[
             &[0b0101_0001, 1][..],
             &[0b0101_0001, 2][..],
@@ -207,16 +215,16 @@ mod test {
             NalInterest::Ignore
         };
         let mut accumulator = NalAccumulator::new(handler);
-        accumulator.push(&[], false);
-        accumulator.push(&[], true);
-        accumulator.push(&[&[0b0101_0001, 1]], true);
-        accumulator.push(&[&[0b0101_0001]], false);
-        accumulator.push(&[], false);
-        accumulator.push(&[&[2]], true);
-        accumulator.push(&[&[0b0101_0001]], false);
-        accumulator.push(&[], false);
-        accumulator.push(&[&[3]], false);
-        accumulator.push(&[], true);
+        accumulator.nal_fragment(&[], false);
+        accumulator.nal_fragment(&[], true);
+        accumulator.nal_fragment(&[&[0b0101_0001, 1]], true);
+        accumulator.nal_fragment(&[&[0b0101_0001]], false);
+        accumulator.nal_fragment(&[], false);
+        accumulator.nal_fragment(&[&[2]], true);
+        accumulator.nal_fragment(&[&[0b0101_0001]], false);
+        accumulator.nal_fragment(&[], false);
+        accumulator.nal_fragment(&[&[3]], false);
+        accumulator.nal_fragment(&[], true);
         assert_eq!(nals, &[
             &[0b0101_0001, 1][..],
             &[0b0101_0001][..],

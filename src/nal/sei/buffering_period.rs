@@ -1,14 +1,12 @@
-use super::SeiCompletePayloadReader;
-use std::marker;
+use super::SeiMessage;
 use crate::nal::{sps, pps};
 use crate::rbsp::BitRead;
 use crate::Context;
 use crate::nal::sei::HeaderType;
 use crate::rbsp::BitReaderError;
-use log::*;
 
 #[derive(Debug)]
-enum BufferingPeriodError {
+pub enum BufferingPeriodError {
     ReaderError(BitReaderError),
     UndefinedSeqParamSetId(pps::ParamSetId),
     InvalidSeqParamSetId(pps::ParamSetIdError),
@@ -42,13 +40,14 @@ fn read_cpb_removal_delay_list<R: BitRead>(r: &mut R, count: usize, length: u32)
 }
 
 #[derive(Debug, Eq, PartialEq)]
-struct BufferingPeriod {
+pub struct BufferingPeriod {
     nal_hrd_bp: Option<Vec<InitialCpbRemoval>>,
     vcl_hrd_bp: Option<Vec<InitialCpbRemoval>>,
 }
 impl BufferingPeriod {
-    fn read<Ctx>(ctx: &Context<Ctx>, buf: &[u8]) -> Result<BufferingPeriod,BufferingPeriodError> {
-        let mut r = crate::rbsp::BitReader::new(buf);
+    pub fn read(ctx: &Context, msg: &SeiMessage<'_>) -> Result<BufferingPeriod,BufferingPeriodError> {
+        assert_eq!(msg.payload_type, HeaderType::BufferingPeriod);
+        let mut r = crate::rbsp::BitReader::new(msg.payload);
         let seq_parameter_set_id = pps::ParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)?;
         let sps = ctx.sps_by_id(seq_parameter_set_id)
             .ok_or_else(|| BufferingPeriodError::UndefinedSeqParamSetId(seq_parameter_set_id))?;
@@ -60,39 +59,19 @@ impl BufferingPeriod {
         );
         let nal_hrd_bp = vui.and_then(|v| v.nal_hrd_parameters.as_ref()).map(&mut read).transpose()?;
         let vcl_hrd_bp = vui.and_then(|v| v.vcl_hrd_parameters.as_ref()).map(&mut read).transpose()?;
+        r.finish_sei_payload()?;
         Ok(BufferingPeriod {
             nal_hrd_bp,
             vcl_hrd_bp,
         })
     }
 }
-pub struct BufferingPeriodPayloadReader<Ctx> {
-    phantom: marker::PhantomData<Ctx>,
-}
-impl<Ctx> Default for BufferingPeriodPayloadReader<Ctx> {
-    fn default() -> Self {
-        BufferingPeriodPayloadReader {
-            phantom: marker::PhantomData
-        }
-    }
-}
-impl<Ctx> SeiCompletePayloadReader for BufferingPeriodPayloadReader<Ctx> {
-    type Ctx = Ctx;
-
-    fn header(&mut self, ctx: &mut Context<Ctx>, payload_type: HeaderType, buf: &[u8]) {
-        assert_eq!(payload_type, HeaderType::BufferingPeriod);
-        match BufferingPeriod::read(ctx, buf) {
-            Err(e) => error!("Failure reading buffering_period: {:?}", e),
-            Ok(buffering_period) => {
-                info!("TODO: expose buffering_period {:#?}", buffering_period);
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod test {
     use hex_literal::hex;
+
+    use crate::rbsp;
 
     use super::*;
 
@@ -106,10 +85,13 @@ mod test {
             07 00 00 00 92 7c 00 00 12 4f 80 fb dc 18 00 00
             0f 42 40 00 07 a1 20 7d ee 07 c6 0c 62 60
         ");
-        ctx.put_seq_param_set(sps::SeqParameterSet::from_bytes(&sps_rbsp[..]).unwrap());
+        ctx.put_seq_param_set(sps::SeqParameterSet::from_bits(rbsp::BitReader::new(&sps_rbsp[..])).unwrap());
 
-        let payload = &hex!("d7 e4 00 00 57 e4 00 00 40")[..];
-        assert_eq!(BufferingPeriod::read(&ctx, payload).unwrap(), BufferingPeriod {
+        let msg = SeiMessage {
+            payload_type: HeaderType::BufferingPeriod,
+            payload: &hex!("d7 e4 00 00 57 e4 00 00 40")[..],
+        };
+        assert_eq!(BufferingPeriod::read(&ctx, &msg).unwrap(), BufferingPeriod {
             nal_hrd_bp: Some(vec![
                 InitialCpbRemoval {
                     initial_cpb_removal_delay: 45_000,

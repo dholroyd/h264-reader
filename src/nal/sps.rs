@@ -1,11 +1,7 @@
 
 use crate::rbsp::BitRead;
-use crate::rbsp::BitReader;
-use super::NalHandler;
-use super::NalHeader;
-use crate::Context;
 use crate::rbsp::BitReaderError;
-use std::{marker, fmt};
+use std::fmt;
 use crate::nal::pps::ParamSetId;
 use crate::nal::pps::ParamSetIdError;
 use std::fmt::Debug;
@@ -31,39 +27,6 @@ pub enum SpsError {
 impl From<BitReaderError> for SpsError {
     fn from(e: BitReaderError) -> Self {
         SpsError::RbspReaderError(e)
-    }
-}
-
-pub struct SeqParameterSetNalHandler<Ctx> {
-    buf: Vec<u8>,
-    phantom: marker::PhantomData<Ctx>
-}
-
-impl<Ctx> Default for SeqParameterSetNalHandler<Ctx> {
-    fn default() -> Self {
-        SeqParameterSetNalHandler {
-            buf: Vec::new(),
-            phantom: marker::PhantomData,
-        }
-    }
-}
-impl<Ctx> NalHandler for SeqParameterSetNalHandler<Ctx> {
-    type Ctx = Ctx;
-
-    fn start(&mut self, _ctx: &mut Context<Ctx>, header: NalHeader) {
-        assert_eq!(header.nal_unit_type(), super::UnitType::SeqParameterSet);
-    }
-
-    fn push(&mut self, _ctx: &mut Context<Ctx>, buf: &[u8]) {
-        self.buf.extend_from_slice(buf);
-    }
-
-    fn end(&mut self, ctx: &mut Context<Ctx>) {
-        let sps = SeqParameterSet::from_bytes(&self.buf[..]);
-        self.buf.clear();
-        if let Ok(sps) = sps {
-            ctx.put_seq_param_set(sps);
-        }
     }
 }
 
@@ -875,8 +838,7 @@ pub struct SeqParameterSet {
     pub vui_parameters: Option<VuiParameters>,
 }
 impl SeqParameterSet {
-    pub fn from_bytes(buf: &[u8]) -> Result<SeqParameterSet, SpsError> {
-        let mut r = BitReader::new(buf);
+    pub fn from_bits<R: BitRead>(mut r: R) -> Result<SeqParameterSet, SpsError> {
         let profile_idc = r.read_u8(8, "profile_idc")?.into();
         let sps = SeqParameterSet {
             profile_idc,
@@ -895,7 +857,12 @@ impl SeqParameterSet {
             frame_cropping: FrameCropping::read(&mut r)?,
             vui_parameters: VuiParameters::read(&mut r)?,
         };
+        r.finish_rbsp()?;
         Ok(sps)
+    }
+
+    pub fn id(&self) -> ParamSetId {
+        self.seq_parameter_set_id
     }
 
     fn read_log2_max_frame_num_minus4<R: BitRead>(r: &mut R) -> Result<u8, SpsError> {
@@ -979,6 +946,8 @@ impl SeqParameterSet {
 
 #[cfg(test)]
 mod test {
+    use crate::rbsp;
+
     use super::*;
     use hex_literal::*;
 
@@ -987,7 +956,7 @@ mod test {
         let data = hex!(
            "64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");
-        let sps = SeqParameterSet::from_bytes(&data[..]).unwrap();
+        let sps = SeqParameterSet::from_bits(rbsp::BitReader::new(&data[..])).unwrap();
         assert!(!format!("{:?}", sps).is_empty());
         assert_eq!(100, sps.profile_idc.0);
         assert_eq!(0, sps.constraint_flags.reserved_zero_two_bits());
@@ -1004,7 +973,7 @@ mod test {
            F4 00 00 27 10 74 30 07 D0 00 07
            A1 25 DE 5C 68 60 0F A0 00 0F 42
            4B BC B8 50");
-        let sps = SeqParameterSet::from_bytes(&data[..]).unwrap();
+        let sps = SeqParameterSet::from_bits(rbsp::BitReader::new(&data[..])).unwrap();
         println!("sps: {:#?}", sps);
         assert_eq!(sps.vui_parameters.unwrap().aspect_ratio_info.unwrap().get(), Some((40, 33)));
     }
