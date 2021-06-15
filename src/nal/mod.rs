@@ -397,49 +397,43 @@ impl<Ctx> NalSwitch<Ctx> {
 impl<Ctx> NalReader for NalSwitch<Ctx> {
     type Ctx = Ctx;
 
-    fn start(&mut self, _ctx: &mut Context<Ctx>) {
-        self.state = NalSwitchState::Start;
-    }
-
-    fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
-        if buf.is_empty() {
-            return;
-        }
-        match self.state {
-            NalSwitchState::Start => {
-                self.state = match NalHeader::new(buf[0]) {
-                    Ok(header) => {
-                        if let Some(ref handler) = self.get_handler(header.nal_unit_type()) {
-                            handler.borrow_mut().start(ctx, header);
-                            handler.borrow_mut().push(ctx, &buf[1..]);
-                            NalSwitchState::Handling(header.nal_unit_type())
-                        } else {
+    fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8], end: bool) {
+        if !buf.is_empty() {
+            match self.state {
+                NalSwitchState::Start => {
+                    self.state = match NalHeader::new(buf[0]) {
+                        Ok(header) => {
+                            if let Some(ref handler) = self.get_handler(header.nal_unit_type()) {
+                                handler.borrow_mut().start(ctx, header);
+                                handler.borrow_mut().push(ctx, &buf[1..]);
+                                NalSwitchState::Handling(header.nal_unit_type())
+                            } else {
+                                NalSwitchState::Ignoring
+                            }
+                        },
+                        Err(e) => {
+                            // TODO: proper error propagation
+                            error!("Bad NAL header: {:?}", e);
                             NalSwitchState::Ignoring
                         }
-                    },
-                    Err(e) => {
-                        // TODO: proper error propagation
-                        error!("Bad NAL header: {:?}", e);
-                        NalSwitchState::Ignoring
+                    };
+                },
+                NalSwitchState::Ignoring => (),
+                NalSwitchState::Handling(unit_type) => {
+                    if let Some(ref handler) = self.get_handler(unit_type) {
+                        handler.borrow_mut().push(ctx, buf);
                     }
-                };
-            },
-            NalSwitchState::Ignoring => (),
-            NalSwitchState::Handling(unit_type) => {
-                if let Some(ref handler) = self.get_handler(unit_type) {
-                    handler.borrow_mut().push(ctx, buf);
                 }
             }
         }
-    }
-
-    fn end(&mut self, ctx: &mut Context<Ctx>) {
-        if let NalSwitchState::Handling(unit_type) = self.state {
-            if let Some(ref handler) = self.get_handler(unit_type) {
-                handler.borrow_mut().end(ctx);
+        if end {
+            if let NalSwitchState::Handling(unit_type) = self.state {
+                if let Some(ref handler) = self.get_handler(unit_type) {
+                    handler.borrow_mut().end(ctx);
+                }
             }
+            self.state = NalSwitchState::Start
         }
-        self.state = NalSwitchState::Ignoring
     }
 }
 
@@ -494,7 +488,7 @@ mod test {
            "67 64 00 0A AC 72 84 44 26 84 00 00
             00 04 00 00 00 CA 3C 48 96 11 80");
         let mut ctx = Context::default();
-        s.push(&mut ctx, &data[..]);
+        s.push(&mut ctx, &data[..], true);
     }
 
     #[test]
