@@ -134,10 +134,7 @@ impl RbspDecodingNalReader {
 impl NalReader for RbspDecodingNalReader {
     type Ctx = ();
 
-    fn start(&mut self, _ctx: &mut Context<Self::Ctx>) {
-        assert!(!self.decoder_started);
-    }
-    fn push(&mut self, ctx: &mut Context<Self::Ctx>, mut buf: &[u8]) {
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, mut buf: &[u8], end: bool) {
         if !self.decoder_started && !buf.is_empty() {
             let hdr = NalHeader::new(buf[0]).unwrap();
             self.decoder.start(ctx, hdr);
@@ -147,32 +144,28 @@ impl NalReader for RbspDecodingNalReader {
         if self.decoder_started {
             self.decoder.push(ctx, buf);
         }
-    }
-    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
-        assert!(self.decoder_started);
-        self.decoder.end(ctx);
-        self.decoder_started = false;
+        if end {
+            assert!(self.decoder_started);
+            self.decoder.end(ctx);
+            self.decoder_started = false;
+        }
     }
 }
 
 /// A NAL handler that does nothing, except maintain counters to limit optimization.
 #[derive(Default)]
 struct NullNalReader {
-    start: u64,
     push: u64,
     end: u64,
 }
 impl NalReader for NullNalReader {
     type Ctx = ();
 
-    fn start(&mut self, _ctx: &mut Context<Self::Ctx>) {
-        self.start += 1;
-    }
-    fn push(&mut self, _ctx: &mut Context<Self::Ctx>, _buf: &[u8]) {
+    fn push(&mut self, _ctx: &mut Context<Self::Ctx>, _buf: &[u8], end: bool) {
         self.push += 1;
-    }
-    fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
-        self.end += 1;
+        if end {
+            self.end += 1;
+        }
     }
 }
 
@@ -195,11 +188,10 @@ where R: NalReader<Ctx = ()>, P: Iterator<Item = &'a [u8]> + Clone {
     let mut annexb_reader = AnnexBReader::new(r);
     b.iter(|| {
         let mut ctx = Context::default();
-        annexb_reader.start(&mut ctx);
         for p in pushes.clone() {
             annexb_reader.push(&mut ctx, p);
         }
-        annexb_reader.end_units(&mut ctx);
+        annexb_reader.reset(&mut ctx);
     })
 }
 

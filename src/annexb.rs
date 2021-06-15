@@ -11,12 +11,9 @@ enum ParseState {
     Start,
     StartOneZero,
     StartTwoZero,
-    StartOne,
     InUnit,
     InUnitOneZero,
     InUnitTwoZero,
-    Error,
-    End,
 }
 impl ParseState {
     /// If in a NAL unit (`NalReader`'s `start` has been called but not its `end`),
@@ -26,12 +23,9 @@ impl ParseState {
             ParseState::Start => None,
             ParseState::StartOneZero => None,
             ParseState::StartTwoZero => None,
-            ParseState::StartOne => None,
             ParseState::InUnit => Some(InUnitState { backtrack_bytes: 0 }),
             ParseState::InUnitOneZero => Some(InUnitState { backtrack_bytes: 1 }),
             ParseState::InUnitTwoZero => Some(InUnitState { backtrack_bytes: 2 }),
-            ParseState::Error => None,
-            ParseState::End => None,
         }
     }
 }
@@ -45,14 +39,7 @@ struct InUnitState {
 pub trait NalReader {
     type Ctx;
 
-    /// Starts a NAL unit.
-    fn start(&mut self, ctx: &mut Context<Self::Ctx>);
-
-    /// Pushes a non-empty buffer as part of a NAL unit.
-    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]);
-
-    /// Ends a NAL unit, which could be empty.
-    fn end(&mut self, ctx: &mut Context<Self::Ctx>);
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8], end: bool);
 }
 
 /// Push parser for Annex B format which delegates to a [NalReader].
@@ -73,17 +60,9 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
 {
     pub fn new(nal_reader: R) -> Self {
         AnnexBReader {
-            state: ParseState::End,
+            state: ParseState::Start,
             nal_reader,
         }
-    }
-
-    pub fn start(&mut self, ctx: &mut Context<Ctx>) {
-        if self.state.in_unit().is_some() {
-            // TODO: or reset()?
-            self.nal_reader.end(ctx);
-        }
-        self.to(ParseState::Start);
     }
 
     pub fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
@@ -97,12 +76,6 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
             debug_assert!(start.is_some() == self.state.in_unit().is_some());
             let b = buf[i];
             match self.state {
-                ParseState::End => {
-                    error!("no previous call to start()");
-                    self.state = ParseState::Error;
-                    return;
-                },
-                ParseState::Error => return,
                 ParseState::Start => {
                     match b {
                         0x00 => self.to(ParseState::StartOneZero),
@@ -119,17 +92,10 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                     match b {
                         0x00 => (),   // keep ignoring further 0x00 bytes
                         0x01 => {
-                            self.to(ParseState::StartOne);
+                            start = Some(i + 1);
+                            self.to(ParseState::InUnit);
                         },
                         _ => self.err(b),
-                    }
-                },
-                ParseState::StartOne => {
-                    self.nal_reader.start(ctx);
-                    start = Some(i);
-                    match b {
-                        0x00 => self.to(ParseState::InUnitOneZero),
-                        _ => self.to(ParseState::InUnit),
                     }
                 },
                 ParseState::InUnit => {
@@ -150,7 +116,7 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                         0x00 => self.to(ParseState::InUnitTwoZero),
                         _ => {
                             if i < 1 {
-                                self.emit_fake(ctx, 1);
+                                self.emit_fake(ctx, 1, false);
                                 start = Some(i);
                             }
                             self.to(ParseState::InUnit)
@@ -160,20 +126,18 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                 ParseState::InUnitTwoZero => {
                     match b {
                         0x00 => {
-                            self.maybe_emit(ctx, buf, start, i, 2);
-                            self.nal_reader.end(ctx);
+                            self.maybe_emit(ctx, buf, start, i, 2, true);
                             start = None;
                             self.to(ParseState::StartTwoZero);
                         },
                         0x01 => {
-                            self.maybe_emit(ctx, buf, start, i, 2);
-                            self.nal_reader.end(ctx);
-                            start = None;
-                            self.to(ParseState::StartOne);
+                            self.maybe_emit(ctx, buf, start, i, 2, true);
+                            start = Some(i + 1);
+                            self.to(ParseState::InUnit);
                         },
                         _ => {
                             if i < 2 {
-                                self.emit_fake(ctx, 2);
+                                self.emit_fake(ctx, 2, false);
                                 start = Some(i);
                             }
                             self.to(ParseState::InUnit)
@@ -184,7 +148,7 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
             i += 1;
         }
         if let Some(in_unit) = self.state.in_unit() {
-            self.maybe_emit(ctx, buf, start, buf.len(), in_unit.backtrack_bytes);
+            self.maybe_emit(ctx, buf, start, buf.len(), in_unit.backtrack_bytes, false);
         }
     }
 
@@ -194,17 +158,14 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
     /// For example, if the containing data structure demarcates the end of a sequence of NAL
     /// Units explicitly, the parser for that structure should call `end_units()` once all data
     /// has been passed to the `push()` function.
-    pub fn end_units(&mut self, ctx: &mut Context<Ctx>) {
+    pub fn reset(&mut self, ctx: &mut Context<Ctx>) {
         if let Some(in_unit) = self.state.in_unit() {
             // if we were in the middle of parsing a sequence of 0x00 bytes that might have become
             // a start-code, but actually reached the end of input, then we will now need to emit
             // those 0x00 bytes that we had been holding back,
-            if in_unit.backtrack_bytes > 0 {
-                self.emit_fake(ctx, in_unit.backtrack_bytes);
-            }
-            self.nal_reader.end(ctx);
+            self.emit_fake(ctx, in_unit.backtrack_bytes, true);
         }
-        self.to(ParseState::End);
+        self.to(ParseState::Start);
     }
 
     fn to(&mut self, new_state: ParseState) {
@@ -212,16 +173,17 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
     }
 
     /// count must be 2 or less
-    fn emit_fake(&mut self, ctx: &mut Context<Ctx>, count: usize) {
+    fn emit_fake(&mut self, ctx: &mut Context<Ctx>, count: usize, end: bool) {
         let fake = [0u8; 2];
-        self.nal_reader.push(ctx, &fake[..count]);
+        self.nal_reader.push(ctx, &fake[..count], end);
     }
 
-    fn maybe_emit(&mut self, ctx: &mut Context<Ctx>, buf:&[u8], start: Option<usize>, end: usize, backtrack: usize) {
+    fn maybe_emit(&mut self, ctx: &mut Context<Ctx>, buf:&[u8], start: Option<usize>, end: usize, backtrack: usize, is_end: bool) {
         match start {
             Some(s) if s + backtrack < end => {
-                self.nal_reader.push(ctx, &buf[s..end - backtrack]);
+                self.nal_reader.push(ctx, &buf[s..end - backtrack], is_end);
             },
+            Some(_) if is_end => self.nal_reader.push(ctx, b"", true),
             _ => {},
         }
     }
@@ -240,7 +202,6 @@ mod tests {
     use hex_literal::*;
 
     struct State {
-        started: u32,
         ended: u32,
         data: Vec<u8>,
     }
@@ -257,30 +218,19 @@ mod tests {
     impl NalReader for MockReader {
         type Ctx = ();
 
-        fn start(&mut self, _ctx: &mut Context<Self::Ctx>) {
+        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8], end: bool) {
             let mut state = self.state.borrow_mut();
-            assert_eq!(state.started, state.ended);
-            state.started += 1;
-        }
-
-        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-            let mut state = self.state.borrow_mut();
-            assert!(state.started > state.ended);
-            assert!(!buf.is_empty());
+            assert!(!buf.is_empty() || end);
             state.data.extend_from_slice(buf);
-        }
-
-        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
-            let mut state = self.state.borrow_mut();
-            state.ended += 1;
-            assert_eq!(state.started, state.ended);
+            if end {
+                state.ended += 1;
+            }
         }
     }
 
     #[test]
     fn simple_nal() {
         let state = Rc::new(RefCell::new(State {
-            started: 0,
             ended: 0,
             data: Vec::new(),
         }));
@@ -292,11 +242,9 @@ mod tests {
             0, 0, 1      // end-code
         );
         let mut ctx = Context::default();
-        r.start(&mut ctx);
         r.push(&mut ctx, &data[..]);
         {
             let s = state.borrow();
-            assert_eq!(1, s.started);
             assert_eq!(&s.data[..], &[3u8][..]);
             assert_eq!(1, s.ended);
         }
@@ -305,7 +253,6 @@ mod tests {
     #[test]
     fn short_start_code() {
         let state = Rc::new(RefCell::new(State {
-            started: 0,
             ended: 0,
             data: Vec::new(),
         }));
@@ -317,11 +264,9 @@ mod tests {
             0, 0, 1   // end-code
         );
         let mut ctx = Context::default();
-        r.start(&mut ctx);
         r.push(&mut ctx, &data[..]);
         {
             let s = state.borrow();
-            assert_eq!(1, s.started);
             assert_eq!(&s.data[..], &[3u8][..]);
             assert_eq!(1, s.ended);
         }
@@ -331,7 +276,6 @@ mod tests {
     #[test]
     fn rbsp_cabac() {
         let state = Rc::new(RefCell::new(State {
-            started: 0,
             ended: 0,
             data: Vec::new(),
         }));
@@ -346,11 +290,9 @@ mod tests {
             0, 0, 0, 1,  // start-code
         );
         let mut ctx = Context::default();
-        r.start(&mut ctx);
         r.push(&mut ctx, &data[..]);
         {
             let s = state.borrow();
-            assert_eq!(1, s.started);
             assert_eq!(&s.data[..], &[3, 0x80, 0, 0, 3, 0, 0, 3][..]);
             assert_eq!(1, s.ended);
         }
@@ -360,7 +302,6 @@ mod tests {
     #[test]
     fn trailing_zero() {
         let state = Rc::new(RefCell::new(State {
-            started: 0,
             ended: 0,
             data: Vec::new(),
         }));
@@ -375,11 +316,9 @@ mod tests {
             0, 0, 0, 1,  // start-code
         );
         let mut ctx = Context::default();
-        r.start(&mut ctx);
         r.push(&mut ctx, &data[..]);
         {
             let s = state.borrow();
-            assert_eq!(1, s.started);
             assert_eq!(&s.data[..], &[3, 0x80][..]);
             assert_eq!(1, s.ended);
         }
@@ -389,7 +328,6 @@ mod tests {
     #[test]
     fn recovery_on_corrupt_trailing_zero() {
         let state = Rc::new(RefCell::new(State {
-            started: 0,
             ended: 0,
             data: Vec::new(),
         }));
@@ -407,11 +345,9 @@ mod tests {
             0, 0, 1,     // start-code
         );
         let mut ctx = Context::default();
-        r.start(&mut ctx);
         r.push(&mut ctx, &data[..]);
         {
             let s = state.borrow();
-            assert_eq!(2, s.started);
             assert_eq!(&s.data[..], &[3, 0x80, 2, 3, 0x80][..]);
             assert_eq!(2, s.ended);
         }
@@ -420,7 +356,6 @@ mod tests {
     #[test]
     fn implicit_end() {
         let state = Rc::new(RefCell::new(State {
-            started: 0,
             ended: 0,
             data: Vec::new(),
         }));
@@ -431,12 +366,10 @@ mod tests {
             3, 0         // NAL data
         );
         let mut ctx = Context::default();
-        r.start(&mut ctx);
         r.push(&mut ctx, &data[..]);
-        r.end_units(&mut ctx);
+        r.reset(&mut ctx);
         {
             let s = state.borrow();
-            assert_eq!(1, s.started);
             assert_eq!(&s.data[..], &[3u8, 0u8][..]);
             assert_eq!(1, s.ended);
         }
@@ -445,7 +378,6 @@ mod tests {
     #[test]
     fn split_nal() {
         let state = Rc::new(RefCell::new(State {
-            started: 0,
             ended: 0,
             data: Vec::new(),
         }));
@@ -457,18 +389,15 @@ mod tests {
             0, 0, 1      // nd-code
         );
         let mut ctx = Context::default();
-        r.start(&mut ctx);
         r.push(&mut ctx, &data[..5]);  // half-way through the NAL Unit
         {
             let s = state.borrow();
-            assert_eq!(1, s.started);
             assert_eq!(&s.data[..], &[2u8][..]);
             assert_eq!(0, s.ended);
         }
         r.push(&mut ctx, &data[5..]);  // second half of the NAL Unit
         {
             let s = state.borrow();
-            assert_eq!(1, s.started);
             assert_eq!(&s.data[..], &[2u8, 3u8][..]);
             assert_eq!(1, s.ended);
         }
@@ -558,7 +487,6 @@ mod tests {
             3A CE FA 53 86 60 95 6C BB C5 4E F3");
         for i in 1..data.len()-1 {
             let state = Rc::new(RefCell::new(State {
-                started: 0,
                 ended: 0,
                 data: Vec::new(),
             }));
@@ -566,11 +494,9 @@ mod tests {
             let mut r = AnnexBReader::new(mock);
             let mut ctx = Context::default();
             let (head, tail) = data.split_at(i);
-            r.start(&mut ctx);
             r.push(&mut ctx, &head[..]);
             r.push(&mut ctx, &tail[..]);
-            r.end_units(&mut ctx);
-            assert_eq!(3, state.borrow().started);
+            r.reset(&mut ctx);
             assert_eq!(3, state.borrow().ended);
             assert_eq!(&state.borrow().data[..], &expected[..]);
         }
@@ -658,19 +584,16 @@ mod tests {
             F8 5E 9B 86 B3 B3 03 B3 AC 75 6F A6 11 69 2F 3D
             3A CE FA 53 86 60 95 6C BB C5 4E F3");
         let state = Rc::new(RefCell::new(State {
-            started: 0,
             ended: 0,
             data: Vec::new(),
         }));
         let mock = MockReader::new(Rc::clone(&state));
         let mut r = AnnexBReader::new(mock);
         let mut ctx = Context::default();
-        r.start(&mut ctx);
         for i in 0..data.len() {
             r.push(&mut ctx, &data[i..i+1]);
         }
-        r.end_units(&mut ctx);
-        assert_eq!(3, state.borrow().started);
+        r.reset(&mut ctx);
         assert_eq!(3, state.borrow().ended);
         assert_eq!(&state.borrow().data[..], &expected[..]);
     }

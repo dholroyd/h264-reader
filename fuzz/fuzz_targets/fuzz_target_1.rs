@@ -137,8 +137,7 @@ fuzz_target!(|data: &[u8]| {
 
     let mut ctx = Context::default();
     let mut annexb_reader = AnnexBReader::new(switch);
-    annexb_reader.start(&mut ctx);
     annexb_reader.push(&mut ctx, data);
-    annexb_reader.end_units(&mut ctx);
+    annexb_reader.reset(&mut ctx);
     ctx.sps().for_each(|sps| { let _ = sps.pixel_dimensions(); });
 });
