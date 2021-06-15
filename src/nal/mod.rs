@@ -9,10 +9,11 @@ pub mod pps;
 pub mod sei;
 pub mod slice;
 
-use crate::annexb::NalReader;
+use crate::{annexb::NalReader, rbsp};
 use std::cell::RefCell;
 use crate::Context;
 use std::fmt;
+use hex_slice::AsHex;
 use log::*;
 
 #[derive(PartialEq, Hash, Debug, Copy, Clone)]
@@ -110,11 +111,12 @@ pub enum UnitTypeError {
     ValueOutOfRange(u8)
 }
 
-#[derive(Copy,Clone)]
+#[derive(Copy,Clone,PartialEq,Eq)]
 pub struct NalHeader ( u8 );
 
 #[derive(Debug)]
 pub enum NalHeaderError {
+    /// The most significant bit of the header, called `forbidden_zero_bit`, was set to 1.
     ForbiddenZeroBit,
 }
 impl NalHeader {
@@ -146,6 +148,212 @@ impl fmt::Debug for NalHeader {
             .field("nal_ref_idc", &self.nal_ref_idc())
             .field("nal_unit_type", &self.nal_unit_type())
             .finish()
+    }
+}
+
+/// A partially- or completely-buffered encoded NAL.
+
+/// Must have at least one byte (the header). Partially-encoded NALs are *prefixes*
+/// of a complete NAL. They can always be parsed from the beginning.
+///
+///
+/// ```
+/// use h264_reader::nal::{Nal, RefNal, UnitType};
+/// use h264_reader::rbsp::BitRead;
+/// use std::io::Read;
+/// let nal_bytes = &b"\x68\x12\x34\x00\x00\x03\x00\x86"[..];
+/// let nal = RefNal::new(nal_bytes, &[], true);
+///
+/// // Basic inspection:
+/// assert!(nal.is_complete());
+/// assert_eq!(nal.header().unwrap().nal_unit_type(), UnitType::PicParameterSet);
+///
+/// // Reading NAL bytes:
+/// let mut buf = Vec::new();
+/// nal.reader().read_to_end(&mut buf);
+/// assert_eq!(buf, nal_bytes);
+///
+/// // Reading from a partial NAL:
+/// let partial_nal = RefNal::new(&nal_bytes[0..2], &[], false);
+/// assert!(!partial_nal.is_complete());
+/// let mut r = partial_nal.reader();
+/// buf.resize(2, 0u8);
+/// r.read_exact(&mut buf).unwrap(); // reading buffered bytes works.
+/// assert_eq!(&buf[..], &b"\x68\x12"[..]);
+/// buf.resize(1, 0u8);
+/// let e = r.read_exact(&mut buf).unwrap_err(); // beyond returns WouldBlock.
+/// assert_eq!(e.kind(), std::io::ErrorKind::WouldBlock);
+///
+/// // Reading RBSP bytes (no header byte, `03` removed from `00 00 03` sequences):
+/// buf.clear();
+/// nal.rbsp_bytes().read_to_end(&mut buf);
+/// assert_eq!(buf, &b"\x12\x34\x00\x00\x00\x86"[..]);
+///
+/// // Reading RBSP as a bit sequence:
+/// let mut r = nal.rbsp_bits();
+/// assert_eq!(r.read_u8(4, "first nibble").unwrap(), 0x1);
+/// assert_eq!(r.read_u8(4, "second nibble").unwrap(), 0x2);
+/// assert_eq!(r.read_u32(23, "23 bits at a time").unwrap(), 0x1a_00_00);
+/// assert!(r.has_more_rbsp_data("more left").unwrap());
+/// ```
+pub trait Nal {
+    type BufRead: std::io::BufRead + Clone;
+
+    /// Returns whether the NAL is completely buffered.
+    fn is_complete(&self) -> bool;
+
+    /// Returns the NAL header or error if corrupt.
+    fn header(&self) -> Result<NalHeader, NalHeaderError>;
+
+    /// Reads the bytes in NAL form (including the header byte and
+    /// any emulation-prevention-three-bytes) as a [`std::io::BufRead`].
+    /// If the NAL is incomplete, reads may fail with [`std::io::ErrorKind::WouldBlock`].
+    fn reader(&self) -> Self::BufRead;
+
+    /// Reads the bytes in RBSP form (skipping header byte and
+    /// emulation-prevention-three-bytes).
+    #[inline]
+    fn rbsp_bytes(&self) -> rbsp::ByteReader<Self::BufRead> {
+        rbsp::ByteReader::new(self.reader())
+    }
+
+    /// Reads bits within the RBSP form.
+    #[inline]
+    fn rbsp_bits(&self) -> rbsp::BitReader<rbsp::ByteReader<Self::BufRead>> {
+        rbsp::BitReader::new(self.rbsp_bytes())
+    }
+}
+
+/// A partially- or completely-buffered [`Nal`] backed by borrowed `&[u8]`s. See [`Nal`] docs.
+#[derive(Clone, Eq, PartialEq)]
+pub struct RefNal<'a> {
+    header: u8,
+    complete: bool,
+
+    // Non-empty chunks.
+    head: &'a [u8],
+    tail: &'a [&'a [u8]],
+}
+impl<'a> RefNal<'a> {
+    /// The caller must ensure that each provided chunk is non-empty.
+    #[inline]
+    pub fn new(head: &'a [u8], tail: &'a [&'a [u8]], complete: bool) -> Self {
+        for buf in tail {
+            debug_assert!(!buf.is_empty());
+        }
+        Self {
+            header: *head.first().expect("RefNal must be non-empty"),
+            head,
+            tail,
+            complete,
+        }
+    }
+}
+impl<'a> Nal for RefNal<'a> {
+    type BufRead = RefNalReader<'a>;
+
+    #[inline]
+    fn is_complete(&self) -> bool {
+        self.complete
+    }
+
+    #[inline]
+    fn header(&self) -> Result<NalHeader, NalHeaderError> {
+        NalHeader::new(self.header)
+    }
+
+    #[inline]
+    fn reader(&self) -> Self::BufRead {
+        RefNalReader {
+            cur: self.head,
+            tail: self.tail,
+            complete: self.complete,
+        }
+    }
+}
+impl<'a> std::fmt::Debug for RefNal<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Interpret the NAL header and display the data as a hex string.
+        f.debug_struct("RefNal")
+         .field("header", &self.header())
+         .field("data", &RefNalReader {
+             cur: self.head,
+             tail: self.tail,
+             complete: self.complete,
+         })
+         .finish()
+    }
+}
+
+/// A reader through the bytes of a partially- or fully-buffered [`RefNal`]
+/// that implements [`std::io::BufRead`].
+///
+/// Returns [`std::io::ErrorKind::WouldBlock`] on reaching the end of partially-buffered NAL.
+/// Construct via [`Nal::reader`].
+#[derive(Clone)]
+pub struct RefNalReader<'a> {
+    /// Empty only if at end.
+    cur: &'a [u8],
+    tail: &'a [&'a [u8]],
+    complete: bool,
+}
+impl<'a> RefNalReader<'a> {
+    fn next_chunk(&mut self) {
+        match self.tail {
+            [first, tail @ ..] => {
+                self.cur = first;
+                self.tail = tail;
+            },
+            _ => self.cur = &[], // EOF.
+        }
+    }
+}
+impl<'a> std::io::Read for RefNalReader<'a> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let len;
+        if buf.is_empty() {
+            len = 0;
+        } else if self.cur.is_empty() && !self.complete {
+            return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock,
+                       "reached end of partially-buffered NAL"));
+        } else if buf.len() < self.cur.len() {
+            len = buf.len();
+            let (copy, keep) = self.cur.split_at(len);
+            buf.copy_from_slice(copy);
+            self.cur = keep;
+        } else {
+            len = self.cur.len();
+            buf[..len].copy_from_slice(self.cur);
+            self.next_chunk();
+        }
+        Ok(len)
+    }
+}
+impl<'a> std::io::BufRead for RefNalReader<'a> {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        if self.cur.is_empty() && !self.complete {
+            return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock,
+                       "reached end of partially-buffered NAL"));
+        }
+        Ok(self.cur)
+    }
+    fn consume(&mut self, amt: usize) {
+        self.cur = &self.cur[amt..];
+        if self.cur.is_empty() {
+            self.next_chunk();
+        }
+    }
+}
+impl<'a> std::fmt::Debug for RefNalReader<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:02x}", self.cur.plain_hex(true))?;
+        for buf in self.tail {
+            write!(f, " {:02x}", buf.plain_hex(true))?;
+        }
+        if !self.complete {
+            f.write_str(" ...")?;
+        }
+        Ok(())
     }
 }
 
@@ -246,6 +454,8 @@ pub trait NalHandler {
 
 #[cfg(test)]
 mod test {
+    use std::io::{BufRead, Read};
+
     use super::*;
     use hex_literal::*;
 
@@ -285,5 +495,72 @@ mod test {
             00 04 00 00 00 CA 3C 48 96 11 80");
         let mut ctx = Context::default();
         s.push(&mut ctx, &data[..]);
+    }
+
+    #[test]
+    fn ref_nal() {
+        fn common<'a>(head: &'a [u8], tail: &'a [&'a [u8]], complete: bool) -> RefNal<'a> {
+            let nal = RefNal::new(head, tail, complete);
+            assert_eq!(NalHeader::new(0b0101_0001).unwrap(), nal.header().unwrap());
+
+            // Try the Read impl.
+            let mut r = nal.reader();
+            let mut buf = [0u8; 5];
+            r.read_exact(&mut buf).unwrap();
+            assert_eq!(&buf[..], &[0b0101_0001, 1, 2, 3, 4]);
+            if complete {
+                assert_eq!(r.read(&mut buf[..]).unwrap(), 0);
+
+                // Also try read_to_end.
+                let mut buf = Vec::new();
+                nal.reader().read_to_end(&mut buf).unwrap();
+                assert_eq!(buf, &[0b0101_0001, 1, 2, 3, 4]);
+            } else {
+                assert_eq!(r.read(&mut buf[..]).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+            }
+
+            // Let the caller try the BufRead impl.
+            nal
+        }
+
+        // Incomplete NAL with a first chunk only.
+        let nal = common(&[0b0101_0001, 1, 2, 3, 4], &[], false);
+        let mut r = nal.reader();
+        assert_eq!(r.fill_buf().unwrap(), &[0b0101_0001, 1, 2, 3, 4]);
+        r.consume(1);
+        assert_eq!(r.fill_buf().unwrap(), &[1, 2, 3, 4]);
+        r.consume(4);
+        assert_eq!(r.fill_buf().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+
+        // Incomplete NAL with multiple chunks.
+        let nal = common(&[0b0101_0001], &[&[1, 2], &[3, 4]], false);
+        let mut r = nal.reader();
+        assert_eq!(r.fill_buf().unwrap(), &[0b0101_0001]);
+        r.consume(1);
+        assert_eq!(r.fill_buf().unwrap(), &[1, 2]);
+        r.consume(2);
+        assert_eq!(r.fill_buf().unwrap(), &[3, 4]);
+        r.consume(1);
+        assert_eq!(r.fill_buf().unwrap(), &[4]);
+        r.consume(1);
+        assert_eq!(r.fill_buf().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+
+        // Complete NAL with first chunk only.
+        let nal = common(&[0b0101_0001, 1, 2, 3, 4], &[], true);
+        let mut r = nal.reader();
+        assert_eq!(r.fill_buf().unwrap(), &[0b0101_0001, 1, 2, 3, 4]);
+        r.consume(1);
+        assert_eq!(r.fill_buf().unwrap(), &[1, 2, 3, 4]);
+        r.consume(4);
+        assert_eq!(r.fill_buf().unwrap(), &[]);
+    }
+
+    #[test]
+    fn reader_debug() {
+        assert_eq!(format!("{:?}", RefNalReader {
+            cur: &b"\x00"[..],
+            tail: &[&b"\x01"[..], &b"\x02\x03"[..]],
+            complete: false,
+        }), "00 01 02 03 ...");
     }
 }
