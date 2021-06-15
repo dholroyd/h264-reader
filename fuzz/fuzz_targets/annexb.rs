@@ -10,6 +10,7 @@ use std::convert::TryFrom;
 /// Encodes the stream as (4-byte length prefix, NAL)*, as commonly seen in AVC files.
 #[derive(Default)]
 struct AvcBuilder {
+    started: bool,
     cur: Vec<u8>,
 }
 
@@ -17,12 +18,17 @@ impl h264_reader::annexb::NalReader for AvcBuilder {
     type Ctx = Vec<u8>;
 
     fn start(&mut self, _ctx: &mut Context<Self::Ctx>) {
-        assert!(self.cur.is_empty());
+        assert!(!self.started);
+        self.started = true;
     }
     fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
+        assert!(self.started);
+        assert!(!buf.is_empty()); // useless empty push.
         self.cur.extend_from_slice(buf);
     }
     fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
+        assert!(self.started);
+        self.started = false;
         let len = u32::try_from(self.cur.len()).unwrap();
         ctx.user_context.extend_from_slice(&len.to_be_bytes()[..]);
         ctx.user_context.extend_from_slice(&self.cur[..]);
