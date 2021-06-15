@@ -9,12 +9,9 @@ pub mod pps;
 pub mod sei;
 pub mod slice;
 
-use crate::{annexb::NalReader, rbsp};
-use std::cell::RefCell;
-use crate::Context;
+use crate::rbsp;
 use std::fmt;
 use hex_slice::AsHex;
-use log::*;
 
 #[derive(PartialEq, Hash, Debug, Copy, Clone)]
 pub enum UnitType {
@@ -357,138 +354,17 @@ impl<'a> std::fmt::Debug for RefNalReader<'a> {
     }
 }
 
-#[derive(Debug)]
-enum NalSwitchState {
-    Start,
-    Handling(UnitType),
-    Ignoring,
-}
-// TODO: generate enum at compile time rather than Vec<Box<>>
-pub struct NalSwitch<Ctx> {
-    readers_by_id: Vec<Option<Box<RefCell<dyn NalHandler<Ctx=Ctx>>>>>,
-    state: NalSwitchState,
-}
-impl<Ctx> Default for NalSwitch<Ctx> {
-    fn default() -> Self {
-        NalSwitch {
-            readers_by_id: Vec::new(),
-            state: NalSwitchState::Start,
-        }
-    }
-}
-impl<Ctx> NalSwitch<Ctx> {
-    pub fn put_handler(&mut self, unit_type: UnitType, handler: Box<RefCell<dyn NalHandler<Ctx=Ctx>>>) {
-        let i = unit_type.id() as usize;
-        while i >= self.readers_by_id.len() {
-            self.readers_by_id.push(None);
-        }
-        self.readers_by_id[i] = Some(handler);
-    }
-
-    fn get_handler(&self, unit_type: UnitType) -> &Option<Box<RefCell<dyn NalHandler<Ctx=Ctx>>>> {
-        let i = unit_type.id() as usize;
-        if i < self.readers_by_id.len() {
-            &self.readers_by_id[i]
-        } else {
-            &None
-        }
-    }
-}
-impl<Ctx> NalReader for NalSwitch<Ctx> {
-    type Ctx = Ctx;
-
-    fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8], end: bool) {
-        if !buf.is_empty() {
-            match self.state {
-                NalSwitchState::Start => {
-                    self.state = match NalHeader::new(buf[0]) {
-                        Ok(header) => {
-                            if let Some(ref handler) = self.get_handler(header.nal_unit_type()) {
-                                handler.borrow_mut().start(ctx, header);
-                                handler.borrow_mut().push(ctx, &buf[1..]);
-                                NalSwitchState::Handling(header.nal_unit_type())
-                            } else {
-                                NalSwitchState::Ignoring
-                            }
-                        },
-                        Err(e) => {
-                            // TODO: proper error propagation
-                            error!("Bad NAL header: {:?}", e);
-                            NalSwitchState::Ignoring
-                        }
-                    };
-                },
-                NalSwitchState::Ignoring => (),
-                NalSwitchState::Handling(unit_type) => {
-                    if let Some(ref handler) = self.get_handler(unit_type) {
-                        handler.borrow_mut().push(ctx, buf);
-                    }
-                }
-            }
-        }
-        if end {
-            if let NalSwitchState::Handling(unit_type) = self.state {
-                if let Some(ref handler) = self.get_handler(unit_type) {
-                    handler.borrow_mut().end(ctx);
-                }
-            }
-            self.state = NalSwitchState::Start
-        }
-    }
-}
-
-// TODO: rename to 'RbspHandler' or something, to indicate it's only for post-emulation-prevention-bytes data
-pub trait NalHandler {
-    type Ctx;
-
-    fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader);
-    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]);
-    fn end(&mut self, ctx: &mut Context<Self::Ctx>);
-}
-
 #[cfg(test)]
 mod test {
     use std::io::{BufRead, Read};
 
     use super::*;
-    use hex_literal::*;
 
     #[test]
     fn header() {
         let h = NalHeader::new(0b0101_0001).unwrap();
         assert_eq!(0b10, h.nal_ref_idc());
         assert_eq!(UnitType::Reserved(17), h.nal_unit_type());
-    }
-
-    struct MockHandler;
-    impl NalHandler for MockHandler {
-        type Ctx = ();
-
-        fn start(&mut self, _ctx: &mut Context<Self::Ctx>, header: NalHeader) {
-            assert_eq!(header.nal_unit_type(), UnitType::SeqParameterSet);
-        }
-
-        fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-            let expected = hex!(
-               "64 00 0A AC 72 84 44 26 84 00 00
-                00 04 00 00 00 CA 3C 48 96 11 80");
-            assert_eq!(buf, &expected[..])
-        }
-
-        fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
-        }
-    }
-
-    #[test]
-    fn switch() {
-        let handler = MockHandler;
-        let mut s = NalSwitch::default();
-        s.put_handler(UnitType::SeqParameterSet, Box::new(RefCell::new(handler)));
-        let data = hex!(
-           "67 64 00 0A AC 72 84 44 26 84 00 00
-            00 04 00 00 00 CA 3C 48 96 11 80");
-        let mut ctx = Context::default();
-        s.push(&mut ctx, &data[..], true);
     }
 
     #[test]

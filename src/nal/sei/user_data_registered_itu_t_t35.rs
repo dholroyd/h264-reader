@@ -1,7 +1,5 @@
 use crate::nal::sei::HeaderType;
-use crate::Context;
-use crate::nal::sei::SeiCompletePayloadReader;
-use log::*;
+use crate::nal::sei::SeiMessage;
 
 #[derive(Debug)]
 pub enum ItuTT35Error {
@@ -209,10 +207,12 @@ pub enum ItuTT35 {
     Extended(u8),
 }
 impl ItuTT35 {
-    fn read(buf: &[u8]) -> Result<(ItuTT35, &[u8]), ItuTT35Error> {
-        if buf.is_empty() {
+    pub fn read<'a>(msg: &SeiMessage<'a>) -> Result<(ItuTT35, &'a [u8]), ItuTT35Error> {
+        assert_eq!(msg.payload_type, HeaderType::UserDataRegisteredItuTT35);
+        if msg.payload.is_empty() {
             return Err(ItuTT35Error::NotEnoughData { expected: 1, actual: 0 });
         }
+        let buf = msg.payload;
         let itu_t_t35_country_code = buf[0];
         Ok(match itu_t_t35_country_code {
             0b0000_0000 => (ItuTT35::Japan, &buf[1..]),
@@ -423,92 +423,16 @@ impl ItuTT35 {
     }
 }
 
-pub trait Register: Default {
-    type Ctx;
-    fn handle(&mut self, ctx: &mut Context<Self::Ctx>, country_code: ItuTT35, payload: &[u8]);
-}
-
-pub struct UserDataRegisteredItuTT35Reader<R: Register> {
-    register: R,
-}
-impl<R: Register> UserDataRegisteredItuTT35Reader<R>  {
-    pub fn new(register: R) -> UserDataRegisteredItuTT35Reader<R> {
-        UserDataRegisteredItuTT35Reader {
-            register,
-        }
-    }
-}
-impl<R: Register> SeiCompletePayloadReader for UserDataRegisteredItuTT35Reader<R> {
-    type Ctx = R::Ctx;
-
-    fn header(&mut self, ctx: &mut Context<Self::Ctx>, payload_type: HeaderType, buf: &[u8]) {
-        assert_eq!(payload_type, HeaderType::UserDataRegisteredItuTT35);
-        match ItuTT35::read(buf) {
-            Ok( (country_code, payload) ) => {
-                self.register.handle(ctx, country_code, payload);
-            },
-            Err(e) => {
-                error!("Failed to read user_data_registered_itu_t_t35 header: {:?}", e);
-            }
-        }
-    }
-}
-
-#[macro_export]
-macro_rules! tt_35_switch {
-    (
-        $struct_name:ident<$ctx:ty> {
-            $( $name:ident => $v:ty ),*,
-        }
-    ) => {
-        #[allow(non_snake_case)]
-        #[derive(Default)]
-        struct $struct_name {
-            $( $name: $v, )*
-        }
-        impl $crate::nal::sei::user_data_registered_itu_t_t35::Register for $struct_name {
-            type Ctx = $ctx;
-
-            fn handle(&mut self, ctx: &mut $crate::Context<Self::Ctx>, country_code: $crate::nal::sei::user_data_registered_itu_t_t35::ItuTT35, payload: &[u8]) {
-                match country_code {
-                    $(
-                    $crate::nal::sei::user_data_registered_itu_t_t35::ItuTT35::$name => self.$name.handle(ctx, country_code, payload),
-                    )*
-                    _ => (),
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
 
-    #[derive(Default)]
-    struct NullRegister {
-        handled: bool,
-    }
-    impl crate::nal::sei::user_data_registered_itu_t_t35::Register for NullRegister {
-        type Ctx = ();
-
-        fn handle(&mut self, _ctx: &mut crate::Context<Self::Ctx>, country_code: crate::nal::sei::user_data_registered_itu_t_t35::ItuTT35, _payload: &[u8]) {
-            assert_eq!(country_code, ItuTT35::UnitedKingdom);
-            self.handled = true;
-        }
-    }
     #[test]
-    fn macro_usage() {
-        tt_35_switch!{
-            TestTT35Switch<()> {
-                UnitedKingdom => NullRegister,
-            }
-        }
-
-        let mut sw = TestTT35Switch::default();
-        let mut ctx = crate::Context::new(());
-        let data = [ 0x00u8 ];
-        sw.handle(&mut ctx, ItuTT35::UnitedKingdom, &data[..]);
-        assert!(sw.UnitedKingdom.handled);
+    fn parse() {
+        let msg = SeiMessage {
+            payload_type: HeaderType::UserDataRegisteredItuTT35,
+            payload: &[0b1011_0100, 0x00],
+        };
+        assert_eq!(ItuTT35::read(&msg).unwrap(), (ItuTT35::UnitedKingdom, &[0x00][..]));
     }
 }
