@@ -5,12 +5,13 @@ use crate::Context;
 use memchr;
 use log::*;
 
+/// The current state, named for the most recently examined byte.
 #[derive(Debug)]
 enum ParseState {
     Start,
     StartOneZero,
     StartTwoZero,
-    InUnitStart,
+    StartOne,
     InUnit,
     InUnitOneZero,
     InUnitTwoZero,
@@ -18,44 +19,47 @@ enum ParseState {
     End,
 }
 impl ParseState {
-    fn in_unit(&self) -> bool {
-        match *self {
-            ParseState::Start => false,
-            ParseState::StartOneZero => false,
-            ParseState::StartTwoZero => false,
-            ParseState::InUnitStart => true,
-            ParseState::InUnit => true,
-            ParseState::InUnitOneZero => true,
-            ParseState::InUnitTwoZero => true,
-            ParseState::Error => false,
-            ParseState::End => false,
-        }
-    }
-
-    fn end_backtrack_bytes(&self) -> Option<usize> {
+    /// If in a NAL unit (`NalReader`'s `start` has been called but not its `end`),
+    /// returns an object describing the state.
+    fn in_unit(&self) -> Option<InUnitState> {
         match *self {
             ParseState::Start => None,
             ParseState::StartOneZero => None,
             ParseState::StartTwoZero => None,
-            ParseState::InUnitStart => Some(0),
-            ParseState::InUnit => Some(0),
-            ParseState::InUnitOneZero => Some(1),
-            ParseState::InUnitTwoZero => Some(2),
+            ParseState::StartOne => None,
+            ParseState::InUnit => Some(InUnitState { backtrack_bytes: 0 }),
+            ParseState::InUnitOneZero => Some(InUnitState { backtrack_bytes: 1 }),
+            ParseState::InUnitTwoZero => Some(InUnitState { backtrack_bytes: 2 }),
             ParseState::Error => None,
             ParseState::End => None,
         }
     }
 }
 
+struct InUnitState {
+    /// The number of bytes to backtrack if the current sequence of `0x00`s
+    /// doesn't end the NAL unit.
+    backtrack_bytes: usize,
+}
 
 pub trait NalReader {
     type Ctx;
 
+    /// Starts a NAL unit.
     fn start(&mut self, ctx: &mut Context<Self::Ctx>);
+
+    /// Pushes a non-empty buffer as part of a NAL unit.
     fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]);
+
+    /// Ends a NAL unit, which could be empty.
     fn end(&mut self, ctx: &mut Context<Self::Ctx>);
 }
 
+/// Push parser for Annex B format which delegates to a [NalReader].
+///
+/// Guarantees that the bytes supplied to `NalReader`—the concatenation of all
+/// `buf`s supplied to `NalReader::push`—will be exactly the same for a given
+/// Annex B stream, regardless of boundaries of `AnnexBReader::push` calls.
 pub struct AnnexBReader<R, Ctx>
     where
         R: NalReader<Ctx=Ctx>
@@ -75,7 +79,7 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
     }
 
     pub fn start(&mut self, ctx: &mut Context<Ctx>) {
-        if self.state.in_unit() {
+        if self.state.in_unit().is_some() {
             // TODO: or reset()?
             self.nal_reader.end(ctx);
         }
@@ -83,10 +87,14 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
     }
 
     pub fn push(&mut self, ctx: &mut Context<Ctx>, buf: &[u8]) {
-        let mut unit_start: Option<isize> = self.state.end_backtrack_bytes().map(|v| -(v as isize));
+        // When in a NAL unit, start is the first index in buf with a byte to
+        // be pushed. Note that due to backtracking, sometimes 0x00 bytes
+        // must be pushed that logically precede buf.
+        let mut start = self.state.in_unit().map(|_| 0);
 
         let mut i = 0;
         while i < buf.len() {
+            debug_assert!(start.is_some() == self.state.in_unit().is_some());
             let b = buf[i];
             match self.state {
                 ParseState::End => {
@@ -111,14 +119,14 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                     match b {
                         0x00 => (),   // keep ignoring further 0x00 bytes
                         0x01 => {
-                            self.to(ParseState::InUnitStart);
-                            unit_start = Some(i as isize + 1);
+                            self.to(ParseState::StartOne);
                         },
                         _ => self.err(b),
                     }
                 },
-                ParseState::InUnitStart => {
+                ParseState::StartOne => {
                     self.nal_reader.start(ctx);
+                    start = Some(i);
                     match b {
                         0x00 => self.to(ParseState::InUnitOneZero),
                         _ => self.to(ParseState::InUnit),
@@ -141,7 +149,10 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                     match b {
                         0x00 => self.to(ParseState::InUnitTwoZero),
                         _ => {
-                            if i < 1 { self.emit_fake(ctx, 1) }
+                            if i < 1 {
+                                self.emit_fake(ctx, 1);
+                                start = Some(i);
+                            }
                             self.to(ParseState::InUnit)
                         },
                     }
@@ -149,23 +160,22 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
                 ParseState::InUnitTwoZero => {
                     match b {
                         0x00 => {
-                            if unit_start.is_some() && (unit_start.unwrap() > 0 || i > 2) {
-                                self.emit(ctx, buf, unit_start, i - 2);
-                            }
+                            self.maybe_emit(ctx, buf, start, i, 2);
                             self.nal_reader.end(ctx);
-                            unit_start = None;
+                            start = None;
                             self.to(ParseState::StartTwoZero);
                         },
                         0x01 => {
-                            if unit_start.is_some() && (unit_start.unwrap() > 0 || i > 2) {
-                                self.emit(ctx, buf, unit_start, i - 2);
-                            }
+                            self.maybe_emit(ctx, buf, start, i, 2);
                             self.nal_reader.end(ctx);
-                            unit_start = Some(i as isize + 1);
-                            self.to(ParseState::InUnitStart);
+                            start = None;
+                            self.to(ParseState::StartOne);
                         },
                         _ => {
-                            if i < 2 { self.emit_fake(ctx, 2-i) }
+                            if i < 2 {
+                                self.emit_fake(ctx, 2);
+                                start = Some(i);
+                            }
                             self.to(ParseState::InUnit)
                         },
                     }
@@ -173,15 +183,8 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
             }
             i += 1;
         }
-        if let (Some(start), Some(backtrack)) = (unit_start, self.state.end_backtrack_bytes()) {
-            let adjusted_start = if start < 0 {
-                0usize
-            } else {
-                start as usize
-            };
-            if buf.len() > backtrack {
-                self.nal_reader.push(ctx, &buf[adjusted_start..buf.len() - backtrack])
-            }
+        if let Some(in_unit) = self.state.in_unit() {
+            self.maybe_emit(ctx, buf, start, buf.len(), in_unit.backtrack_bytes);
         }
     }
 
@@ -192,16 +195,16 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
     /// Units explicitly, the parser for that structure should call `end_units()` once all data
     /// has been passed to the `push()` function.
     pub fn end_units(&mut self, ctx: &mut Context<Ctx>) {
-        if let Some(backtrack) = self.state.end_backtrack_bytes() {
+        if let Some(in_unit) = self.state.in_unit() {
             // if we were in the middle of parsing a sequence of 0x00 bytes that might have become
             // a start-code, but actually reached the end of input, then we will now need to emit
             // those 0x00 bytes that we had been holding back,
-            if backtrack > 0 {
-                self.emit_fake(ctx, backtrack);
+            if in_unit.backtrack_bytes > 0 {
+                self.emit_fake(ctx, in_unit.backtrack_bytes);
             }
+            self.nal_reader.end(ctx);
         }
         self.to(ParseState::End);
-        self.nal_reader.end(ctx);
     }
 
     fn to(&mut self, new_state: ParseState) {
@@ -214,16 +217,12 @@ impl<R, Ctx> AnnexBReader<R, Ctx>
         self.nal_reader.push(ctx, &fake[..count]);
     }
 
-    fn emit(&mut self, ctx: &mut Context<Ctx>, buf:&[u8], start_index: Option<isize>, end_index: usize) {
-        if let Some(start) = start_index {
-            let start = if start < 0 {
-                0usize
-            } else {
-                start as usize
-            };
-            self.nal_reader.push(ctx, &buf[start..end_index])
-        } else {
-            error!("AnnexBReader: no start_index");
+    fn maybe_emit(&mut self, ctx: &mut Context<Ctx>, buf:&[u8], start: Option<usize>, end: usize, backtrack: usize) {
+        match start {
+            Some(s) if s + backtrack < end => {
+                self.nal_reader.push(ctx, &buf[s..end - backtrack]);
+            },
+            _ => {},
         }
     }
 
@@ -259,15 +258,22 @@ mod tests {
         type Ctx = ();
 
         fn start(&mut self, _ctx: &mut Context<Self::Ctx>) {
-            self.state.borrow_mut().started += 1;
+            let mut state = self.state.borrow_mut();
+            assert_eq!(state.started, state.ended);
+            state.started += 1;
         }
 
         fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-            self.state.borrow_mut().data.extend_from_slice(buf);
+            let mut state = self.state.borrow_mut();
+            assert!(state.started > state.ended);
+            assert!(!buf.is_empty());
+            state.data.extend_from_slice(buf);
         }
 
         fn end(&mut self, _ctx: &mut Context<Self::Ctx>) {
-            self.state.borrow_mut().ended += 1;
+            let mut state = self.state.borrow_mut();
+            state.ended += 1;
+            assert_eq!(state.started, state.ended);
         }
     }
 
