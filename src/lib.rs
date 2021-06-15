@@ -7,6 +7,7 @@ pub mod rbsp;
 pub mod annexb;
 pub mod nal;
 pub mod avcc;
+pub mod push;
 
 /// Contextual data that needs to be tracked between evaluations of different portions of H264
 /// syntax.
