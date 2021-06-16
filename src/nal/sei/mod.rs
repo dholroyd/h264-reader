@@ -364,11 +364,18 @@ impl<R: SeiIncrementalPayloadReader> NalHandler for SeiHeaderReader<R> {
 
     fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
         match self.state {
-            SeiHeaderState::Begin => (),
+            SeiHeaderState::Begin => {
+                error!("End of SEI data without rbsp_trailing_bits");
+                self.reader.reset(ctx);
+            },
             SeiHeaderState::End => panic!("SeiHeaderReader already ended and end() called again"),
             SeiHeaderState::PayloadType { .. } => {
                 error!("End of SEI data encountered while reading SEI payloadType");
                 self.reader.reset(ctx);
+            },
+            SeiHeaderState::PayloadSize { payload_type: HeaderType::ReservedSeiMessage(0x80), payload_size: 0 } => {
+                // TODO: this is a bit of a hack to ignore rbsp_trailing_bits (which will always
+                //       be 0b10000000 in an SEI payload since SEI messages are byte-aligned).
             },
             SeiHeaderState::PayloadSize { .. } => {
                 error!("End of SEI data encountered while reading SEI payloadSize");
@@ -442,6 +449,7 @@ mod test {
         }
 
         fn reset(&mut self, _ctx: &mut Context<Self::Ctx>) {
+            panic!("reset called"); // SeiHeaderReader's NalHandler::end() error paths call reset.
         }
     }
 
@@ -456,7 +464,9 @@ mod test {
             // header 2
             0x02,  // type
             0x02,  // len
-            0x02, 0x02  // payload
+            0x02, 0x02, // payload
+
+            0x80, // trailing bits
         ];
         let state = Rc::new(RefCell::new(State::default()));
         let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
@@ -477,7 +487,8 @@ mod test {
             // header 2
             0x02,  // type
             0x06,  // len
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06  // payload
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, // payload
+            0x80,  // rbsp_trailing_bits
         ];
         let state = Rc::new(RefCell::new(State::default()));
         let mut r = SeiHeaderReader::new(MockReader{ state: state.clone() });
