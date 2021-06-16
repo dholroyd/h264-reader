@@ -971,7 +971,7 @@ impl SeqParameterSet {
         }
     }
 
-    fn rfc6381(&self) -> rfc6381_codec::Codec {
+    pub fn rfc6381(&self) -> rfc6381_codec::Codec {
         rfc6381_codec::Codec::avc1(self.profile_idc.0, self.constraint_flags.0, self.level_idc)
     }
 }
