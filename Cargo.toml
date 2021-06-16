@@ -17,7 +17,7 @@ rfc6381-codec = "0.1"
 log = "0.4"
 
 [dev-dependencies]
-hex-literal = "0.2.1"
+hex-literal = "0.3.1"
 hex-slice = "0.1.4"
 criterion = "0.3"
 
