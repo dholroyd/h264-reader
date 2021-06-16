@@ -2,7 +2,7 @@
 //!
 //! Expects a copy of [Big Buck Bunny](https://peach.blender.org/download/):
 //! ```text
-//! $ curl --OL https://download.blender.org/peach/bigbuckbunny_movies/big_buck_bunny_1080p_h264.mov
+//! $ curl -OL https://download.blender.org/peach/bigbuckbunny_movies/big_buck_bunny_1080p_h264.mov
 //! $ ffmpeg -i big_buck_bunny_1080p_h264.mov -c copy big_buck_bunny_1080p.h264
 //! ```
 
