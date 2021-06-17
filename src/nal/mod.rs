@@ -157,7 +157,7 @@ impl fmt::Debug for NalHeader {
 /// ```
 /// use h264_reader::nal::{Nal, RefNal, UnitType};
 /// use h264_reader::rbsp::BitRead;
-/// use std::io::Read;
+/// use std::io::{ErrorKind, Read};
 /// let nal_bytes = &b"\x68\x12\x34\x00\x00\x03\x00\x86"[..];
 /// let nal = RefNal::new(nal_bytes, &[], true);
 ///
@@ -179,12 +179,18 @@ impl fmt::Debug for NalHeader {
 /// assert_eq!(&buf[..], &b"\x68\x12"[..]);
 /// buf.resize(1, 0u8);
 /// let e = r.read_exact(&mut buf).unwrap_err(); // beyond returns WouldBlock.
-/// assert_eq!(e.kind(), std::io::ErrorKind::WouldBlock);
+/// assert_eq!(e.kind(), ErrorKind::WouldBlock);
 ///
 /// // Reading RBSP bytes (no header byte, `03` removed from `00 00 03` sequences):
 /// buf.clear();
 /// nal.rbsp_bytes().read_to_end(&mut buf);
 /// assert_eq!(buf, &b"\x12\x34\x00\x00\x00\x86"[..]);
+///
+/// // Reading RBSP bytes of invalid NALs:
+/// let invalid_nal = RefNal::new(&b"\x68\x12\x34\x00\x00\x00\x86"[..], &[], true);
+/// buf.clear();
+/// assert_eq!(invalid_nal.rbsp_bytes().read_to_end(&mut buf).unwrap_err().kind(),
+///            ErrorKind::InvalidData);
 ///
 /// // Reading RBSP as a bit sequence:
 /// let mut r = nal.rbsp_bits();
