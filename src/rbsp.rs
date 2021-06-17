@@ -1,5 +1,6 @@
-//! Decoder that will remove _Emulation Prevention_ byte values from encoded NAL Units, to produce
-//! the _Raw Byte Sequence Payload_ (RBSP).
+//! Decoder that will remove NAL header bytes and _Emulation Prevention_ byte
+//! values from encoded NAL Units, to produce the _Raw Byte Sequence Payload_
+//! (RBSP).
 //!
 //! The following byte sequences are not allowed to appear in a framed H264 bitstream,
 //!
@@ -17,7 +18,7 @@
 //!  - `0x00` `0x00` **`0x03`** `0x02`
 //!  - `0x00` `0x00` **`0x03`** `0x03`
 //!
-//! The `RbspDecoder` type will accept byte sequences that have had this encoding applied, and will
+//! The [`ByteReader`] type will accept byte sequences that have had this encoding applied, and will
 //! yield byte sequences where the encoding is removed (i.e. the decoder will replace instances of
 //! the sequence `0x00 0x00 0x03` with `0x00 0x00`).
 
@@ -31,11 +32,16 @@ enum ParseState {
     Start,
     OneZero,
     TwoZero,
-    Skip,
+    HeaderByte,
+    Three,
+    PostThree,
 }
 
-/// [`BufRead`] adapter which removes `emulation-prevention-three-byte`s.
-/// Typically used via a [`h264_reader::nal::Nal`].
+/// [`BufRead`] adapter which returns RBSP bytes given NAL bytes by removing
+/// the NAL header and `emulation-prevention-three` bytes.
+///
+/// Typically used via a [`h264_reader::nal::Nal`]. Returns error on encountering
+/// invalid byte sequences.
 #[derive(Clone)]
 pub struct ByteReader<R: BufRead> {
     // self.inner[0..self.i] hasn't yet been emitted and is RBSP (has no
@@ -48,6 +54,10 @@ pub struct ByteReader<R: BufRead> {
     inner: R,
     state: ParseState,
     i: usize,
+
+    /// The maximum number of bytes in a fresh chunk. Surprisingly, it's
+    /// significantly faster to limit this, maybe due to CPU cache effects.
+    max_fill: usize,
 }
 impl<R: BufRead> ByteReader<R> {
     /// Constructs an adapter from the given [BufRead]. The caller is expected to have skipped
@@ -55,9 +65,74 @@ impl<R: BufRead> ByteReader<R> {
     pub fn new(inner: R) -> Self {
         Self {
             inner,
-            state: ParseState::Skip,
+            state: ParseState::HeaderByte,
             i: 0,
+            max_fill: 128,
         }
+    }
+
+    /// Called when self.i == 0 only; returns false at EOF.
+    /// Doesn't return actual buffer contents due to borrow checker limitations;
+    /// caller will need to call fill_buf again.
+    fn try_fill_buf_slow(&mut self) -> std::io::Result<bool> {
+        debug_assert_eq!(self.i, 0);
+        let chunk = self.inner.fill_buf()?;
+        if chunk.is_empty() {
+            return Ok(false);
+        }
+
+        let limit = std::cmp::min(chunk.len(), self.max_fill);
+        while self.i < limit {
+            match self.state {
+                ParseState::Start => match memchr::memchr(0x00, &chunk[self.i..limit]) {
+                    Some(nonzero_len) => {
+                        self.i += nonzero_len;
+                        self.state = ParseState::OneZero;
+                    },
+                    None => {
+                        self.i = chunk.len();
+                        break
+                    },
+                },
+                ParseState::OneZero => match chunk[self.i] {
+                    0x00 => self.state = ParseState::TwoZero,
+                    _ => self.state = ParseState::Start,
+                },
+                ParseState::TwoZero => match chunk[self.i] {
+                    0x03 => {
+                        self.state = ParseState::Three;
+                        break
+                    },
+                    0x00 => return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("invalid RBSP byte {:#x} in state {:?}", 0x00, &self.state),
+                    )),
+                    _ => self.state = ParseState::Start,
+                },
+                ParseState::HeaderByte => {
+                    debug_assert_eq!(self.i, 0);
+                    self.inner.consume(1);
+                    self.state = ParseState::Start;
+                    break
+                },
+                ParseState::Three => {
+                    debug_assert_eq!(self.i, 0);
+                    self.inner.consume(1);
+                    self.state = ParseState::PostThree;
+                    break
+                }
+                ParseState::PostThree => match chunk[self.i] {
+                    0x00 => self.state = ParseState::OneZero,
+                    0x01 | 0x02 | 0x03 => self.state = ParseState::Start,
+                    o => return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("invalid RBSP byte {:#x} in state {:?}", o, &self.state),
+                    )),
+                },
+            }
+            self.i += 1;
+        }
+        Ok(true)
     }
 }
 impl<R: BufRead> Read for ByteReader<R> {
@@ -66,7 +141,8 @@ impl<R: BufRead> Read for ByteReader<R> {
         let amt = std::cmp::min(buf.len(), chunk.len());
         if amt == 1 {
             // Stolen from std::io::Read implementation for &[u8]:
-            // apparently this is faster to special-case.
+            // apparently this is faster to special-case. (And this is the
+            // common case for BitReader.)
             buf[0] = chunk[0];
         } else {
             buf[..amt].copy_from_slice(&chunk[..amt]);
@@ -77,20 +153,7 @@ impl<R: BufRead> Read for ByteReader<R> {
 }
 impl<R: BufRead> BufRead for ByteReader<R> {
     fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
-        while self.i == 0 { // slow path
-            let chunk = self.inner.fill_buf()?;
-            if chunk.is_empty() {
-                return Ok(b"");
-            }
-            if matches!(self.state, ParseState::Skip) {
-                self.inner.consume(1);
-                self.state = ParseState::Start;
-                continue;
-            }
-            if find_three(&mut self.state, &mut self.i, chunk) {
-                self.state = ParseState::Skip;
-            }
-        }
+        while self.i == 0 && self.try_fill_buf_slow()? {}
         Ok(&self.inner.fill_buf()?[0..self.i])
     }
 
@@ -100,51 +163,46 @@ impl<R: BufRead> BufRead for ByteReader<R> {
     }
 }
 
-/// Searches for an emulation_prevention_three_byte, updating `state` and `i` as a side effect.
-/// Returns true if one is found; caller needs to further update `state`/`i` then.
-/// (The two callers do different things.)
-fn find_three(state: &mut ParseState, i: &mut usize, chunk: &[u8]) -> bool {
-    while *i < chunk.len() {
-        match *state {
-            ParseState::Start => match memchr::memchr(0x00, &chunk[*i..]) {
-                Some(nonzero_len) => {
-                    *i += nonzero_len;
-                    *state = ParseState::OneZero;
-                },
-                None => {
-                    *i = chunk.len();
-                    break
-                },
-            },
-            ParseState::OneZero => match chunk[*i] {
-                0x00 => *state = ParseState::TwoZero,
-                _ => *state = ParseState::Start,
-            },
-            ParseState::TwoZero => match chunk[*i] {
-                0x03 => return true,
-                0x00 => {
-                    eprintln!("RbspDecoder: state={:?}, invalid byte {:#x}", *state, chunk[*i]);
-                    *state = ParseState::Start;
-                },
-                _ => *state = ParseState::Start,
-            },
-            ParseState::Skip => unreachable!(),
-        }
-        *i += 1;
-    }
-    false
-}
-
-/// Returns the given buffer minus NAL header and emulation prevention bytes.
+/// Removes RBSP encoding as described in [module docs](self). Returns error
+/// on invalid byte sequences. Returns a borrowed pointer if possible.
+///
+/// ```
+/// # use h264_reader::rbsp::decode_nal;
+/// # use std::borrow::Cow;
+/// # use std::io::ErrorKind;
+/// let nal_with_escape = &b"\x68\x12\x34\x00\x00\x03\x00\x86"[..];
+/// assert!(matches!(
+///     decode_nal(nal_with_escape).unwrap(),
+///     Cow::Owned(s) if s == &b"\x12\x34\x00\x00\x00\x86"[..]));
+///
+/// let nal_without_escape = &b"\x68\xE8\x43\x8F\x13\x21\x30"[..];
+/// assert_eq!(decode_nal(nal_without_escape).unwrap(), Cow::Borrowed(&nal_without_escape[1..]));
+///
+/// let invalid_nal = &b"\x68\x12\x34\x00\x00\x00\x86"[..];
+/// assert_eq!(decode_nal(invalid_nal).unwrap_err().kind(), ErrorKind::InvalidData);
+/// ```
 pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Result<Cow<'a, [u8]>, std::io::Error> {
-    let mut reader = ByteReader::new(nal_unit);
+    let mut reader = ByteReader {
+        inner: nal_unit,
+        state: ParseState::HeaderByte,
+        i: 0,
+        max_fill: usize::MAX, // to borrow if at all possible.
+    };
     let buf = reader.fill_buf()?;
     if buf.len() + 1 == nal_unit.len() {
         return Ok(Cow::Borrowed(&nal_unit[1..]));
     }
     // Upper bound estimate; skipping the NAL header and at least one emulation prevention byte.
     let mut dst = Vec::with_capacity(nal_unit.len() - 2);
-    reader.read_to_end(&mut dst)?;
+    loop {
+        let buf = reader.fill_buf()?;
+        if buf.is_empty() {
+            break;
+        }
+        dst.extend_from_slice(buf);
+        let len = buf.len();
+        reader.consume(len);
+    }
     Ok(Cow::Owned(dst))
 }
 
@@ -314,37 +372,6 @@ mod tests {
                     "Mismatch with on split_at({}):\nrbsp     {:02x}\nexpected {:02x}",
                     i, rbsp.as_hex(), expected.as_hex());
         }
-    }
-
-    #[test]
-    fn decode_single_nal() {
-        let data = hex!(
-           "67 42 c0 15 d9 01 41 fb 01 6a 0c 02 0b
-            4a 00 00 03 00 02 00 00 03 00 79 1e 2c
-            5c 90");
-        let expected = hex!(
-           "42 c0 15 d9 01 41 fb 01 6a 0c 02 0b
-            4a 00 00 00 02 00 00 00 79 1e 2c 5c 90");
-
-        let decoded = decode_nal(&data).unwrap();
-
-        assert_eq!(decoded, &expected[..]);
-        assert!(matches!(decoded, Cow::Owned(..)));
-    }
-
-    #[test]
-    fn decode_single_nal_no_emulation() {
-        let data = hex!(
-           "67 64 00 0A AC 72 84 44 26 84 00 00
-            00 04 00 00 00 CA 3C 48 96 11 80");
-        let expected = hex!(
-           "64 00 0A AC 72 84 44 26 84 00 00
-            00 04 00 00 00 CA 3C 48 96 11 80");
-
-        let decoded = decode_nal(&data).unwrap();
-
-        assert_eq!(decoded, &expected[..]);
-        assert!(matches!(decoded, Cow::Borrowed(..)));
     }
 
     #[test]
