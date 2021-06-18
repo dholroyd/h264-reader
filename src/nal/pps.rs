@@ -6,6 +6,8 @@ use crate::rbsp::BitRead;
 pub enum PpsError {
     RbspReaderError(rbsp::BitReaderError),
     InvalidSliceGroupMapType(u32),
+    InvalidNumSliceGroupsMinus1(u32),
+    InvalidNumRefIdx(&'static str, u32),
     InvalidSliceGroupChangeType(u32),
     UnknownSeqParamSetId(ParamSetId),
     BadPicParamSetId(ParamSetIdError),
@@ -234,8 +236,8 @@ impl PicParameterSet {
             entropy_coding_mode_flag: r.read_bool("entropy_coding_mode_flag")?,
             bottom_field_pic_order_in_frame_present_flag: r.read_bool("bottom_field_pic_order_in_frame_present_flag")?,
             slice_groups: Self::read_slice_groups(&mut r)?,
-            num_ref_idx_l0_default_active_minus1: r.read_ue("num_ref_idx_l0_default_active_minus1")?,
-            num_ref_idx_l1_default_active_minus1: r.read_ue("num_ref_idx_l1_default_active_minus1")?,
+            num_ref_idx_l0_default_active_minus1: read_num_ref_idx(&mut r, "num_ref_idx_l0_default_active_minus1")?,
+            num_ref_idx_l1_default_active_minus1: read_num_ref_idx(&mut r, "num_ref_idx_l1_default_active_minus1")?,
             weighted_pred_flag: r.read_bool("weighted_pred_flag")?,
             weighted_bipred_idc: r.read_u8(2, "weighted_bipred_idc")?,
             pic_init_qp_minus26: r.read_se("pic_init_qp_minus26")?,
@@ -252,12 +254,24 @@ impl PicParameterSet {
 
     fn read_slice_groups<R: BitRead>(r: &mut R) -> Result<Option<SliceGroup>,PpsError> {
         let num_slice_groups_minus1 = r.read_ue("num_slice_groups_minus1")?;
+        if num_slice_groups_minus1 > 7 {
+            // 7 is the maximum allowed in any profile; some profiles restrict it to 0.
+            return Err(PpsError::InvalidNumSliceGroupsMinus1(num_slice_groups_minus1));
+        }
         Ok(if num_slice_groups_minus1 > 0 {
             Some(SliceGroup::read(r, num_slice_groups_minus1)?)
         } else {
             None
         })
     }
+}
+
+fn read_num_ref_idx<R: BitRead>(r: &mut R, name: &'static str) -> Result<u32, PpsError> {
+    let val = r.read_ue(name)?;
+    if val > 31 {
+        return Err(PpsError::InvalidNumRefIdx(name, val));
+    }
+    Ok(val)
 }
 
 #[cfg(test)]
