@@ -61,6 +61,9 @@ pub enum SliceHeaderError {
     InvalidDisableDeblockingFilterIdc(u32),
     /// `slice_alpha_c0_offset_div2` was outside the expected range of `-6` to `+6`
     InvalidSliceAlphaC0OffsetDiv2(i32),
+    /// `num_ref_idx_l0_default_active_minus1` or num_ref_idx_l1_default_active_minus1` is
+    /// greater than allowed 32.
+    InvalidNumRefIdx(&'static str, u32),
     /// The header contained syntax elements that the parser isn't able to handle yet
     UnsupportedSyntax(&'static str),
 }
@@ -247,7 +250,7 @@ impl PredWeightTable {
             }
         }
         if slice_type.family == SliceFamily::B {
-            unimplemented!("B Frame")
+            return Err(SliceHeaderError::UnsupportedSyntax("B frame"));
         }
         Ok(PredWeightTable {
             luma_log2_weight_denom,
@@ -425,11 +428,12 @@ impl SliceHeader {
         };
         let num_ref_idx_active = if slice_type.family == SliceFamily::P || slice_type.family == SliceFamily::SP || slice_type.family == SliceFamily::B {
             if r.read_bool("num_ref_idx_active_override_flag")? {
-                let num_ref_idx_l0_active_minus1 = r.read_ue("num_ref_idx_l0_active_minus1")?;
+                let num_ref_idx_l0_active_minus1 = read_num_ref_idx(r, "num_ref_idx_l0_active_minus1")?;
                 Some(if slice_type.family == SliceFamily::B {
+                    let num_ref_idx_l1_active_minus1 = read_num_ref_idx(r, "num_ref_idx_l1_active_minus1")?;
                     NumRefIdxActive::B {
                         num_ref_idx_l0_active_minus1,
-                        num_ref_idx_l1_active_minus1: r.read_ue("num_ref_idx_l1_active_minus1")?,
+                        num_ref_idx_l1_active_minus1,
                     }
                 } else {
                     NumRefIdxActive::P { num_ref_idx_l0_active_minus1 }
@@ -522,5 +526,35 @@ impl SliceHeader {
             disable_deblocking_filter_idc,
         };
         Ok((header, sps, pps))
+    }
+}
+
+fn read_num_ref_idx<R: BitRead>(r: &mut R, name: &'static str) -> Result<u32, SliceHeaderError> {
+    let val = r.read_ue(name)?;
+    if val > 31 {
+        return Err(SliceHeaderError::InvalidNumRefIdx(name, val));
+    }
+    Ok(val)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::nal::{Nal, RefNal};
+    use hex_literal::hex;
+    use super::*;
+
+    #[test]
+    fn invalid_num_ref_idx() {
+        // Examples from fuzz testing.
+        let mut ctx = crate::Context::default();
+        let sps = RefNal::new(&hex!("27 d2 d2 d6 d2 27 50 aa 27 01 56 56 08 41 c5")[..], &[], true);
+        let sps = SeqParameterSet::from_bits(sps.rbsp_bits()).unwrap();
+        ctx.put_seq_param_set(sps);
+        let pps = RefNal::new(&hex!("28 c5 56 6a 08 41 00 fd")[..], &[], true);
+        let pps = PicParameterSet::from_bits(&ctx, pps.rbsp_bits()).unwrap();
+        ctx.put_pic_param_set(pps);
+        let nal = RefNal::new(&hex!("41 3f 3f 00 00 03 00 03 ed 60 bb bb bb")[..], &[], true);
+        assert!(matches!(SliceHeader::from_bits(&ctx, &mut nal.rbsp_bits(), nal.header().unwrap()),
+                         Err(SliceHeaderError::InvalidNumRefIdx(_, _))));
     }
 }
