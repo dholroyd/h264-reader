@@ -220,9 +220,12 @@ impl<'buf> RbspBitReader<'buf> {
     }
 
     pub fn read_ue_named(&mut self, name: &'static str) -> Result<u32,RbspBitReaderError> {
-        let count = count_zero_bits(&mut self.reader, name)?;
-        if count > 0 {
-            let val = self.read_u32(count)?;
+        let count = self.reader.read_unary1()
+            .map_err(|e| RbspBitReaderError::ReaderErrorFor(name, e))?;
+        if count > 31 {
+            return Err(RbspBitReaderError::ExpGolombTooLarge(name));
+        } else if count > 0 {
+            let val = self.read_u32(count as u8)?;
             Ok((1 << count) -1 + val)
         } else {
             Ok(0)
@@ -281,16 +284,6 @@ impl<'buf> RbspBitReader<'buf> {
         let sign = (((val & 0x1) as i32) << 1) - 1;
         ((val >> 1) as i32 + (val & 0x1) as i32) * sign
     }
-}
-fn count_zero_bits<R: BitRead>(r: &mut R, name: &'static str) -> Result<u8, RbspBitReaderError> {
-    let mut count = 0;
-    while !r.read_bit()? {
-        count += 1;
-        if count > 31 {
-            return Err(RbspBitReaderError::ExpGolombTooLarge(name));
-        }
-    }
-    Ok(count)
 }
 
 #[cfg(test)]
@@ -404,5 +397,12 @@ mod tests {
         // should also work when there are cabac-zero-words.
         let mut reader = RbspBitReader::new(&[0x80, 0x00, 0x00]);
         assert!(!reader.has_more_rbsp_data("at end with cabac-zero-words").unwrap());
+    }
+
+    #[test]
+    fn read_ue_overflow() {
+        let mut reader = RbspBitReader::new(&[0, 0, 0, 0, 255, 255, 255, 255, 255]);
+        assert!(matches!(reader.read_ue_named("test"),
+                         Err(RbspBitReaderError::ExpGolombTooLarge("test"))));
     }
 }
