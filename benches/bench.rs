@@ -8,22 +8,95 @@
 
 #[macro_use]
 extern crate criterion;
-extern crate h264_reader;
 
-use criterion::Criterion;
-use h264_reader::nal::sps::SeqParameterSet;
-use std::fs::File;
-use criterion::Throughput;
-use std::convert::TryFrom;
-use std::io::Read;
+use criterion::{Bencher, Criterion, Throughput};
 use hex_literal::hex;
+use h264_reader::nal::slice::SliceHeaderError;
+use h264_reader::nal::sps::SeqParameterSet;
+use h264_reader::rbsp::{BitReaderError, RbspDecoder};
 use h264_reader::annexb::AnnexBReader;
 use h264_reader::annexb::NalReader;
-use h264_reader::Context;
-use h264_reader::rbsp::RbspDecoder;
-use h264_reader::nal::NalHandler;
-use h264_reader::nal::NalHeader;
+use std::cell::RefCell;
+use std::convert::TryFrom;
+use std::io::ErrorKind;
+use h264_reader::{nal, Context, rbsp};
+use h264_reader::nal::{NalHandler, NalHeader};
+use h264_reader::nal::sps::SeqParameterSetNalHandler;
+use h264_reader::nal::pps::PicParameterSetNalHandler;
 
+
+struct InProgressSlice {
+    header: h264_reader::nal::NalHeader,
+    rbsp: Vec<u8>,
+}
+
+/// Handles bytes from RbspDecoder, trying on every push to parse a slice header until success.
+struct SliceRbspHandler {
+    current_slice: Option<InProgressSlice>,
+}
+impl SliceRbspHandler {
+    pub fn new() -> SliceRbspHandler {
+        SliceRbspHandler {
+            current_slice: None,
+        }
+    }
+}
+impl h264_reader::nal::NalHandler for SliceRbspHandler {
+    type Ctx = ();
+
+    fn start(&mut self, _ctx: &mut h264_reader::Context<Self::Ctx>, header: h264_reader::nal::NalHeader) {
+        let mut buf = Vec::new();
+        buf.push(header.into());
+        self.current_slice = Some(InProgressSlice {
+            header,
+            rbsp: buf,
+        });
+    }
+
+    fn push(&mut self, ctx: &mut h264_reader::Context<Self::Ctx>, buf: &[u8]) {
+        if let Some(mut s) = self.current_slice.take() {
+            s.rbsp.extend_from_slice(buf);
+            let mut r = rbsp::BitReader::new(&s.rbsp[1..]);
+            match nal::slice::SliceHeader::read(ctx, &mut r, s.header) {
+                Err(SliceHeaderError::RbspError(BitReaderError::ReaderErrorFor(_, e))) if e.kind() == ErrorKind::UnexpectedEof => {
+                    // Try again later.
+                    self.current_slice = Some(s);
+                },
+                Err(e) => panic!("{:?}", e),
+                Ok(_) =>  {},
+            }
+        }
+    }
+
+    fn end(&mut self, _ctx: &mut h264_reader::Context<Self::Ctx>) {
+        assert!(self.current_slice.is_none());
+    }
+}
+
+/// Handles NAL-encoded bytes, only decoding RBSP until a slice header is successfully parsed.
+struct SliceNalHandler(RbspDecoder<SliceRbspHandler>);
+impl SliceNalHandler {
+    fn new() -> Self {
+        SliceNalHandler(RbspDecoder::new(SliceRbspHandler::new()))
+    }
+}
+impl h264_reader::nal::NalHandler for SliceNalHandler {
+    type Ctx = ();
+    fn start(&mut self, ctx: &mut Context<Self::Ctx>, header: NalHeader) {
+        self.0.start(ctx, header);
+    }
+    fn push(&mut self, ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
+        if self.0.handler_ref().current_slice.is_some() {
+            self.0.push(ctx, buf);
+        }
+    }
+    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
+        self.0.end(ctx);
+    }
+}
+
+/// RBSP bytes handler that does nothing, except maintain counters to limit optimization.
+#[derive(Default)]
 struct NullNalHandler {
     start: u64,
     push: u64,
@@ -45,11 +118,20 @@ impl NalHandler for NullNalHandler {
     }
 }
 
-struct NullRbspNalReader {
+/// NAL handler that decodes all RBSP bytes.
+struct RbspDecodingNalReader {
     decoder: RbspDecoder<NullNalHandler>,
     decoder_started: bool,
 }
-impl NalReader for NullRbspNalReader {
+impl RbspDecodingNalReader {
+    fn new() -> Self {
+        RbspDecodingNalReader {
+            decoder: RbspDecoder::new(NullNalHandler::default()),
+            decoder_started: false,
+        }
+    }
+}
+impl NalReader for RbspDecodingNalReader {
     type Ctx = ();
 
     fn start(&mut self, _ctx: &mut Context<Self::Ctx>) {
@@ -73,6 +155,8 @@ impl NalReader for NullRbspNalReader {
     }
 }
 
+/// A NAL handler that does nothing, except maintain counters to limit optimization.
+#[derive(Default)]
 struct NullNalReader {
     start: u64,
     push: u64,
@@ -92,45 +176,51 @@ impl NalReader for NullNalReader {
     }
 }
 
-fn h264_reader(c: &mut Criterion) {
-    let mut f = File::open("big_buck_bunny_1080p.h264").expect("file not found");
-    let len = f.metadata().unwrap().len();
-    let mut buf = vec![0; usize::try_from(len).unwrap()];
-    f.read(&mut buf[..]).unwrap();
-    let mut ctx = Context::default();
-    let nal_handler = NullNalHandler {
-        start: 0,
-        push: 0,
-        end: 0,
-    };
-    let rbsp_nal_reader = NullRbspNalReader {
-        decoder: RbspDecoder::new(nal_handler),
-        decoder_started: false,
-    };
-    let nal_reader = NullNalReader {
-        start: 0,
-        push: 0,
-        end: 0,
-    };
-    let mut annexb_rbsp_reader = AnnexBReader::new(rbsp_nal_reader);
-    let mut annexb_reader = AnnexBReader::new(nal_reader);
+/// Returns a NAL reader which parses several types of NALs.
+fn parse() -> impl NalReader<Ctx = ()> {
+    let mut switch = h264_reader::nal::NalSwitch::default();
+    let sps_handler = SeqParameterSetNalHandler::default();
+    let pps_handler = PicParameterSetNalHandler::default();
+    let slice_wout_part_idr_handler = SliceNalHandler::new();
+    let slice_wout_part_nonidr_handler = SliceNalHandler::new();
+    switch.put_handler(h264_reader::nal::UnitType::SeqParameterSet, Box::new(RefCell::new(sps_handler)));
+    switch.put_handler(h264_reader::nal::UnitType::PicParameterSet, Box::new(RefCell::new(pps_handler)));
+    switch.put_handler(h264_reader::nal::UnitType::SliceLayerWithoutPartitioningIdr, Box::new(RefCell::new(slice_wout_part_idr_handler)));
+    switch.put_handler(h264_reader::nal::UnitType::SliceLayerWithoutPartitioningNonIdr, Box::new(RefCell::new(slice_wout_part_nonidr_handler)));
+    switch
+}
 
+fn bench_annexb<'a, R, P>(r: R, b: &mut Bencher, pushes: P)
+where R: NalReader<Ctx = ()>, P: Iterator<Item = &'a [u8]> + Clone {
+    let mut annexb_reader = AnnexBReader::new(r);
+    b.iter(|| {
+        let mut ctx = Context::default();
+        annexb_reader.start(&mut ctx);
+        for p in pushes.clone() {
+            annexb_reader.push(&mut ctx, p);
+        }
+        annexb_reader.end_units(&mut ctx);
+    })
+}
+
+fn h264_reader(c: &mut Criterion) {
+    let buf = std::fs::read("big_buck_bunny_1080p.h264").expect("reading h264 file failed");
     let mut group = c.benchmark_group("parse_annexb");
-    group.throughput(Throughput::Bytes(len));
-    group.bench_function("annexb_only", |b| {
-        b.iter(|| {
-            annexb_reader.start(&mut ctx);
-            annexb_reader.push(&mut ctx, &buf[..]);
-            annexb_reader.end_units(&mut ctx);
-        })
-    });
-    group.bench_function("annexb_rbsp", |b| {
-        b.iter(|| {
-            annexb_rbsp_reader.start(&mut ctx);
-            annexb_rbsp_reader.push(&mut ctx, &buf[..]);
-            annexb_rbsp_reader.end_units(&mut ctx);
-        })
-    });
+    group.throughput(Throughput::Bytes(u64::try_from(buf.len()).unwrap()));
+
+    // Benchmark parsing in one big push (as when reading H.264 with a large buffer size),
+    // 184-byte pushes (like MPEG-TS), and 1440-byte pushes (~typical for RTP). RTP doesn't
+    // use Annex B encoding, but it does use the RBSP decoding and NAL parsing layers, so this
+    // is still informative.
+    group.bench_function("onepush_null", |b| bench_annexb(NullNalReader::default(), b, std::iter::once(&buf[..])));
+    group.bench_function("chunksize184_null", |b| bench_annexb(NullNalReader::default(), b, buf.chunks(184)));
+    group.bench_function("chunksize1440_null", |b| bench_annexb(NullNalReader::default(), b, buf.chunks(1440)));
+    group.bench_function("onepush_rbsp", |b| bench_annexb(RbspDecodingNalReader::new(), b, std::iter::once(&buf[..])));
+    group.bench_function("chunksize184_rbsp", |b| bench_annexb(RbspDecodingNalReader::new(), b, buf.chunks(184)));
+    group.bench_function("chunksize1440_rbsp", |b| bench_annexb(RbspDecodingNalReader::new(), b, buf.chunks(1440)));
+    group.bench_function("onepush_parse", |b| bench_annexb(parse(), b, std::iter::once(&buf[..])));
+    group.bench_function("chunksize184_parse", |b| bench_annexb(parse(), b, buf.chunks(184)));
+    group.bench_function("chunksize1440_parse", |b| bench_annexb(parse(), b, buf.chunks(1440)));
 }
 
 fn parse_nal(c: &mut Criterion) {

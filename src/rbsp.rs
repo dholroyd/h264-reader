@@ -68,6 +68,10 @@ impl<R> RbspDecoder<R>
         self.state = ParseState::Start;
     }
 
+    pub fn handler_ref(&self) -> &R {
+        &self.nal_reader
+    }
+
     pub fn into_handler(self) -> R {
         self.nal_reader
     }
