@@ -2,12 +2,10 @@
 //! File Format_ (AKA MP4), as the specified in _ISO/IEC 14496-15_.
 //!
 
-use crate::nal::{sps, UnitType, NalHeader, NalHeaderError, pps, NalHandler};
+use crate::nal::{Nal, NalHeader, NalHeaderError, RefNal, UnitType, pps, sps};
 use std::convert::TryFrom;
-use crate::nal::sps::{ProfileIdc, Level, ConstraintFlags, SeqParameterSet, SeqParameterSetNalHandler};
+use crate::nal::sps::{ProfileIdc, Level, ConstraintFlags, SeqParameterSet};
 use crate::Context;
-use crate::nal::pps::PicParameterSetNalHandler;
-use crate::rbsp;
 
 #[derive(Debug)]
 pub enum AvccError {
@@ -112,22 +110,24 @@ impl<'buf> AvcDecoderConfigurationRecord<'buf> {
             .take(num as usize)
     }
 
-    /// Creates an H264 parser context from the given user context, using the settings encoded into
+    /// Creates an H264 parser context, using the settings encoded into
     /// this `AvcDecoderConfigurationRecord`.
     ///
     /// In particular, the _sequence parameter set_ and _picture parameter set_ values of this
     /// configuration record will be inserted into the resulting context.
-    pub fn create_context<C>(&self, ctx: C) -> Result<Context<C>, AvccError> {
-        let mut ctx = Context::new(ctx);
-        let mut sps_decode = rbsp::RbspDecoder::new(SeqParameterSetNalHandler::default());
+    pub fn create_context(&self) -> Result<Context, AvccError> {
+        let mut ctx = Context::new();
         for sps in self.sequence_parameter_sets() {
-            sps_decode.push(&mut ctx, sps.map_err(AvccError::ParamSet)?);
-            sps_decode.end(&mut ctx);
+            let sps = sps.map_err(AvccError::ParamSet)?;
+            let sps = RefNal::new(&sps[..], &[], true);
+            let sps = crate::nal::sps::SeqParameterSet::from_bits(sps.rbsp_bits()).map_err(AvccError::Sps)?;
+            ctx.put_seq_param_set(sps);
         }
-        let mut pps_decode = rbsp::RbspDecoder::new(PicParameterSetNalHandler::default());
         for pps in self.picture_parameter_sets() {
-            pps_decode.push(&mut ctx, pps.map_err(AvccError::ParamSet)?);
-            pps_decode.end(&mut ctx);
+            let pps = pps.map_err(AvccError::ParamSet)?;
+            let pps = RefNal::new(&pps[..], &[], true);
+            let pps = crate::nal::pps::PicParameterSet::from_bits(&ctx, pps.rbsp_bits()).map_err(AvccError::Pps)?;
+            ctx.put_pic_param_set(pps);
         }
         Ok(ctx)
     }
@@ -164,7 +164,7 @@ impl<'buf> Iterator for ParamSetIter<'buf>
                     if nal_header.nal_unit_type() == self.1 {
                         let (data, remainder) = data.split_at(len as usize);
                         self.0 = remainder;
-                        Ok(&data[1..])  // trim off the nal_header byte
+                        Ok(data)
                     } else {
                         Err(ParamSetError::IncorrectNalType { expected: self.1, actual: nal_header.nal_unit_type() })
                     }
@@ -196,7 +196,7 @@ mod test {
         assert!(!flags.flag3());
         assert!(!flags.flag4());
         assert!(!flags.flag5());
-        let ctx = avcc.create_context(()).unwrap();
+        let ctx = avcc.create_context().unwrap();
         let sps = ctx.sps_by_id(ParamSetId::from_u32(0).unwrap())
             .expect("missing sps");
         assert_eq!(avcc.avc_level_indication(), sps.level());
@@ -213,7 +213,7 @@ mod test {
                               000468ee 3c80");
         let avcc = AvcDecoderConfigurationRecord::try_from(&avcc_data[..]).unwrap();
         let _sps_data = avcc.sequence_parameter_sets().next().unwrap().unwrap();
-        let ctx = avcc.create_context(()).unwrap();
+        let ctx = avcc.create_context().unwrap();
         let _sps = ctx.sps_by_id(ParamSetId::from_u32(0).unwrap())
             .expect("missing sps");
     }

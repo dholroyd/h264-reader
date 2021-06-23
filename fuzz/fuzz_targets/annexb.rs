@@ -2,60 +2,52 @@
 //! single push call and a pair of push split at each possible byte location.
 
 #![no_main]
+use h264_reader::annexb::AnnexBReader;
 use hex_slice::AsHex;
-use h264_reader::Context;
 use libfuzzer_sys::fuzz_target;
 use std::convert::TryFrom;
 
 /// Encodes the stream as (4-byte length prefix, NAL)*, as commonly seen in AVC files.
 #[derive(Default)]
 struct AvcBuilder {
-    started: bool,
     cur: Vec<u8>,
+    all: Vec<u8>,
 }
 
-impl h264_reader::annexb::NalReader for AvcBuilder {
-    type Ctx = Vec<u8>;
-
-    fn start(&mut self, _ctx: &mut Context<Self::Ctx>) {
-        assert!(!self.started);
-        self.started = true;
-    }
-    fn push(&mut self, _ctx: &mut Context<Self::Ctx>, buf: &[u8]) {
-        assert!(self.started);
-        assert!(!buf.is_empty()); // useless empty push.
-        self.cur.extend_from_slice(buf);
-    }
-    fn end(&mut self, ctx: &mut Context<Self::Ctx>) {
-        assert!(self.started);
-        self.started = false;
-        let len = u32::try_from(self.cur.len()).unwrap();
-        ctx.user_context.extend_from_slice(&len.to_be_bytes()[..]);
-        ctx.user_context.extend_from_slice(&self.cur[..]);
-        self.cur.clear();
+impl h264_reader::push::NalFragmentHandler for AvcBuilder {
+    fn nal_fragment(&mut self, bufs: &[&[u8]], end: bool) {
+        assert!(!bufs.is_empty() || (!self.cur.is_empty() || end));
+        for buf in bufs {
+            assert!(!buf.is_empty());
+            self.cur.extend_from_slice(buf);
+        }
+        if end {
+            let len = u32::try_from(self.cur.len()).unwrap();
+            self.all.extend_from_slice(&len.to_be_bytes()[..]);
+            self.all.extend_from_slice(&self.cur[..]);
+            self.cur.clear();
+        }
     }
 }
 
 fuzz_target!(|data: &[u8]| {
     // Parse in a single push.
-    let mut single_push_ctx = h264_reader::Context::new(Vec::new());
-    let mut single_push = h264_reader::annexb::AnnexBReader::new(AvcBuilder::default());
-    single_push.start(&mut single_push_ctx);
-    single_push.push(&mut single_push_ctx, data);
-    single_push.end_units(&mut single_push_ctx);
+    let mut single_push = AnnexBReader::for_fragment_handler(AvcBuilder::default());
+    single_push.push(data);
+    single_push.reset();
+    let single_avc = single_push.into_fragment_handler();
 
     for i in 0..data.len() {
         // Parse in a split push.
-        let mut split_push_ctx = h264_reader::Context::new(Vec::new());
-        let mut split_push = h264_reader::annexb::AnnexBReader::new(AvcBuilder::default());
-        split_push.start(&mut split_push_ctx);
+        let mut split_push = AnnexBReader::for_fragment_handler(AvcBuilder::default());
         let (head, tail) = data.split_at(i);
-        split_push.push(&mut split_push_ctx, head);
-        split_push.push(&mut split_push_ctx, &[]); // also ensure empty pushes don't break.
-        split_push.push(&mut split_push_ctx, tail);
-        split_push.end_units(&mut split_push_ctx);
+        split_push.push(head);
+        split_push.push(&[]); // also ensure empty pushes don't break.
+        split_push.push(tail);
+        split_push.reset();
+        let split_avc = split_push.into_fragment_handler();
 
-        assert!(single_push_ctx.user_context.as_slice() == split_push_ctx.user_context.as_slice(),
+        assert!(single_avc.all.as_slice() == split_avc.all.as_slice(),
                 "inconsistent output.\n\
                 split point: {}\n\
                 input:       {:02x}\n\
@@ -63,7 +55,7 @@ fuzz_target!(|data: &[u8]| {
                 split push:  {:02x}",
                 i,
                 data.as_hex(),
-                single_push_ctx.user_context.as_hex(),
-                split_push_ctx.user_context.as_hex());
+                single_avc.all.as_hex(),
+                split_avc.all.as_hex());
     }
 });

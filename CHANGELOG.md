@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+*   BREAKING CHANGE: major simplification of the push API.
 *   Annex B parser bugfixes.
 
 ## 0.5.0 - 2021-06-09
