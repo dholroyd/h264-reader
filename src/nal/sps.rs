@@ -792,13 +792,13 @@ impl HrdParameters {
 
 #[derive(Debug, Clone)]
 pub struct BitstreamRestrictions {
-    motion_vectors_over_pic_boundaries_flag: bool,
-    max_bytes_per_pic_denom: u32,
-    max_bits_per_mb_denom: u32,
-    log2_max_mv_length_horizontal: u32,
-    log2_max_mv_length_vertical: u32,
-    max_num_reorder_frames: u32,
-    max_dec_frame_buffering: u32,
+    pub motion_vectors_over_pic_boundaries_flag: bool,
+    pub max_bytes_per_pic_denom: u32,
+    pub max_bits_per_mb_denom: u32,
+    pub log2_max_mv_length_horizontal: u32,
+    pub log2_max_mv_length_vertical: u32,
+    pub max_num_reorder_frames: u32,
+    pub max_dec_frame_buffering: u32,
 }
 impl BitstreamRestrictions {
     fn read(r: &mut RbspBitReader<'_>) -> Result<Option<BitstreamRestrictions>,RbspBitReaderError> {
