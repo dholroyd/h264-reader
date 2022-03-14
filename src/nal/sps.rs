@@ -615,9 +615,9 @@ impl VideoFormat {
 
 #[derive(Debug, Clone)]
 pub struct ColourDescription {
-    colour_primaries: u8,
-    transfer_characteristics: u8,
-    matrix_coefficients: u8,
+    pub colour_primaries: u8,
+    pub transfer_characteristics: u8,
+    pub matrix_coefficients: u8,
 }
 impl ColourDescription {
     fn read<R: BitRead>(r: &mut R) -> Result<Option<ColourDescription>, BitReaderError> {
@@ -636,9 +636,9 @@ impl ColourDescription {
 
 #[derive(Debug, Clone)]
 pub struct VideoSignalType {
-    video_format: VideoFormat,
-    video_full_range_flag: bool,
-    colour_description: Option<ColourDescription>,
+    pub video_format: VideoFormat,
+    pub video_full_range_flag: bool,
+    pub colour_description: Option<ColourDescription>,
 }
 impl VideoSignalType {
     fn read<R: BitRead>(r: &mut R) -> Result<Option<VideoSignalType>, BitReaderError> {
