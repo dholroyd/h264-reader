@@ -657,8 +657,8 @@ impl VideoSignalType {
 
 #[derive(Debug, Clone)]
 pub struct ChromaLocInfo {
-    chroma_sample_loc_type_top_field: u32,
-    chroma_sample_loc_type_bottom_field: u32,
+    pub chroma_sample_loc_type_top_field: u32,
+    pub chroma_sample_loc_type_bottom_field: u32,
 }
 impl ChromaLocInfo {
     fn read<R: BitRead>(r: &mut R) -> Result<Option<ChromaLocInfo>, BitReaderError> {
