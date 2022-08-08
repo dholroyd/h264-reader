@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.0 - 2022-08-08
+
 *   BREAKING CHANGE: major simplification of the push API.
 *   Annex B parser bugfixes.
 
