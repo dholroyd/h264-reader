@@ -60,8 +60,8 @@ pub struct ByteReader<R: BufRead> {
     max_fill: usize,
 }
 impl<R: BufRead> ByteReader<R> {
-    /// Constructs an adapter from the given [BufRead]. The caller is expected to have skipped
-    /// the NAL header byte already.
+    /// Constructs an adapter from the given [BufRead]. The NAL header byte is
+    /// expected to be present.
     pub fn new(inner: R) -> Self {
         Self {
             inner,
