@@ -1,9 +1,8 @@
-use crate::nal::pps::ParamSetId;
-use crate::nal::pps::ParamSetIdError;
-use crate::rbsp::BitRead;
-use crate::rbsp::BitReaderError;
-use std::fmt;
-use std::fmt::Debug;
+use crate::{
+    nal::pps::{ParamSetId, ParamSetIdError},
+    rbsp::{BitRead, BitReaderError},
+};
+use std::fmt::{self, Debug};
 
 #[derive(Debug)]
 pub enum SpsError {
@@ -93,7 +92,7 @@ impl Profile {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct ConstraintFlags(u8);
 impl From<u8> for ConstraintFlags {
     fn from(v: u8) -> Self {
@@ -218,9 +217,10 @@ impl Level {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ChromaFormat {
     Monochrome,
+    #[default]
     YUV420,
     YUV422,
     YUV444,
@@ -239,7 +239,7 @@ impl ChromaFormat {
 }
 
 // _Profile Indication_ value
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ProfileIdc(u8);
 impl ProfileIdc {
     pub fn has_chroma_info(self) -> bool {
@@ -303,15 +303,11 @@ impl From<BitReaderError> for ScalingMatrixError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SeqScalingMatrix {
     // TODO
 }
-impl Default for SeqScalingMatrix {
-    fn default() -> Self {
-        SeqScalingMatrix {}
-    }
-}
+
 impl SeqScalingMatrix {
     fn read<R: BitRead>(
         r: &mut R,
@@ -335,7 +331,7 @@ impl SeqScalingMatrix {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ChromaInfo {
     pub chroma_format: ChromaFormat,
     pub separate_colour_plane_flag: bool,
@@ -362,14 +358,7 @@ impl ChromaInfo {
                 scaling_matrix: Self::read_scaling_matrix(r, chroma_format_idc)?,
             })
         } else {
-            Ok(ChromaInfo {
-                chroma_format: ChromaFormat::YUV420,
-                separate_colour_plane_flag: false,
-                bit_depth_luma_minus8: 0,
-                bit_depth_chroma_minus8: 0,
-                qpprime_y_zero_transform_bypass_flag: false,
-                scaling_matrix: SeqScalingMatrix::default(),
-            })
+            Ok(ChromaInfo::default())
         }
     }
     fn read_bit_depth_minus8<R: BitRead>(r: &mut R) -> Result<u8, SpsError> {
@@ -409,7 +398,7 @@ impl From<BitReaderError> for PicOrderCntError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PicOrderCntType {
     TypeZero {
         log2_max_pic_order_cnt_lsb_minus4: u8,
@@ -470,7 +459,7 @@ impl PicOrderCntType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FrameMbsFlags {
     Frames,
     Fields { mb_adaptive_frame_field_flag: bool },
@@ -488,7 +477,7 @@ impl FrameMbsFlags {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FrameCropping {
     pub left_offset: u32,
     pub right_offset: u32,
@@ -511,8 +500,9 @@ impl FrameCropping {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum AspectRatioInfo {
+    #[default]
     Unspecified,
     Ratio1_1,
     Ratio12_11,
@@ -602,8 +592,9 @@ impl AspectRatioInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum OverscanAppropriate {
+    #[default]
     Unspecified,
     Appropriate,
     Inappropriate,
@@ -624,8 +615,9 @@ impl OverscanAppropriate {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum VideoFormat {
+    #[default]
     Component,
     PAL,
     NTSC,
@@ -649,7 +641,7 @@ impl VideoFormat {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ColourDescription {
     pub colour_primaries: u8,
     pub transfer_characteristics: u8,
@@ -670,7 +662,7 @@ impl ColourDescription {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VideoSignalType {
     pub video_format: VideoFormat,
     pub video_full_range_flag: bool,
@@ -691,7 +683,7 @@ impl VideoSignalType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ChromaLocInfo {
     pub chroma_sample_loc_type_top_field: u32,
     pub chroma_sample_loc_type_bottom_field: u32,
@@ -711,7 +703,7 @@ impl ChromaLocInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TimingInfo {
     pub num_units_in_tick: u32,
     pub time_scale: u32,
@@ -732,11 +724,11 @@ impl TimingInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CpbSpec {
-    bit_rate_value_minus1: u32,
-    cpb_size_value_minus1: u32,
-    cbr_flag: bool,
+    pub bit_rate_value_minus1: u32,
+    pub cpb_size_value_minus1: u32,
+    pub cbr_flag: bool,
 }
 impl CpbSpec {
     fn read<R: BitRead>(r: &mut R) -> Result<CpbSpec, BitReaderError> {
@@ -748,7 +740,7 @@ impl CpbSpec {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HrdParameters {
     pub bit_rate_scale: u8,
     pub cpb_size_scale: u8,
@@ -794,7 +786,7 @@ impl HrdParameters {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BitstreamRestrictions {
     pub motion_vectors_over_pic_boundaries_flag: bool,
     pub max_bytes_per_pic_denom: u32,
@@ -824,7 +816,7 @@ impl BitstreamRestrictions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VuiParameters {
     pub aspect_ratio_info: Option<AspectRatioInfo>,
     pub overscan_appropriate: OverscanAppropriate,
@@ -864,7 +856,7 @@ impl VuiParameters {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeqParameterSet {
     pub profile_idc: ProfileIdc,
     pub constraint_flags: ConstraintFlags,
@@ -1014,14 +1006,26 @@ impl SeqParameterSet {
     pub fn rfc6381(&self) -> rfc6381_codec::Codec {
         rfc6381_codec::Codec::avc1(self.profile_idc.0, self.constraint_flags.0, self.level_idc)
     }
+
+    pub fn fps(&self) -> Option<f64> {
+        let Some(vui) = &self.vui_parameters else {
+            return None;
+        };
+        let Some(timing_info) = &vui.timing_info else {
+            return None;
+        };
+
+        Some((timing_info.time_scale as f64) / (2.0 * (timing_info.num_units_in_tick as f64)))
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::rbsp;
+    use crate::rbsp::{self, decode_nal, BitReader};
 
     use super::*;
     use hex_literal::*;
+    use test_case::test_case;
 
     #[test]
     fn test_it() {
@@ -1089,5 +1093,533 @@ mod test {
         // should return Err, rather than assert due to integer underflow for example,
         let dim = sps.pixel_dimensions();
         assert!(matches!(dim, Err(SpsError::CroppingError(_))));
+    }
+
+    #[test_case(
+        vec![
+            0x67, 0x64, 0x00, 0x0c, 0xac, 0x3b, 0x50, 0xb0,
+            0x4b, 0x42, 0x00, 0x00, 0x03, 0x00, 0x02, 0x00,
+            0x00, 0x03, 0x00, 0x3d, 0x08,
+        ],
+        SeqParameterSet{
+            profile_idc: ProfileIdc::from(100),
+            constraint_flags: ConstraintFlags::from(0),
+            level_idc: 12,
+            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo{
+                chroma_format: ChromaFormat::YUV420,
+                ..ChromaInfo::default()
+            },
+            log2_max_frame_num_minus4: 6,
+            pic_order_cnt: PicOrderCntType::TypeTwo,
+            max_num_ref_frames: 1,
+            gaps_in_frame_num_value_allowed_flag: true,
+            pic_width_in_mbs_minus1: 21,
+            pic_height_in_map_units_minus1: 17,
+            frame_mbs_flags: FrameMbsFlags::Frames,
+            direct_8x8_inference_flag: true,
+            frame_cropping: None,
+            vui_parameters: Some(VuiParameters{
+                timing_info: Some(TimingInfo{
+                    num_units_in_tick: 1,
+                    time_scale: 30,
+                    fixed_frame_rate_flag: true,
+                }),
+                ..VuiParameters::default()
+            }),
+        },
+        352,
+        288,
+        15.0; "352x288"
+    )]
+    #[test_case(
+        vec![
+            0x67, 0x64, 0x00, 0x1f, 0xac, 0xd9, 0x40, 0x50,
+            0x05, 0xbb, 0x01, 0x6c, 0x80, 0x00, 0x00, 0x03,
+            0x00, 0x80, 0x00, 0x00, 0x1e, 0x07, 0x8c, 0x18,
+            0xcb,
+        ],
+        SeqParameterSet{
+            profile_idc: ProfileIdc::from(100),
+            constraint_flags: ConstraintFlags::from(0),
+            level_idc: 31,
+            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo{
+                chroma_format: ChromaFormat::YUV420,
+                ..ChromaInfo::default()
+            },
+            log2_max_frame_num_minus4: 0,
+            pic_order_cnt: PicOrderCntType::TypeZero {
+                log2_max_pic_order_cnt_lsb_minus4: 2
+            },
+            max_num_ref_frames: 4,
+            gaps_in_frame_num_value_allowed_flag: false,
+            pic_width_in_mbs_minus1: 79,
+            pic_height_in_map_units_minus1: 44,
+            frame_mbs_flags: FrameMbsFlags::Frames,
+            direct_8x8_inference_flag: true,
+            frame_cropping: None,
+            vui_parameters: Some(VuiParameters{
+                aspect_ratio_info: Some(AspectRatioInfo::Ratio1_1),
+                video_signal_type: Some(VideoSignalType{
+                    video_format: VideoFormat::Unspecified,
+                    video_full_range_flag: true,
+                    colour_description: None,
+                }),
+                timing_info: Some(TimingInfo{
+                    num_units_in_tick: 1,
+                    time_scale: 60,
+                    fixed_frame_rate_flag: false,
+                }),
+                bitstream_restrictions: Some(BitstreamRestrictions{
+                    motion_vectors_over_pic_boundaries_flag: true,
+                    log2_max_mv_length_horizontal: 11,
+                    log2_max_mv_length_vertical: 11,
+                    max_num_reorder_frames: 2,
+                    max_dec_frame_buffering: 4,
+                    ..BitstreamRestrictions::default()
+                }),
+                ..VuiParameters::default()
+            }),
+        },
+        1280,
+        720,
+        30.0; "1280x720"
+    )]
+    #[test_case(
+        vec![
+            0x67, 0x42, 0xc0, 0x28, 0xd9, 0x00, 0x78, 0x02,
+            0x27, 0xe5, 0x84, 0x00, 0x00, 0x03, 0x00, 0x04,
+            0x00, 0x00, 0x03, 0x00, 0xf0, 0x3c, 0x60, 0xc9, 0x20,
+        ],
+        SeqParameterSet{
+            profile_idc: ProfileIdc::from(66),
+            constraint_flags: ConstraintFlags::from(0b11000000),
+            level_idc: 40,
+            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo{
+                chroma_format: ChromaFormat::YUV420,
+                ..ChromaInfo::default()
+            },
+            log2_max_frame_num_minus4: 0,
+            pic_order_cnt: PicOrderCntType::TypeTwo,
+            max_num_ref_frames: 3,
+            gaps_in_frame_num_value_allowed_flag: false,
+            pic_width_in_mbs_minus1: 119,
+            pic_height_in_map_units_minus1: 67,
+            frame_mbs_flags: FrameMbsFlags::Frames,
+            direct_8x8_inference_flag: true,
+            frame_cropping: Some(FrameCropping{
+                bottom_offset: 4,
+                ..FrameCropping::default()
+            }),
+            vui_parameters: Some(VuiParameters{
+                timing_info: Some(TimingInfo{
+                    num_units_in_tick: 1,
+                    time_scale:      60,
+                    fixed_frame_rate_flag: false,
+                }),
+                bitstream_restrictions: Some(BitstreamRestrictions{
+                    motion_vectors_over_pic_boundaries_flag: true,
+                    log2_max_mv_length_horizontal: 11,
+                    log2_max_mv_length_vertical: 11,
+                    max_dec_frame_buffering: 3,
+                    ..BitstreamRestrictions::default()
+                }),
+                ..VuiParameters::default()
+            }),
+        },
+        1920,
+        1080,
+        30.0; "1920x1080 baseline"
+    )]
+    #[test_case(
+        vec![
+            0x67, 0x64, 0x00, 0x28, 0xac, 0xd9, 0x40, 0x78,
+            0x02, 0x27, 0xe5, 0x84, 0x00, 0x00, 0x03, 0x00,
+            0x04, 0x00, 0x00, 0x03, 0x00, 0xf0, 0x3c, 0x60,
+            0xc6, 0x58,
+        ],
+        SeqParameterSet{
+            profile_idc: ProfileIdc::from(100),
+            constraint_flags: ConstraintFlags::from(0),
+            level_idc: 40,
+            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo{
+                chroma_format: ChromaFormat::YUV420,
+                ..ChromaInfo::default()
+            },
+            log2_max_frame_num_minus4: 0,
+            pic_order_cnt: PicOrderCntType::TypeZero {
+                log2_max_pic_order_cnt_lsb_minus4: 2
+            },
+            max_num_ref_frames: 4,
+            gaps_in_frame_num_value_allowed_flag: false,
+            pic_width_in_mbs_minus1: 119,
+            pic_height_in_map_units_minus1: 67,
+            frame_mbs_flags: FrameMbsFlags::Frames,
+            direct_8x8_inference_flag: true,
+            frame_cropping: Some(FrameCropping{
+                bottom_offset: 4,
+                ..FrameCropping::default()
+            }),
+            vui_parameters: Some(VuiParameters{
+                timing_info: Some(TimingInfo{
+                    num_units_in_tick: 1,
+                    time_scale: 60,
+                    fixed_frame_rate_flag: false,
+                }),
+                bitstream_restrictions: Some(BitstreamRestrictions{
+                    motion_vectors_over_pic_boundaries_flag: true,
+                    log2_max_mv_length_horizontal: 11,
+                    log2_max_mv_length_vertical: 11,
+                    max_num_reorder_frames: 2,
+                    max_dec_frame_buffering: 4,
+                    ..BitstreamRestrictions::default()
+                }),
+                ..VuiParameters::default()
+            }),
+        },
+        1920,
+        1080,
+        30.0; "1920x1080 nvidia"
+    )]
+    // This fails.
+
+    /*#[test_case(
+        vec![
+            0x67, 0x64, 0x00, 0x29, 0xac, 0x13, 0x31, 0x40,
+            0x78, 0x04, 0x47, 0xde, 0x03, 0xea, 0x02, 0x02,
+            0x03, 0xe0, 0x00, 0x00, 0x03, 0x00, 0x20, 0x00,
+            0x00, 0x06, 0x52, // 0x80,
+        ],
+        SeqParameterSet{
+            profile_idc: ProfileIdc::from(100),
+            constraint_flags: ConstraintFlags::from(0),
+            level_idc: 41,
+            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo{
+                chroma_format: ChromaFormat::YUV420,
+                ..ChromaInfo::default()
+            },
+            log2_max_frame_num_minus4: 8,
+            pic_order_cnt: PicOrderCntType::TypeZero {
+                log2_max_pic_order_cnt_lsb_minus4: 5
+            },
+            max_num_ref_frames: 4,
+            gaps_in_frame_num_value_allowed_flag: false,
+            pic_width_in_mbs_minus1: 119,
+            pic_height_in_map_units_minus1: 33,
+            frame_mbs_flags: FrameMbsFlags::Fields{
+                mb_adaptive_frame_field_flag: false,
+            },
+            direct_8x8_inference_flag: true,
+            frame_cropping: Some(FrameCropping{
+                bottom_offset: 2,
+                ..FrameCropping::default()
+            }),
+            vui_parameters: Some(VuiParameters{
+                aspect_ratio_info: Some(AspectRatioInfo::Ratio1_1),
+                overscan_appropriate: OverscanAppropriate::Appropriate,
+                video_signal_type: Some(VideoSignalType{
+                    video_format: VideoFormat::Unspecified,
+                    video_full_range_flag: false,
+                    colour_description: Some(ColourDescription{
+                        colour_primaries: 1,
+                        transfer_characteristics: 1,
+                        matrix_coefficients: 1,
+                    }),
+                }),
+                chroma_loc_info: Some(ChromaLocInfo{
+                    chroma_sample_loc_type_top_field: 0,
+                    chroma_sample_loc_type_bottom_field: 0,
+                }),
+                timing_info: Some(TimingInfo{
+                    num_units_in_tick: 1,
+                    time_scale: 50,
+                    fixed_frame_rate_flag: true,
+                }),
+                pic_struct_present_flag: true,
+                ..VuiParameters::default()
+            }),
+        },
+        1920,
+        1084,
+        25.0; "1920x1080"
+    )]
+    */
+    #[test_case(
+        vec![103, 100, 0, 32, 172, 23, 42, 1, 64, 30, 104, 64, 0, 1, 194, 0, 0, 87, 228, 33],
+        SeqParameterSet{
+            profile_idc: ProfileIdc::from(100),
+            constraint_flags: ConstraintFlags::from(0),
+            level_idc: 32,
+            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo{
+                chroma_format: ChromaFormat::YUV420,
+                ..ChromaInfo::default()
+            },
+            log2_max_frame_num_minus4: 10,
+            pic_order_cnt: PicOrderCntType::TypeZero {
+                log2_max_pic_order_cnt_lsb_minus4: 4
+            },
+            max_num_ref_frames: 1,
+            gaps_in_frame_num_value_allowed_flag: false,
+            pic_width_in_mbs_minus1: 79,
+            pic_height_in_map_units_minus1: 59,
+            frame_mbs_flags: FrameMbsFlags::Frames,
+            direct_8x8_inference_flag: true,
+            frame_cropping: None,
+            vui_parameters: Some(VuiParameters{
+                timing_info: Some(TimingInfo{
+                    num_units_in_tick: 1800,
+                    time_scale: 90000,
+                    fixed_frame_rate_flag: true,
+                }),
+                ..VuiParameters::default()
+            }),
+        },
+        1280,
+        960,
+        25.0; "hikvision"
+    )]
+    #[test_case(
+        vec![
+            103, 100, 0, 50, 173, 132, 1, 12, 32, 8, 97, 0, 67, 8, 2,
+            24, 64, 16, 194, 0, 132, 59, 80, 20, 0, 90, 211,
+            112, 16, 16, 20, 0, 0, 3, 0, 4, 0, 0, 3, 0, 162, 16,
+        ],
+        SeqParameterSet{
+            profile_idc: ProfileIdc::from(100),
+            constraint_flags: ConstraintFlags::from(0),
+            level_idc: 50,
+            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo{
+                chroma_format: ChromaFormat::YUV420,
+                ..ChromaInfo::default()
+            },
+            /*seq_scaling_list: Some(SeqScalingList{
+                scaling_list_4x4: vec![
+                    vec![
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                    ],
+                    vec![
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                    ],
+                    vec![
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                    ],
+                    vec![
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                    ],
+                    vec![
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                    ],
+                    vec![
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                        16, 16, 16, 16, 16, 16, 16, 16,
+                    ],
+                ],
+                use_default_scaling_matrix_4x4_flag: vec![false, false, false, false, false, false],
+                ..SeqScalingList::default()
+            }),*/
+            log2_max_frame_num_minus4: 6,
+            pic_order_cnt: PicOrderCntType::TypeTwo,
+            max_num_ref_frames: 1,
+            gaps_in_frame_num_value_allowed_flag: true,
+            pic_width_in_mbs_minus1: 159,
+            pic_height_in_map_units_minus1: 89,
+            frame_mbs_flags: FrameMbsFlags::Frames,
+            direct_8x8_inference_flag: true,
+            frame_cropping: None,
+            vui_parameters: Some(VuiParameters{
+                video_signal_type: Some(VideoSignalType{
+                    video_format: VideoFormat::Unspecified,
+                    video_full_range_flag: true,
+                    colour_description: Some(ColourDescription{
+                        colour_primaries: 1,
+                        transfer_characteristics: 1,
+                        matrix_coefficients: 1,
+                    }),
+                }),
+                timing_info: Some(TimingInfo{
+                    num_units_in_tick: 1,
+                    time_scale: 40,
+                    fixed_frame_rate_flag: true,
+                }),
+                ..VuiParameters::default()
+            }),
+        },
+        2560,
+        1440,
+        20.0; "scaling matrix"
+    )]
+    #[test_case(
+        vec![
+            103, 100, 0, 42, 172, 44, 172, 7,
+            128, 34, 126, 92, 5, 168, 8, 8,
+            10, 0, 0, 7, 208, 0, 3, 169,
+            129, 192, 0, 0, 76, 75, 0, 0,
+            38, 37, 173, 222, 92, 20,
+        ],
+        SeqParameterSet{
+            profile_idc: ProfileIdc::from(100),
+            constraint_flags: ConstraintFlags::from(0),
+            level_idc: 42,
+            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo{
+                chroma_format: ChromaFormat::YUV420,
+                ..ChromaInfo::default()
+            },
+            log2_max_frame_num_minus4: 4,
+            pic_order_cnt: PicOrderCntType::TypeZero {
+                log2_max_pic_order_cnt_lsb_minus4: 4
+            },
+            max_num_ref_frames: 2,
+            gaps_in_frame_num_value_allowed_flag: false,
+            pic_width_in_mbs_minus1: 119,
+            pic_height_in_map_units_minus1: 67,
+            frame_mbs_flags: FrameMbsFlags::Frames,
+            direct_8x8_inference_flag: true,
+            frame_cropping: Some(FrameCropping{
+                bottom_offset: 4,
+                ..FrameCropping::default()
+            }),
+            vui_parameters: Some(VuiParameters{
+                aspect_ratio_info: Some(AspectRatioInfo::Ratio1_1),
+                video_signal_type: Some(VideoSignalType{
+                    video_format: VideoFormat::Unspecified,
+                    video_full_range_flag: false,
+                    colour_description: Some(ColourDescription{
+                        colour_primaries: 1,
+                        transfer_characteristics: 1,
+                        matrix_coefficients: 1,
+                    }),
+                }),
+                timing_info: Some(TimingInfo{
+                    num_units_in_tick: 1000,
+                    time_scale: 120000,
+                    fixed_frame_rate_flag: true,
+                }),
+                nal_hrd_parameters: Some(HrdParameters{
+                    cpb_specs: vec![CpbSpec{
+                        bit_rate_value_minus1: 39061,
+                        cpb_size_value_minus1: 156249,
+                        cbr_flag: true,
+                    }],
+                    initial_cpb_removal_delay_length_minus1: 23,
+                    cpb_removal_delay_length_minus1: 15,
+                    dpb_output_delay_length_minus1: 5,
+                    time_offset_length: 24,
+                    ..HrdParameters::default()
+                }),
+                low_delay_hrd_flag: Some(false),
+                pic_struct_present_flag: true,
+                ..VuiParameters::default()
+            }),
+        },
+        1920,
+        1080,
+        60.0; "1920x1080 nvenc hrd"
+    )]
+    #[test_case(
+        vec![
+            103, 77, 0, 41, 154, 100, 3, 192,
+            17, 63, 46, 2, 220, 4, 4, 5,
+            0, 0, 3, 3, 232, 0, 0, 195,
+            80, 232, 96, 0, 186, 180, 0, 2,
+            234, 196, 187, 203, 141, 12, 0, 23,
+            86, 128, 0, 93, 88, 151, 121, 112,
+            160,
+        ],
+        SeqParameterSet{
+            profile_idc: ProfileIdc::from(77),
+            constraint_flags: ConstraintFlags::from(0),
+            level_idc: 41,
+            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo{
+                chroma_format: ChromaFormat::YUV420,
+                ..ChromaInfo::default()
+            },
+            log2_max_frame_num_minus4: 5,
+            pic_order_cnt: PicOrderCntType::TypeZero {
+                log2_max_pic_order_cnt_lsb_minus4: 5
+            },
+            max_num_ref_frames: 1,
+            gaps_in_frame_num_value_allowed_flag: false,
+            pic_width_in_mbs_minus1: 119,
+            pic_height_in_map_units_minus1: 67,
+            frame_mbs_flags: FrameMbsFlags::Frames,
+            direct_8x8_inference_flag: true,
+            frame_cropping: Some(FrameCropping{
+                bottom_offset: 4,
+                ..FrameCropping::default()
+            }),
+            vui_parameters: Some(VuiParameters{
+                aspect_ratio_info: Some(AspectRatioInfo::Ratio1_1),
+                video_signal_type: Some(VideoSignalType{
+                    video_format: VideoFormat::Unspecified,
+                    video_full_range_flag: true,
+                    colour_description: Some(ColourDescription{
+                        colour_primaries: 1,
+                        transfer_characteristics: 1,
+                        matrix_coefficients: 1,
+                    }),
+                }),
+                timing_info: Some(TimingInfo{
+                    num_units_in_tick: 1000,
+                    time_scale: 50000,
+                    fixed_frame_rate_flag: true,
+                }),
+                nal_hrd_parameters: Some(HrdParameters{
+                    bit_rate_scale: 4,
+                    cpb_size_scale: 3,
+                    cpb_specs: vec![CpbSpec{
+                        bit_rate_value_minus1: 11948,
+                        cpb_size_value_minus1: 95585,
+                        cbr_flag: false,
+                    }],
+                    initial_cpb_removal_delay_length_minus1: 23,
+                    cpb_removal_delay_length_minus1: 15,
+                    dpb_output_delay_length_minus1: 5,
+                    time_offset_length: 24,
+                }),
+                vcl_hrd_parameters: Some(HrdParameters{
+                    bit_rate_scale: 4,
+                    cpb_size_scale: 3,
+                    cpb_specs: vec![CpbSpec{
+                        bit_rate_value_minus1: 11948,
+                        cpb_size_value_minus1: 95585,
+                        cbr_flag: false,
+                    }],
+                    initial_cpb_removal_delay_length_minus1: 23,
+                    cpb_removal_delay_length_minus1: 15,
+                    dpb_output_delay_length_minus1: 5,
+                    time_offset_length: 24,
+                    ..HrdParameters::default()
+                }),
+                low_delay_hrd_flag: Some(false),
+                pic_struct_present_flag: true,
+                ..VuiParameters::default()
+            }),
+        },
+        1920,
+        1080,
+        25.0; "1920x1080 hikvision nal hrd + vcl hrd"
+    )]
+    fn test_sps(byts: Vec<u8>, sps: SeqParameterSet, width: u32, height: u32, fps: f64) {
+        let sps_rbsp = decode_nal(&byts).unwrap();
+        let sps2 = SeqParameterSet::from_bits(BitReader::new(&*sps_rbsp)).unwrap();
+
+        let (width2, height2) = sps2.pixel_dimensions().unwrap();
+        assert_eq!(sps, sps2);
+        assert_eq!(width, width2);
+        assert_eq!(height, height2);
+        assert_eq!(fps, sps2.fps().unwrap());
     }
 }

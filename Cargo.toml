@@ -20,6 +20,7 @@ log = "0.4"
 [dev-dependencies]
 hex-literal = "0.3.1"
 criterion = "0.3"
+test-case = "3.0.0"
 
 [[bench]]
 name = "bench"
