@@ -1,6 +1,6 @@
 use super::sps;
-use crate::{rbsp, Context};
 use crate::rbsp::BitRead;
+use crate::{rbsp, Context};
 
 #[derive(Debug)]
 pub enum PpsError {
@@ -28,12 +28,12 @@ pub enum SliceGroupChangeType {
     WipeOut,
 }
 impl SliceGroupChangeType {
-    fn from_id(id: u32) -> Result<SliceGroupChangeType,PpsError> {
+    fn from_id(id: u32) -> Result<SliceGroupChangeType, PpsError> {
         match id {
             3 => Ok(SliceGroupChangeType::BoxOut),
             4 => Ok(SliceGroupChangeType::RasterScan),
             5 => Ok(SliceGroupChangeType::WipeOut),
-            _ => Err(PpsError::InvalidSliceGroupChangeType(id))
+            _ => Err(PpsError::InvalidSliceGroupChangeType(id)),
         }
     }
 }
@@ -44,7 +44,7 @@ pub struct SliceRect {
     bottom_right: u32,
 }
 impl SliceRect {
-    fn read<R: BitRead>(r: &mut R) -> Result<SliceRect,PpsError> {
+    fn read<R: BitRead>(r: &mut R) -> Result<SliceRect, PpsError> {
         Ok(SliceRect {
             top_left: r.read_ue("top_left")?,
             bottom_right: r.read_ue("bottom_right")?,
@@ -71,11 +71,11 @@ pub enum SliceGroup {
     },
     ExplicitAssignment {
         num_slice_groups_minus1: u32,
-        slice_group_id: Vec<u32>
+        slice_group_id: Vec<u32>,
     },
 }
 impl SliceGroup {
-    fn read<R: BitRead>(r: &mut R, num_slice_groups_minus1: u32) -> Result<SliceGroup,PpsError> {
+    fn read<R: BitRead>(r: &mut R, num_slice_groups_minus1: u32) -> Result<SliceGroup, PpsError> {
         let slice_group_map_type = r.read_ue("slice_group_map_type")?;
         match slice_group_map_type {
             0 => Ok(SliceGroup::Interleaved {
@@ -87,42 +87,52 @@ impl SliceGroup {
             2 => Ok(SliceGroup::ForegroundAndLeftover {
                 rectangles: Self::read_rectangles(r, num_slice_groups_minus1)?,
             }),
-            3|4|5 => Ok(SliceGroup::Changing {
+            3 | 4 | 5 => Ok(SliceGroup::Changing {
                 change_type: SliceGroupChangeType::from_id(slice_group_map_type)?,
                 num_slice_groups_minus1,
-                slice_group_change_direction_flag: r.read_bool("slice_group_change_direction_flag")?,
+                slice_group_change_direction_flag: r
+                    .read_bool("slice_group_change_direction_flag")?,
                 slice_group_change_rate_minus1: r.read_ue("slice_group_change_rate_minus1")?,
             }),
             6 => Ok(SliceGroup::ExplicitAssignment {
                 num_slice_groups_minus1,
                 slice_group_id: Self::read_group_ids(r, num_slice_groups_minus1)?,
             }),
-            _ => Err(PpsError::InvalidSliceGroupMapType(slice_group_map_type))
+            _ => Err(PpsError::InvalidSliceGroupMapType(slice_group_map_type)),
         }
     }
 
-    fn read_run_lengths<R: BitRead>(r: &mut R, num_slice_groups_minus1: u32) -> Result<Vec<u32>,PpsError> {
+    fn read_run_lengths<R: BitRead>(
+        r: &mut R,
+        num_slice_groups_minus1: u32,
+    ) -> Result<Vec<u32>, PpsError> {
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
-        for _ in 0..num_slice_groups_minus1+1 {
+        for _ in 0..num_slice_groups_minus1 + 1 {
             run_length_minus1.push(r.read_ue("run_length_minus1")?);
         }
         Ok(run_length_minus1)
     }
 
-    fn read_rectangles<R: BitRead>(r: &mut R, num_slice_groups_minus1: u32) -> Result<Vec<SliceRect>,PpsError> {
+    fn read_rectangles<R: BitRead>(
+        r: &mut R,
+        num_slice_groups_minus1: u32,
+    ) -> Result<Vec<SliceRect>, PpsError> {
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
-        for _ in 0..num_slice_groups_minus1+1 {
+        for _ in 0..num_slice_groups_minus1 + 1 {
             run_length_minus1.push(SliceRect::read(r)?);
         }
         Ok(run_length_minus1)
     }
 
-    fn read_group_ids<R: BitRead>(r: &mut R, num_slice_groups_minus1: u32) -> Result<Vec<u32>,PpsError> {
+    fn read_group_ids<R: BitRead>(
+        r: &mut R,
+        num_slice_groups_minus1: u32,
+    ) -> Result<Vec<u32>, PpsError> {
         let pic_size_in_map_units_minus1 = r.read_ue("pic_size_in_map_units_minus1")?;
         // TODO: avoid any panics due to failed conversions
-        let size = ((1f64+f64::from(pic_size_in_map_units_minus1)).log2()) as u32;
+        let size = ((1f64 + f64::from(pic_size_in_map_units_minus1)).log2()) as u32;
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
-        for _ in 0..num_slice_groups_minus1+1 {
+        for _ in 0..num_slice_groups_minus1 + 1 {
             run_length_minus1.push(r.read_u32(size, "slice_group_id")?);
         }
         Ok(run_length_minus1)
@@ -134,28 +144,38 @@ struct PicScalingMatrix {
     // TODO
 }
 impl PicScalingMatrix {
-    fn read<R: BitRead>(r: &mut R, sps: &sps::SeqParameterSet, transform_8x8_mode_flag: bool) -> Result<Option<PicScalingMatrix>,PpsError> {
+    fn read<R: BitRead>(
+        r: &mut R,
+        sps: &sps::SeqParameterSet,
+        transform_8x8_mode_flag: bool,
+    ) -> Result<Option<PicScalingMatrix>, PpsError> {
         let pic_scaling_matrix_present_flag = r.read_bool("pic_scaling_matrix_present_flag")?;
         Ok(if pic_scaling_matrix_present_flag {
-            let mut scaling_list4x4 = vec!();
-            let mut scaling_list8x8 = vec!();
+            let mut scaling_list4x4 = vec![];
+            let mut scaling_list8x8 = vec![];
 
             let count = if transform_8x8_mode_flag {
-                if sps.chroma_info.chroma_format == sps::ChromaFormat::YUV444 { 12 } else { 8 }
+                if sps.chroma_info.chroma_format == sps::ChromaFormat::YUV444 {
+                    12
+                } else {
+                    8
+                }
             } else {
                 0
             };
-            for i in 0..6+count {
+            for i in 0..6 + count {
                 let seq_scaling_list_present_flag = r.read_bool("seq_scaling_list_present_flag")?;
                 if seq_scaling_list_present_flag {
                     if i < 6 {
-                        scaling_list4x4.push(sps::ScalingList::read(r, 16).map_err(PpsError::ScalingMatrix)?);
+                        scaling_list4x4
+                            .push(sps::ScalingList::read(r, 16).map_err(PpsError::ScalingMatrix)?);
                     } else {
-                        scaling_list8x8.push(sps::ScalingList::read(r, 64).map_err(PpsError::ScalingMatrix)?);
+                        scaling_list8x8
+                            .push(sps::ScalingList::read(r, 64).map_err(PpsError::ScalingMatrix)?);
                     }
                 }
             }
-            Some(PicScalingMatrix { })
+            Some(PicScalingMatrix {})
         } else {
             None
         })
@@ -169,7 +189,10 @@ pub struct PicParameterSetExtra {
     second_chroma_qp_index_offset: i32,
 }
 impl PicParameterSetExtra {
-    fn read<R: BitRead>(r: &mut R, sps: &sps::SeqParameterSet) -> Result<Option<PicParameterSetExtra>,PpsError> {
+    fn read<R: BitRead>(
+        r: &mut R,
+        sps: &sps::SeqParameterSet,
+    ) -> Result<Option<PicParameterSetExtra>, PpsError> {
         Ok(if r.has_more_rbsp_data("transform_8x8_mode_flag")? {
             let transform_8x8_mode_flag = r.read_bool("transform_8x8_mode_flag")?;
             Some(PicParameterSetExtra {
@@ -185,13 +208,13 @@ impl PicParameterSetExtra {
 
 #[derive(Debug, PartialEq)]
 pub enum ParamSetIdError {
-    IdTooLarge(u32)
+    IdTooLarge(u32),
 }
 
-#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ParamSetId(u8);
 impl ParamSetId {
-    pub fn from_u32(id: u32) -> Result<ParamSetId,ParamSetIdError> {
+    pub fn from_u32(id: u32) -> Result<ParamSetId, ParamSetIdError> {
         if id > 31 {
             Err(ParamSetIdError::IdTooLarge(id))
         } else {
@@ -228,22 +251,31 @@ impl PicParameterSet {
             .map_err(PpsError::BadPicParamSetId)?;
         let seq_parameter_set_id = ParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)
             .map_err(PpsError::BadSeqParamSetId)?;
-        let seq_parameter_set = ctx.sps_by_id(seq_parameter_set_id)
+        let seq_parameter_set = ctx
+            .sps_by_id(seq_parameter_set_id)
             .ok_or_else(|| PpsError::UnknownSeqParamSetId(seq_parameter_set_id))?;
         let pps = PicParameterSet {
             pic_parameter_set_id,
             seq_parameter_set_id,
             entropy_coding_mode_flag: r.read_bool("entropy_coding_mode_flag")?,
-            bottom_field_pic_order_in_frame_present_flag: r.read_bool("bottom_field_pic_order_in_frame_present_flag")?,
+            bottom_field_pic_order_in_frame_present_flag: r
+                .read_bool("bottom_field_pic_order_in_frame_present_flag")?,
             slice_groups: Self::read_slice_groups(&mut r)?,
-            num_ref_idx_l0_default_active_minus1: read_num_ref_idx(&mut r, "num_ref_idx_l0_default_active_minus1")?,
-            num_ref_idx_l1_default_active_minus1: read_num_ref_idx(&mut r, "num_ref_idx_l1_default_active_minus1")?,
+            num_ref_idx_l0_default_active_minus1: read_num_ref_idx(
+                &mut r,
+                "num_ref_idx_l0_default_active_minus1",
+            )?,
+            num_ref_idx_l1_default_active_minus1: read_num_ref_idx(
+                &mut r,
+                "num_ref_idx_l1_default_active_minus1",
+            )?,
             weighted_pred_flag: r.read_bool("weighted_pred_flag")?,
             weighted_bipred_idc: r.read_u8(2, "weighted_bipred_idc")?,
             pic_init_qp_minus26: r.read_se("pic_init_qp_minus26")?,
             pic_init_qs_minus26: r.read_se("pic_init_qs_minus26")?,
             chroma_qp_index_offset: r.read_se("chroma_qp_index_offset")?,
-            deblocking_filter_control_present_flag: r.read_bool("deblocking_filter_control_present_flag")?,
+            deblocking_filter_control_present_flag: r
+                .read_bool("deblocking_filter_control_present_flag")?,
             constrained_intra_pred_flag: r.read_bool("constrained_intra_pred_flag")?,
             redundant_pic_cnt_present_flag: r.read_bool("redundant_pic_cnt_present_flag")?,
             extension: PicParameterSetExtra::read(&mut r, seq_parameter_set)?,
@@ -252,11 +284,13 @@ impl PicParameterSet {
         Ok(pps)
     }
 
-    fn read_slice_groups<R: BitRead>(r: &mut R) -> Result<Option<SliceGroup>,PpsError> {
+    fn read_slice_groups<R: BitRead>(r: &mut R) -> Result<Option<SliceGroup>, PpsError> {
         let num_slice_groups_minus1 = r.read_ue("num_slice_groups_minus1")?;
         if num_slice_groups_minus1 > 7 {
             // 7 is the maximum allowed in any profile; some profiles restrict it to 0.
-            return Err(PpsError::InvalidNumSliceGroupsMinus1(num_slice_groups_minus1));
+            return Err(PpsError::InvalidNumSliceGroupsMinus1(
+                num_slice_groups_minus1,
+            ));
         }
         Ok(if num_slice_groups_minus1 > 0 {
             Some(SliceGroup::read(r, num_slice_groups_minus1)?)
@@ -282,8 +316,9 @@ mod test {
     #[test]
     fn test_it() {
         let data = hex!(
-           "64 00 0A AC 72 84 44 26 84 00 00
-            00 04 00 00 00 CA 3C 48 96 11 80");
+            "64 00 0A AC 72 84 44 26 84 00 00
+            00 04 00 00 00 CA 3C 48 96 11 80"
+        );
         let sps = super::sps::SeqParameterSet::from_bits(rbsp::BitReader::new(&data[..]))
             .expect("unexpected test data");
         let mut ctx = Context::default();
