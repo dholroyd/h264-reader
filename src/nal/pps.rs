@@ -226,7 +226,7 @@ impl ParamSetId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct PicParameterSet {
     pub pic_parameter_set_id: ParamSetId,
     pub seq_parameter_set_id: ParamSetId,
