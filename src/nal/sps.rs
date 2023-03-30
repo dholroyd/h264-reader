@@ -1,9 +1,8 @@
-
+use crate::nal::pps::ParamSetId;
+use crate::nal::pps::ParamSetIdError;
 use crate::rbsp::BitRead;
 use crate::rbsp::BitReaderError;
 use std::fmt;
-use crate::nal::pps::ParamSetId;
-use crate::nal::pps::ParamSetIdError;
 use std::fmt::Debug;
 
 #[derive(Debug)]
@@ -17,7 +16,10 @@ pub enum SpsError {
     Log2MaxFrameNumMinus4OutOfRange(u32),
     BadSeqParamSetId(ParamSetIdError),
     /// A field in the bitstream had a value too large for a subsequent calculation
-    FieldValueTooLarge { name: &'static str, value: u32 },
+    FieldValueTooLarge {
+        name: &'static str,
+        value: u32,
+    },
     /// The frame-cropping values are too large vs. the coded picture size,
     CroppingError(FrameCropping),
     /// The `cpb_cnt_minus1` field must be between 0 and 31 inclusive.
@@ -53,40 +55,40 @@ impl Profile {
     pub fn from_profile_idc(profile_idc: ProfileIdc) -> Profile {
         // TODO: accept constraint_flags too, as Level does?
         match profile_idc.0 {
-            66  => Profile::Baseline,
-            77  => Profile::Main,
+            66 => Profile::Baseline,
+            77 => Profile::Main,
             100 => Profile::High,
             122 => Profile::High422,
             110 => Profile::High10,
             244 => Profile::High444,
-            88  => Profile::Extended,
-            83  => Profile::ScalableBase,
-            86  => Profile::ScalableHigh,
+            88 => Profile::Extended,
+            83 => Profile::ScalableBase,
+            86 => Profile::ScalableHigh,
             118 => Profile::MultiviewHigh,
             128 => Profile::StereoHigh,
             135 => Profile::MFCDepthHigh,
             138 => Profile::MultiviewDepthHigh,
             139 => Profile::EnhancedMultiviewDepthHigh,
-            other   => Profile::Unknown(other),
+            other => Profile::Unknown(other),
         }
     }
     pub fn profile_idc(&self) -> u8 {
         match *self {
-            Profile::Baseline                   => 66,
-            Profile::Main                       => 77,
-            Profile::High                       => 100,
-            Profile::High422                    => 122,
-            Profile::High10                     => 110,
-            Profile::High444                    => 144,
-            Profile::Extended                   => 88,
-            Profile::ScalableBase               => 83,
-            Profile::ScalableHigh               => 86,
-            Profile::MultiviewHigh              => 118,
-            Profile::StereoHigh                 => 128,
-            Profile::MFCDepthHigh               => 135,
-            Profile::MultiviewDepthHigh         => 138,
+            Profile::Baseline => 66,
+            Profile::Main => 77,
+            Profile::High => 100,
+            Profile::High422 => 122,
+            Profile::High10 => 110,
+            Profile::High444 => 144,
+            Profile::Extended => 88,
+            Profile::ScalableBase => 83,
+            Profile::ScalableHigh => 86,
+            Profile::MultiviewHigh => 118,
+            Profile::StereoHigh => 128,
+            Profile::MFCDepthHigh => 135,
+            Profile::MultiviewDepthHigh => 138,
             Profile::EnhancedMultiviewDepthHigh => 139,
-            Profile::Unknown(profile_idc)       => profile_idc,
+            Profile::Unknown(profile_idc) => profile_idc,
         }
     }
 }
@@ -104,13 +106,27 @@ impl From<ConstraintFlags> for u8 {
     }
 }
 impl ConstraintFlags {
-    pub fn flag0(self) -> bool { self.0 & 0b1000_0000 != 0 }
-    pub fn flag1(self) -> bool { self.0 & 0b0100_0000 != 0 }
-    pub fn flag2(self) -> bool { self.0 & 0b0010_0000 != 0 }
-    pub fn flag3(self) -> bool { self.0 & 0b0001_0000 != 0 }
-    pub fn flag4(self) -> bool { self.0 & 0b0000_1000 != 0 }
-    pub fn flag5(self) -> bool { self.0 & 0b0000_0100 != 0 }
-    pub fn reserved_zero_two_bits(self) -> u8 { self.0 & 0b0000_0011 }
+    pub fn flag0(self) -> bool {
+        self.0 & 0b1000_0000 != 0
+    }
+    pub fn flag1(self) -> bool {
+        self.0 & 0b0100_0000 != 0
+    }
+    pub fn flag2(self) -> bool {
+        self.0 & 0b0010_0000 != 0
+    }
+    pub fn flag3(self) -> bool {
+        self.0 & 0b0001_0000 != 0
+    }
+    pub fn flag4(self) -> bool {
+        self.0 & 0b0000_1000 != 0
+    }
+    pub fn flag5(self) -> bool {
+        self.0 & 0b0000_0100 != 0
+    }
+    pub fn reserved_zero_two_bits(self) -> u8 {
+        self.0 & 0b0000_0011
+    }
 }
 impl Debug for ConstraintFlags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -149,7 +165,10 @@ pub enum Level {
     L5_2,
 }
 impl Level {
-    pub fn from_constraint_flags_and_level_idc(constraint_flags: ConstraintFlags, level_idc: u8) -> Level {
+    pub fn from_constraint_flags_and_level_idc(
+        constraint_flags: ConstraintFlags,
+        level_idc: u8,
+    ) -> Level {
         match level_idc {
             10 => Level::L1,
             11 => {
@@ -158,7 +177,7 @@ impl Level {
                 } else {
                     Level::L1_1
                 }
-            },
+            }
             12 => Level::L1_2,
             13 => Level::L1_3,
             20 => Level::L2,
@@ -173,33 +192,33 @@ impl Level {
             50 => Level::L5,
             51 => Level::L5_1,
             52 => Level::L5_2,
-            _  => Level::Unknown(level_idc)
+            _ => Level::Unknown(level_idc),
         }
     }
     pub fn level_idc(&self) -> u8 {
         match *self {
-            Level::L1    => 10,
-            Level::L1_1 | Level::L1_b  => 11,
-            Level::L1_2  => 12,
-            Level::L1_3  => 13,
-            Level::L2    => 20,
-            Level::L2_1  => 21,
-            Level::L2_2  => 22,
-            Level::L3    => 30,
-            Level::L3_1  => 31,
-            Level::L3_2  => 32,
-            Level::L4    => 40,
-            Level::L4_1  => 41,
-            Level::L4_2  => 42,
-            Level::L5    => 50,
-            Level::L5_1  => 51,
-            Level::L5_2  => 52,
+            Level::L1 => 10,
+            Level::L1_1 | Level::L1_b => 11,
+            Level::L1_2 => 12,
+            Level::L1_3 => 13,
+            Level::L2 => 20,
+            Level::L2_1 => 21,
+            Level::L2_2 => 22,
+            Level::L3 => 30,
+            Level::L3_1 => 31,
+            Level::L3_2 => 32,
+            Level::L4 => 40,
+            Level::L4_1 => 41,
+            Level::L4_2 => 42,
+            Level::L5 => 50,
+            Level::L5_1 => 51,
+            Level::L5_2 => 52,
             Level::Unknown(level_idc) => level_idc,
         }
     }
 }
 
-#[derive(Debug,PartialEq,Clone,Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ChromaFormat {
     Monochrome,
     YUV420,
@@ -208,13 +227,13 @@ pub enum ChromaFormat {
     Invalid(u32),
 }
 impl ChromaFormat {
-    fn from_chroma_format_idc(chroma_format_idc: u32) -> ChromaFormat{
+    fn from_chroma_format_idc(chroma_format_idc: u32) -> ChromaFormat {
         match chroma_format_idc {
             0 => ChromaFormat::Monochrome,
             1 => ChromaFormat::YUV420,
             2 => ChromaFormat::YUV422,
             3 => ChromaFormat::YUV444,
-            _ => ChromaFormat::Invalid(chroma_format_idc)
+            _ => ChromaFormat::Invalid(chroma_format_idc),
         }
     }
 }
@@ -236,15 +255,17 @@ impl From<u8> for ProfileIdc {
     }
 }
 impl From<ProfileIdc> for u8 {
-    fn from(v: ProfileIdc) -> Self { v.0 }
+    fn from(v: ProfileIdc) -> Self {
+        v.0
+    }
 }
 
 pub struct ScalingList {
     // TODO
 }
 impl ScalingList {
-    pub fn read<R: BitRead>(r: &mut R, size: u8) -> Result<ScalingList,ScalingMatrixError> {
-        let mut scaling_list = vec!();
+    pub fn read<R: BitRead>(r: &mut R, size: u8) -> Result<ScalingList, ScalingMatrixError> {
+        let mut scaling_list = vec![];
         let mut last_scale = 8;
         let mut next_scale = 8;
         let mut _use_default_scaling_matrix_flag = false;
@@ -257,11 +278,15 @@ impl ScalingList {
                 next_scale = (last_scale + delta_scale + 256) % 256;
                 _use_default_scaling_matrix_flag = j == 0 && next_scale == 0;
             }
-            let new_value = if next_scale == 0 { last_scale } else { next_scale };
+            let new_value = if next_scale == 0 {
+                last_scale
+            } else {
+                next_scale
+            };
             scaling_list.push(new_value);
             last_scale = new_value;
         }
-        Ok(ScalingList { })
+        Ok(ScalingList {})
     }
 }
 
@@ -284,13 +309,16 @@ pub struct SeqScalingMatrix {
 }
 impl Default for SeqScalingMatrix {
     fn default() -> Self {
-        SeqScalingMatrix { }
+        SeqScalingMatrix {}
     }
 }
 impl SeqScalingMatrix {
-    fn read<R: BitRead>(r: &mut R, chroma_format_idc: u32) -> Result<SeqScalingMatrix,ScalingMatrixError> {
-        let mut scaling_list4x4 = vec!();
-        let mut scaling_list8x8 = vec!();
+    fn read<R: BitRead>(
+        r: &mut R,
+        chroma_format_idc: u32,
+    ) -> Result<SeqScalingMatrix, ScalingMatrixError> {
+        let mut scaling_list4x4 = vec![];
+        let mut scaling_list8x8 = vec![];
 
         let count = if chroma_format_idc == 3 { 12 } else { 8 };
         for i in 0..count {
@@ -303,7 +331,7 @@ impl SeqScalingMatrix {
                 }
             }
         }
-        Ok(SeqScalingMatrix { })
+        Ok(SeqScalingMatrix {})
     }
 }
 
@@ -322,11 +350,16 @@ impl ChromaInfo {
             let chroma_format_idc = r.read_ue("chroma_format_idc")?;
             Ok(ChromaInfo {
                 chroma_format: ChromaFormat::from_chroma_format_idc(chroma_format_idc),
-                separate_colour_plane_flag: if chroma_format_idc == 3 { r.read_bool("separate_colour_plane_flag")? } else { false },
+                separate_colour_plane_flag: if chroma_format_idc == 3 {
+                    r.read_bool("separate_colour_plane_flag")?
+                } else {
+                    false
+                },
                 bit_depth_luma_minus8: Self::read_bit_depth_minus8(r)?,
                 bit_depth_chroma_minus8: Self::read_bit_depth_minus8(r)?,
-                qpprime_y_zero_transform_bypass_flag: r.read_bool("qpprime_y_zero_transform_bypass_flag")?,
-                scaling_matrix: Self::read_scaling_matrix(r, chroma_format_idc)?
+                qpprime_y_zero_transform_bypass_flag: r
+                    .read_bool("qpprime_y_zero_transform_bypass_flag")?,
+                scaling_matrix: Self::read_scaling_matrix(r, chroma_format_idc)?,
             })
         } else {
             Ok(ChromaInfo {
@@ -347,7 +380,10 @@ impl ChromaInfo {
             Ok(value as u8)
         }
     }
-    fn read_scaling_matrix<R: BitRead>(r: &mut R, chroma_format_idc: u32) -> Result<SeqScalingMatrix, SpsError> {
+    fn read_scaling_matrix<R: BitRead>(
+        r: &mut R,
+        chroma_format_idc: u32,
+    ) -> Result<SeqScalingMatrix, SpsError> {
         let scaling_matrix_present_flag = r.read_bool("scaling_matrix_present_flag")?;
         if scaling_matrix_present_flag {
             SeqScalingMatrix::read(r, chroma_format_idc).map_err(SpsError::ScalingMatrix)
@@ -376,43 +412,40 @@ impl From<BitReaderError> for PicOrderCntError {
 #[derive(Debug, Clone)]
 pub enum PicOrderCntType {
     TypeZero {
-        log2_max_pic_order_cnt_lsb_minus4: u8
+        log2_max_pic_order_cnt_lsb_minus4: u8,
     },
     TypeOne {
         delta_pic_order_always_zero_flag: bool,
         offset_for_non_ref_pic: i32,
         offset_for_top_to_bottom_field: i32,
-        offsets_for_ref_frame: Vec<i32>
+        offsets_for_ref_frame: Vec<i32>,
     },
-    TypeTwo
+    TypeTwo,
 }
 impl PicOrderCntType {
     fn read<R: BitRead>(r: &mut R) -> Result<PicOrderCntType, PicOrderCntError> {
         let pic_order_cnt_type = r.read_ue("pic_order_cnt_type")?;
         match pic_order_cnt_type {
-            0 => {
-                Ok(PicOrderCntType::TypeZero {
-                    log2_max_pic_order_cnt_lsb_minus4: Self::read_log2_max_pic_order_cnt_lsb_minus4(r)?
-                })
-            },
-            1 => {
-                Ok(PicOrderCntType::TypeOne {
-                    delta_pic_order_always_zero_flag: r.read_bool("delta_pic_order_always_zero_flag")?,
-                    offset_for_non_ref_pic: r.read_se("offset_for_non_ref_pic")?,
-                    offset_for_top_to_bottom_field: r.read_se("offset_for_top_to_bottom_field")?,
-                    offsets_for_ref_frame: Self::read_offsets_for_ref_frame(r)?,
-                })
-            },
-            2 => {
-                Ok(PicOrderCntType::TypeTwo)
-            },
-            _ => {
-                Err(PicOrderCntError::InvalidPicOrderCountType(pic_order_cnt_type))
-            }
+            0 => Ok(PicOrderCntType::TypeZero {
+                log2_max_pic_order_cnt_lsb_minus4: Self::read_log2_max_pic_order_cnt_lsb_minus4(r)?,
+            }),
+            1 => Ok(PicOrderCntType::TypeOne {
+                delta_pic_order_always_zero_flag: r
+                    .read_bool("delta_pic_order_always_zero_flag")?,
+                offset_for_non_ref_pic: r.read_se("offset_for_non_ref_pic")?,
+                offset_for_top_to_bottom_field: r.read_se("offset_for_top_to_bottom_field")?,
+                offsets_for_ref_frame: Self::read_offsets_for_ref_frame(r)?,
+            }),
+            2 => Ok(PicOrderCntType::TypeTwo),
+            _ => Err(PicOrderCntError::InvalidPicOrderCountType(
+                pic_order_cnt_type,
+            )),
         }
     }
 
-    fn read_log2_max_pic_order_cnt_lsb_minus4<R: BitRead>(r: &mut R) -> Result<u8, PicOrderCntError> {
+    fn read_log2_max_pic_order_cnt_lsb_minus4<R: BitRead>(
+        r: &mut R,
+    ) -> Result<u8, PicOrderCntError> {
         let val = r.read_ue("log2_max_pic_order_cnt_lsb_minus4")?;
         if val > 12 {
             Err(PicOrderCntError::Log2MaxPicOrderCntLsbMinus4OutOfRange(val))
@@ -422,9 +455,12 @@ impl PicOrderCntType {
     }
 
     fn read_offsets_for_ref_frame<R: BitRead>(r: &mut R) -> Result<Vec<i32>, PicOrderCntError> {
-        let num_ref_frames_in_pic_order_cnt_cycle = r.read_ue("num_ref_frames_in_pic_order_cnt_cycle")?;
+        let num_ref_frames_in_pic_order_cnt_cycle =
+            r.read_ue("num_ref_frames_in_pic_order_cnt_cycle")?;
         if num_ref_frames_in_pic_order_cnt_cycle > 255 {
-            return Err(PicOrderCntError::NumRefFramesInPicOrderCntCycleOutOfRange(num_ref_frames_in_pic_order_cnt_cycle));
+            return Err(PicOrderCntError::NumRefFramesInPicOrderCntCycleOutOfRange(
+                num_ref_frames_in_pic_order_cnt_cycle,
+            ));
         }
         let mut offsets = Vec::with_capacity(num_ref_frames_in_pic_order_cnt_cycle as usize);
         for _ in 0..num_ref_frames_in_pic_order_cnt_cycle {
@@ -437,9 +473,7 @@ impl PicOrderCntType {
 #[derive(Debug, Clone)]
 pub enum FrameMbsFlags {
     Frames,
-    Fields {
-        mb_adaptive_frame_field_flag: bool,
-    }
+    Fields { mb_adaptive_frame_field_flag: bool },
 }
 impl FrameMbsFlags {
     fn read<R: BitRead>(r: &mut R) -> Result<FrameMbsFlags, BitReaderError> {
@@ -448,7 +482,7 @@ impl FrameMbsFlags {
             Ok(FrameMbsFlags::Frames)
         } else {
             Ok(FrameMbsFlags::Fields {
-                mb_adaptive_frame_field_flag: r.read_bool("mb_adaptive_frame_field_flag")?
+                mb_adaptive_frame_field_flag: r.read_bool("mb_adaptive_frame_field_flag")?,
             })
         }
     }
@@ -497,8 +531,7 @@ pub enum AspectRatioInfo {
     Ratio3_2,
     Ratio2_1,
     Reserved(u8),
-    Extended(u16,u16),
-
+    Extended(u16, u16),
 }
 impl AspectRatioInfo {
     fn read<R: BitRead>(r: &mut R) -> Result<Option<AspectRatioInfo>, BitReaderError> {
@@ -523,7 +556,10 @@ impl AspectRatioInfo {
                 14 => AspectRatioInfo::Ratio4_3,
                 15 => AspectRatioInfo::Ratio3_2,
                 16 => AspectRatioInfo::Ratio2_1,
-                255 => AspectRatioInfo::Extended(r.read_u16(16, "sar_width")?, r.read_u16(16, "sar_height")?),
+                255 => AspectRatioInfo::Extended(
+                    r.read_u16(16, "sar_width")?,
+                    r.read_u16(16, "sar_height")?,
+                ),
                 _ => AspectRatioInfo::Reserved(aspect_ratio_idc),
             })
         } else {
@@ -561,7 +597,7 @@ impl AspectRatioInfo {
                 } else {
                     Some((width, height))
                 }
-            },
+            }
         }
     }
 }
@@ -607,7 +643,7 @@ impl VideoFormat {
             3 => VideoFormat::SECAM,
             4 => VideoFormat::MAC,
             5 => VideoFormat::Unspecified,
-            6|7 => VideoFormat::Reserved(video_format),
+            6 | 7 => VideoFormat::Reserved(video_format),
             _ => panic!("unsupported video_format value {}", video_format),
         }
     }
@@ -666,7 +702,8 @@ impl ChromaLocInfo {
         Ok(if chroma_loc_info_present_flag {
             Some(ChromaLocInfo {
                 chroma_sample_loc_type_top_field: r.read_ue("chroma_sample_loc_type_top_field")?,
-                chroma_sample_loc_type_bottom_field: r.read_ue("chroma_sample_loc_type_bottom_field")?,
+                chroma_sample_loc_type_bottom_field: r
+                    .read_ue("chroma_sample_loc_type_bottom_field")?,
             })
         } else {
             None
@@ -702,7 +739,7 @@ pub struct CpbSpec {
     cbr_flag: bool,
 }
 impl CpbSpec {
-    fn read<R: BitRead>(r: &mut R) -> Result<CpbSpec,BitReaderError> {
+    fn read<R: BitRead>(r: &mut R) -> Result<CpbSpec, BitReaderError> {
         Ok(CpbSpec {
             bit_rate_value_minus1: r.read_ue("bit_rate_value_minus1")?,
             cpb_size_value_minus1: r.read_ue("cpb_size_value_minus1")?,
@@ -710,7 +747,6 @@ impl CpbSpec {
         })
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct HrdParameters {
@@ -723,7 +759,10 @@ pub struct HrdParameters {
     pub time_offset_length: u8,
 }
 impl HrdParameters {
-    fn read<R: BitRead>(r: &mut R, hrd_parameters_present: &mut bool) -> Result<Option<HrdParameters>, SpsError> {
+    fn read<R: BitRead>(
+        r: &mut R,
+        hrd_parameters_present: &mut bool,
+    ) -> Result<Option<HrdParameters>, SpsError> {
         let hrd_parameters_present_flag = r.read_bool("hrd_parameters_present_flag")?;
         *hrd_parameters_present |= hrd_parameters_present_flag;
         Ok(if hrd_parameters_present_flag {
@@ -736,7 +775,8 @@ impl HrdParameters {
                 bit_rate_scale: r.read_u8(4, "bit_rate_scale")?,
                 cpb_size_scale: r.read_u8(4, "cpb_size_scale")?,
                 cpb_specs: Self::read_cpb_specs(r, cpb_cnt)?,
-                initial_cpb_removal_delay_length_minus1: r.read_u8(5, "initial_cpb_removal_delay_length_minus1")?,
+                initial_cpb_removal_delay_length_minus1: r
+                    .read_u8(5, "initial_cpb_removal_delay_length_minus1")?,
                 cpb_removal_delay_length_minus1: r.read_u8(5, "cpb_removal_delay_length_minus1")?,
                 dpb_output_delay_length_minus1: r.read_u8(5, "dpb_output_delay_length_minus1")?,
                 time_offset_length: r.read_u8(5, "time_offset_length")?,
@@ -745,7 +785,7 @@ impl HrdParameters {
             None
         })
     }
-    fn read_cpb_specs<R: BitRead>(r: &mut R, cpb_cnt: u32) -> Result<Vec<CpbSpec>,BitReaderError> {
+    fn read_cpb_specs<R: BitRead>(r: &mut R, cpb_cnt: u32) -> Result<Vec<CpbSpec>, BitReaderError> {
         let mut cpb_specs = Vec::with_capacity(cpb_cnt as usize);
         for _ in 0..cpb_cnt {
             cpb_specs.push(CpbSpec::read(r)?);
@@ -765,11 +805,12 @@ pub struct BitstreamRestrictions {
     pub max_dec_frame_buffering: u32,
 }
 impl BitstreamRestrictions {
-    fn read<R: BitRead>(r: &mut R) -> Result<Option<BitstreamRestrictions>,BitReaderError> {
+    fn read<R: BitRead>(r: &mut R) -> Result<Option<BitstreamRestrictions>, BitReaderError> {
         let bitstream_restriction_flag = r.read_bool("bitstream_restriction_flag")?;
         Ok(if bitstream_restriction_flag {
             Some(BitstreamRestrictions {
-                motion_vectors_over_pic_boundaries_flag: r.read_bool("motion_vectors_over_pic_boundaries_flag")?,
+                motion_vectors_over_pic_boundaries_flag: r
+                    .read_bool("motion_vectors_over_pic_boundaries_flag")?,
                 max_bytes_per_pic_denom: r.read_ue("max_bytes_per_pic_denom")?,
                 max_bits_per_mb_denom: r.read_ue("max_bits_per_mb_denom")?,
                 log2_max_mv_length_horizontal: r.read_ue("log2_max_mv_length_horizontal")?,
@@ -809,7 +850,11 @@ impl VuiParameters {
                 timing_info: TimingInfo::read(r)?,
                 nal_hrd_parameters: HrdParameters::read(r, &mut hrd_parameters_present)?,
                 vcl_hrd_parameters: HrdParameters::read(r, &mut hrd_parameters_present)?,
-                low_delay_hrd_flag: if hrd_parameters_present { Some(r.read_bool("low_delay_hrd_flag")?) } else { None },
+                low_delay_hrd_flag: if hrd_parameters_present {
+                    Some(r.read_bool("low_delay_hrd_flag")?)
+                } else {
+                    None
+                },
                 pic_struct_present_flag: r.read_bool("pic_struct_present_flag")?,
                 bitstream_restrictions: BitstreamRestrictions::read(r)?,
             })
@@ -844,12 +889,14 @@ impl SeqParameterSet {
             profile_idc,
             constraint_flags: r.read_u8(8, "constraint_flags")?.into(),
             level_idc: r.read_u8(8, "level_idc")?,
-            seq_parameter_set_id: ParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?).map_err(SpsError::BadSeqParamSetId)?,
+            seq_parameter_set_id: ParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)
+                .map_err(SpsError::BadSeqParamSetId)?,
             chroma_info: ChromaInfo::read(&mut r, profile_idc)?,
             log2_max_frame_num_minus4: Self::read_log2_max_frame_num_minus4(&mut r)?,
             pic_order_cnt: PicOrderCntType::read(&mut r).map_err(SpsError::PicOrderCnt)?,
             max_num_ref_frames: r.read_ue("max_num_ref_frames")?,
-            gaps_in_frame_num_value_allowed_flag: r.read_bool("gaps_in_frame_num_value_allowed_flag")?,
+            gaps_in_frame_num_value_allowed_flag: r
+                .read_bool("gaps_in_frame_num_value_allowed_flag")?,
             pic_width_in_mbs_minus1: r.read_ue("pic_width_in_mbs_minus1")?,
             pic_height_in_map_units_minus1: r.read_ue("pic_height_in_map_units_minus1")?,
             frame_mbs_flags: FrameMbsFlags::read(&mut r)?,
@@ -889,8 +936,14 @@ impl SeqParameterSet {
     /// Helper to calculate the pixel-dimensions of the video image specified by this SPS, taking
     /// into account sample-format, interlacing and cropping.
     pub fn pixel_dimensions(&self) -> Result<(u32, u32), SpsError> {
-        let width = self.pic_width_in_mbs_minus1.checked_add(1).and_then(|w| w.checked_mul(16))
-            .ok_or_else(|| SpsError::FieldValueTooLarge { name:"pic_width_in_mbs_minus1", value: self.pic_width_in_mbs_minus1 })?;
+        let width = self
+            .pic_width_in_mbs_minus1
+            .checked_add(1)
+            .and_then(|w| w.checked_mul(16))
+            .ok_or_else(|| SpsError::FieldValueTooLarge {
+                name: "pic_width_in_mbs_minus1",
+                value: self.pic_width_in_mbs_minus1,
+            })?;
         let mul = match self.frame_mbs_flags {
             FrameMbsFlags::Fields { .. } => 2,
             FrameMbsFlags::Frames => 1,
@@ -913,22 +966,41 @@ impl SeqParameterSet {
 
         let height = (self.pic_height_in_map_units_minus1 + 1)
             .checked_mul(mul * 16)
-            .ok_or_else(|| SpsError::FieldValueTooLarge { name:"pic_height_in_map_units_minus1", value: self.pic_height_in_map_units_minus1 })?;
+            .ok_or_else(|| SpsError::FieldValueTooLarge {
+                name: "pic_height_in_map_units_minus1",
+                value: self.pic_height_in_map_units_minus1,
+            })?;
         if let Some(ref crop) = self.frame_cropping {
-            let left_offset = crop.left_offset.checked_mul(step_x)
-                .ok_or_else(|| SpsError::FieldValueTooLarge { name:"left_offset", value: crop.left_offset })?;
-            let right_offset = crop.right_offset.checked_mul(step_x)
-                .ok_or_else(|| SpsError::FieldValueTooLarge { name:"right_offset", value: crop.right_offset })?;
-            let top_offset = crop.top_offset.checked_mul(step_y)
-                .ok_or_else(|| SpsError::FieldValueTooLarge { name:"top_offset", value: crop.top_offset })?;
-            let bottom_offset = crop.bottom_offset.checked_mul(step_y)
-                .ok_or_else(|| SpsError::FieldValueTooLarge { name:"bottom_offset", value: crop.bottom_offset })?;
+            let left_offset = crop.left_offset.checked_mul(step_x).ok_or_else(|| {
+                SpsError::FieldValueTooLarge {
+                    name: "left_offset",
+                    value: crop.left_offset,
+                }
+            })?;
+            let right_offset = crop.right_offset.checked_mul(step_x).ok_or_else(|| {
+                SpsError::FieldValueTooLarge {
+                    name: "right_offset",
+                    value: crop.right_offset,
+                }
+            })?;
+            let top_offset = crop.top_offset.checked_mul(step_y).ok_or_else(|| {
+                SpsError::FieldValueTooLarge {
+                    name: "top_offset",
+                    value: crop.top_offset,
+                }
+            })?;
+            let bottom_offset = crop.bottom_offset.checked_mul(step_y).ok_or_else(|| {
+                SpsError::FieldValueTooLarge {
+                    name: "bottom_offset",
+                    value: crop.bottom_offset,
+                }
+            })?;
             let width = width
                 .checked_sub(left_offset)
-                .and_then(|w| w.checked_sub(right_offset) );
+                .and_then(|w| w.checked_sub(right_offset));
             let height = height
                 .checked_sub(top_offset)
-                .and_then(|w| w.checked_sub(bottom_offset) );
+                .and_then(|w| w.checked_sub(bottom_offset));
             if let (Some(width), Some(height)) = (width, height) {
                 Ok((width, height))
             } else {
@@ -954,8 +1026,9 @@ mod test {
     #[test]
     fn test_it() {
         let data = hex!(
-           "64 00 0A AC 72 84 44 26 84 00 00
-            00 04 00 00 00 CA 3C 48 96 11 80");
+            "64 00 0A AC 72 84 44 26 84 00 00
+            00 04 00 00 00 CA 3C 48 96 11 80"
+        );
         let sps = SeqParameterSet::from_bits(rbsp::BitReader::new(&data[..])).unwrap();
         assert!(!format!("{:?}", sps).is_empty());
         assert_eq!(100, sps.profile_idc.0);
@@ -968,14 +1041,18 @@ mod test {
     fn test_dahua() {
         // From a Dahua IPC-HDW5231R-Z's sub stream, which is anamorphic.
         let data = hex!(
-          "64 00 16 AC 1B 1A 80 B0 3D FF FF
+            "64 00 16 AC 1B 1A 80 B0 3D FF FF
            00 28 00 21 6E 0C 0C 0C 80 00 01
            F4 00 00 27 10 74 30 07 D0 00 07
            A1 25 DE 5C 68 60 0F A0 00 0F 42
-           4B BC B8 50");
+           4B BC B8 50"
+        );
         let sps = SeqParameterSet::from_bits(rbsp::BitReader::new(&data[..])).unwrap();
         println!("sps: {:#?}", sps);
-        assert_eq!(sps.vui_parameters.unwrap().aspect_ratio_info.unwrap().get(), Some((40, 33)));
+        assert_eq!(
+            sps.vui_parameters.unwrap().aspect_ratio_info.unwrap().get(),
+            Some((40, 33))
+        );
     }
 
     #[test]
@@ -991,7 +1068,7 @@ mod test {
                 bit_depth_luma_minus8: 0,
                 bit_depth_chroma_minus8: 0,
                 qpprime_y_zero_transform_bypass_flag: false,
-                scaling_matrix: Default::default()
+                scaling_matrix: Default::default(),
             },
             log2_max_frame_num_minus4: 0,
             pic_order_cnt: PicOrderCntType::TypeTwo,
@@ -1000,14 +1077,14 @@ mod test {
                 bottom_offset: 20,
                 left_offset: 20,
                 right_offset: 20,
-                top_offset: 20
+                top_offset: 20,
             }),
             pic_width_in_mbs_minus1: 1,
             pic_height_in_map_units_minus1: 1,
             frame_mbs_flags: FrameMbsFlags::Frames,
             gaps_in_frame_num_value_allowed_flag: false,
             direct_8x8_inference_flag: false,
-            vui_parameters: None
+            vui_parameters: None,
         };
         // should return Err, rather than assert due to integer underflow for example,
         let dim = sps.pixel_dimensions();
