@@ -108,19 +108,19 @@ impl ColourPlane {
 }
 
 #[derive(Debug,PartialEq)]
-enum Field {
+pub enum Field {
     Top,
     Bottom,
 }
 
 #[derive(Debug,PartialEq)]
-enum FieldPic {
+pub enum FieldPic {
     Frame,
     Field(Field),
 }
 
 #[derive(Debug,PartialEq)]
-enum PicOrderCountLsb {
+pub enum PicOrderCountLsb {
     Frame(u32),
     FieldsAbsolute { top: u32, bottom_delta: i32 },
     FieldsDelta([i32; 2]),
@@ -341,10 +341,10 @@ pub struct SliceHeader {
     first_mb_in_slice: u32,
     slice_type: SliceType,
     colour_plane: Option<ColourPlane>,
-    frame_num: u16,
-    field_pic: FieldPic,
+    pub frame_num: u16,
+    pub field_pic: FieldPic,
     idr_pic_id: Option<u32>,
-    pic_order_cnt_lsb: Option<PicOrderCountLsb>,
+    pub pic_order_cnt_lsb: Option<PicOrderCountLsb>,
     redundant_pic_cnt: Option<u32>,
     direct_spatial_mv_pred_flag: Option<bool>,
     num_ref_idx_active: Option<NumRefIdxActive>,
