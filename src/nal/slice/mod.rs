@@ -122,7 +122,7 @@ pub enum FieldPic {
 #[derive(Debug,PartialEq)]
 pub enum PicOrderCountLsb {
     Frame(u32),
-    FieldsAbsolute { top: u32, bottom_delta: i32 },
+    FieldsAbsolute { pic_order_cnt_lsb: u32, delta_pic_order_cnt_bottom: i32 },
     FieldsDelta([i32; 2]),
 }
 
@@ -396,8 +396,8 @@ impl SliceHeader {
                 Some(if pps.bottom_field_pic_order_in_frame_present_flag && field_pic == FieldPic::Frame {
                     let delta_pic_order_cnt_bottom = r.read_se("delta_pic_order_cnt_bottom")?;
                     PicOrderCountLsb::FieldsAbsolute {
-                        top: pic_order_cnt_lsb,
-                        bottom_delta: pic_order_cnt_lsb as i32 + delta_pic_order_cnt_bottom,
+                        pic_order_cnt_lsb,
+                        delta_pic_order_cnt_bottom,
                     }
                 } else {
                     PicOrderCountLsb::Frame(pic_order_cnt_lsb)
