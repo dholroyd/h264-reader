@@ -156,9 +156,9 @@ impl PicScalingMatrix {
 
             let count = if transform_8x8_mode_flag {
                 if sps.chroma_info.chroma_format == sps::ChromaFormat::YUV444 {
-                    12
+                    6
                 } else {
-                    8
+                    2
                 }
             } else {
                 0
@@ -332,5 +332,36 @@ mod test {
                 assert_eq!(pps.seq_parameter_set_id.id(), 0);
             }
         }
+    }
+
+    #[test]
+    fn test_transform_8x8_mode_with_scaling_matrix() {
+        let sps = hex!(
+            "64 00 29 ac 1b 1a 50 1e 00 89 f9 70 11 00 00 03 e9 00 00 bb 80 e2 60 00 04 c3 7a 00 00
+             72 70 e8 c4 b8 c4 c0 00 09 86 f4 00 00 e4 e1 d1 89 70 f8 e1 85 2c"
+        );
+        let pps = hex!(
+            "ea 8d ce 50 94 8d 18 b2 5a 55 28 4a 46 8c 59 2d 2a 50 c9 1a 31 64 b4 aa 85 48 d2 75 d5
+             25 1d 23 49 d2 7a 23 74 93 7a 49 be 95 da ad d5 3d 7a 6b 54 22 9a 4e 93 d6 ea 9f a4 ee
+             aa fd 6e bf f5 f7"
+        );
+        let sps = super::sps::SeqParameterSet::from_bits(rbsp::BitReader::new(&sps[..]))
+            .expect("unexpected test data");
+        let mut ctx = Context::default();
+        ctx.put_seq_param_set(sps);
+
+        let pps = PicParameterSet::from_bits(&ctx, rbsp::BitReader::new(&pps[..]))
+            .expect("we mis-parsed pic_scaling_matrix when transform_8x8_mode_flag is active");
+
+        // if transform_8x8_mode_flag were false or pic_scaling_matrix were None then we wouldn't
+        // be recreating the required conditions for the test
+        assert!(matches!(
+            pps.extension,
+            Some(PicParameterSetExtra {
+                transform_8x8_mode_flag: true,
+                pic_scaling_matrix: Some(_),
+                ..
+            })
+        ));
     }
 }
