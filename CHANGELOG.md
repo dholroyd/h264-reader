@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+*   Make some `SliceHeader` fields public.
+
+### Changed
+*   Make `PicOrderCountLsb::FieldsAbsolute` fields mirror the spec, rather than doing some calculations during parsing.
+
 ## 0.6.0 - 2022-08-08
 
 *   BREAKING CHANGE: major simplification of the push API.
