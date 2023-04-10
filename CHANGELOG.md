@@ -2,11 +2,16 @@
 
 ## Unreleased
 
+### Changed
+*   Make `PicOrderCountLsb::FieldsAbsolute` field names mirror the spec, rather than doing some calculations during
+    parsing.
+
+### Fixed
+*   Fixed incorrect size calculation for `PicScalingMatrix` causing parsing errors for streams having
+    `pic_scaling_matrix_present_flag=1` and `transform_8x8_mode_flag=1` in the PPS.
+
 ### Added
 *   Make some `SliceHeader` fields public.
-
-### Changed
-*   Make `PicOrderCountLsb::FieldsAbsolute` fields mirror the spec, rather than doing some calculations during parsing.
 
 ## 0.6.0 - 2022-08-08
 
