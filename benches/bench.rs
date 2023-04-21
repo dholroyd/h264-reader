@@ -132,18 +132,17 @@ fn h264_reader(c: &mut Criterion) {
 }
 
 fn parse_nal(c: &mut Criterion) {
-    // Note this has no emulation prevention three bytes in it; sps[1..] can be
-    // passed directly to code that expects RBSP.
     let sps = hex!(
         "67 64 00 16 AC 1B 1A 80 B0 3D FF FF
         00 28 00 21 6E 0C 0C 0C 80 00 01
         F4 00 00 27 10 74 30 07 D0 00 07
         A1 25 DE 5C 68 60 0F A0 00 0F 42
         4B BC B8 50");
+    let rbsp = h264_reader::rbsp::decode_nal(&sps).unwrap();
     let nal = RefNal::new(&sps[..], &[], true);
     let mut group = c.benchmark_group("parse_nal");
     group.bench_function("rbsp_sps", |b| b.iter(|| {
-        SeqParameterSet::from_bits(rbsp::BitReader::new(&sps[1..])).unwrap()
+        SeqParameterSet::from_bits(rbsp::BitReader::new(&*rbsp)).unwrap()
     }));
     group.bench_function("nal_sps", |b| b.iter(|| {
         SeqParameterSet::from_bits(nal.rbsp_bits()).unwrap()

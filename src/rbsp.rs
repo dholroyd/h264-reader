@@ -40,6 +40,8 @@ enum ParseState {
 /// [`BufRead`] adapter which returns RBSP bytes given NAL bytes by removing
 /// the NAL header and `emulation-prevention-three` bytes.
 ///
+/// See also [module docs](self).
+///
 /// Typically used via a [`h264_reader::nal::Nal`]. Returns error on encountering
 /// invalid byte sequences.
 #[derive(Clone)]
@@ -163,8 +165,11 @@ impl<R: BufRead> BufRead for ByteReader<R> {
     }
 }
 
-/// Removes RBSP encoding as described in [module docs](self). Returns error
-/// on invalid byte sequences. Returns a borrowed pointer if possible.
+/// Returns RBSP from a NAL by removing the NAL header and `emulation-prevention-three` bytes.
+///
+/// See also [module docs](self).
+///
+/// Returns error on invalid byte sequences. Returns a borrowed pointer if possible.
 ///
 /// ```
 /// # use h264_reader::rbsp::decode_nal;
