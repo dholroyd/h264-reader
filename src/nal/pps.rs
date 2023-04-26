@@ -186,7 +186,7 @@ impl PicScalingMatrix {
 pub struct PicParameterSetExtra {
     pub transform_8x8_mode_flag: bool,
     pub pic_scaling_matrix: Option<PicScalingMatrix>,
-    second_chroma_qp_index_offset: i32,
+    pub second_chroma_qp_index_offset: i32,
 }
 impl PicParameterSetExtra {
     fn read<R: BitRead>(
