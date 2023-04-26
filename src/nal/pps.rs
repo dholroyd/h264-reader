@@ -140,7 +140,7 @@ impl SliceGroup {
 }
 
 #[derive(Debug, Clone)]
-struct PicScalingMatrix {
+pub struct PicScalingMatrix {
     // TODO
 }
 impl PicScalingMatrix {
