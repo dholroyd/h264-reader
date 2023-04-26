@@ -184,8 +184,8 @@ impl PicScalingMatrix {
 
 #[derive(Debug, Clone)]
 pub struct PicParameterSetExtra {
-    transform_8x8_mode_flag: bool,
-    pic_scaling_matrix: Option<PicScalingMatrix>,
+    pub transform_8x8_mode_flag: bool,
+    pub pic_scaling_matrix: Option<PicScalingMatrix>,
     second_chroma_qp_index_offset: i32,
 }
 impl PicParameterSetExtra {
