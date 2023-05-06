@@ -140,7 +140,7 @@ impl SliceGroup {
 }
 
 #[derive(Debug, Clone)]
-struct PicScalingMatrix {
+pub struct PicScalingMatrix {
     // TODO
 }
 impl PicScalingMatrix {
@@ -184,9 +184,9 @@ impl PicScalingMatrix {
 
 #[derive(Debug, Clone)]
 pub struct PicParameterSetExtra {
-    transform_8x8_mode_flag: bool,
-    pic_scaling_matrix: Option<PicScalingMatrix>,
-    second_chroma_qp_index_offset: i32,
+    pub transform_8x8_mode_flag: bool,
+    pub pic_scaling_matrix: Option<PicScalingMatrix>,
+    pub second_chroma_qp_index_offset: i32,
 }
 impl PicParameterSetExtra {
     fn read<R: BitRead>(
