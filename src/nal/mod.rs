@@ -4,14 +4,14 @@
 //! [`RbspDecoder`](../rbsp/struct.RbspDecoder.html)), where it has been encoded with
 //! 'emulation prevention bytes'.
 
-pub mod sps;
 pub mod pps;
 pub mod sei;
 pub mod slice;
+pub mod sps;
 
 use crate::rbsp;
-use std::fmt;
 use hex_slice::AsHex;
+use std::fmt;
 
 #[derive(PartialEq, Hash, Debug, Copy, Clone)]
 pub enum UnitType {
@@ -46,16 +46,16 @@ impl UnitType {
             Err(UnitTypeError::ValueOutOfRange(id))
         } else {
             let t = match id {
-                0  => UnitType::Unspecified(0),
-                1  => UnitType::SliceLayerWithoutPartitioningNonIdr,
-                2  => UnitType::SliceDataPartitionALayer,
-                3  => UnitType::SliceDataPartitionBLayer,
-                4  => UnitType::SliceDataPartitionCLayer,
-                5  => UnitType::SliceLayerWithoutPartitioningIdr,
-                6  => UnitType::SEI,
-                7  => UnitType::SeqParameterSet,
-                8  => UnitType::PicParameterSet,
-                9  => UnitType::AccessUnitDelimiter,
+                0 => UnitType::Unspecified(0),
+                1 => UnitType::SliceLayerWithoutPartitioningNonIdr,
+                2 => UnitType::SliceDataPartitionALayer,
+                3 => UnitType::SliceDataPartitionBLayer,
+                4 => UnitType::SliceDataPartitionCLayer,
+                5 => UnitType::SliceLayerWithoutPartitioningIdr,
+                6 => UnitType::SEI,
+                7 => UnitType::SeqParameterSet,
+                8 => UnitType::PicParameterSet,
+                9 => UnitType::AccessUnitDelimiter,
                 10 => UnitType::EndOfSeq,
                 11 => UnitType::EndOfStream,
                 12 => UnitType::FillerData,
@@ -105,11 +105,11 @@ impl UnitType {
 #[derive(Debug)]
 pub enum UnitTypeError {
     /// if the value was outside the range `0` - `31`.
-    ValueOutOfRange(u8)
+    ValueOutOfRange(u8),
 }
 
-#[derive(Copy,Clone,PartialEq,Eq)]
-pub struct NalHeader ( u8 );
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub struct NalHeader(u8);
 
 #[derive(Debug)]
 pub enum NalHeaderError {
@@ -140,7 +140,7 @@ impl From<NalHeader> for u8 {
 }
 
 impl fmt::Debug for NalHeader {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(),fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         f.debug_struct("NalHeader")
             .field("nal_ref_idc", &self.nal_ref_idc())
             .field("nal_unit_type", &self.nal_unit_type())
@@ -278,13 +278,16 @@ impl<'a> std::fmt::Debug for RefNal<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Interpret the NAL header and display the data as a hex string.
         f.debug_struct("RefNal")
-         .field("header", &self.header())
-         .field("data", &RefNalReader {
-             cur: self.head,
-             tail: self.tail,
-             complete: self.complete,
-         })
-         .finish()
+            .field("header", &self.header())
+            .field(
+                "data",
+                &RefNalReader {
+                    cur: self.head,
+                    tail: self.tail,
+                    complete: self.complete,
+                },
+            )
+            .finish()
     }
 }
 
@@ -306,7 +309,7 @@ impl<'a> RefNalReader<'a> {
             [first, tail @ ..] => {
                 self.cur = first;
                 self.tail = tail;
-            },
+            }
             _ => self.cur = &[], // EOF.
         }
     }
@@ -317,8 +320,10 @@ impl<'a> std::io::Read for RefNalReader<'a> {
         if buf.is_empty() {
             len = 0;
         } else if self.cur.is_empty() && !self.complete {
-            return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock,
-                       "reached end of partially-buffered NAL"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "reached end of partially-buffered NAL",
+            ));
         } else if buf.len() < self.cur.len() {
             len = buf.len();
             let (copy, keep) = self.cur.split_at(len);
@@ -335,8 +340,10 @@ impl<'a> std::io::Read for RefNalReader<'a> {
 impl<'a> std::io::BufRead for RefNalReader<'a> {
     fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
         if self.cur.is_empty() && !self.complete {
-            return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock,
-                       "reached end of partially-buffered NAL"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "reached end of partially-buffered NAL",
+            ));
         }
         Ok(self.cur)
     }
@@ -392,7 +399,10 @@ mod test {
                 nal.reader().read_to_end(&mut buf).unwrap();
                 assert_eq!(buf, &[0b0101_0001, 1, 2, 3, 4]);
             } else {
-                assert_eq!(r.read(&mut buf[..]).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+                assert_eq!(
+                    r.read(&mut buf[..]).unwrap_err().kind(),
+                    std::io::ErrorKind::WouldBlock
+                );
             }
 
             // Let the caller try the BufRead impl.
@@ -406,7 +416,10 @@ mod test {
         r.consume(1);
         assert_eq!(r.fill_buf().unwrap(), &[1, 2, 3, 4]);
         r.consume(4);
-        assert_eq!(r.fill_buf().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        assert_eq!(
+            r.fill_buf().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
 
         // Incomplete NAL with multiple chunks.
         let nal = common(&[0b0101_0001], &[&[1, 2], &[3, 4]], false);
@@ -419,7 +432,10 @@ mod test {
         r.consume(1);
         assert_eq!(r.fill_buf().unwrap(), &[4]);
         r.consume(1);
-        assert_eq!(r.fill_buf().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        assert_eq!(
+            r.fill_buf().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
 
         // Complete NAL with first chunk only.
         let nal = common(&[0b0101_0001, 1, 2, 3, 4], &[], true);
@@ -433,10 +449,16 @@ mod test {
 
     #[test]
     fn reader_debug() {
-        assert_eq!(format!("{:?}", RefNalReader {
-            cur: &b"\x00"[..],
-            tail: &[&b"\x01"[..], &b"\x02\x03"[..]],
-            complete: false,
-        }), "00 01 02 03 ...");
+        assert_eq!(
+            format!(
+                "{:?}",
+                RefNalReader {
+                    cur: &b"\x00"[..],
+                    tail: &[&b"\x01"[..], &b"\x02\x03"[..]],
+                    complete: false,
+                }
+            ),
+            "00 01 02 03 ..."
+        );
     }
 }

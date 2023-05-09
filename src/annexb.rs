@@ -1,8 +1,8 @@
 //! A reader for the NAL Unit framing format defined in _ITU-T Recommendation H.264 - Annex B_,
 //! as used when H264 data is embedded in an MPEG2 Transport Stream
 
-use memchr;
 use log::*;
+use memchr;
 
 use crate::push::{AccumulatedNalHandler, NalAccumulator, NalFragmentHandler};
 
@@ -74,7 +74,7 @@ struct InUnitState {
 ///
 /// When corruption is detected, the `AnnexbReader` logs error and recovers on
 /// the next start code boundary.
-/// 
+///
 /// Guarantees that the bytes supplied to [`NalFragmentHandler`]—the concatenation of all
 /// `buf`s supplied to `NalFragmentHandler::nal_fragment`—will be exactly the same for a given
 /// Annex B stream, regardless of boundaries of `AnnexBReader::push` calls.
@@ -138,67 +138,65 @@ impl<H: NalFragmentHandler> AnnexBReader<H> {
             debug_assert!(fake_and_start.is_some() == self.state.in_unit().is_some());
             let b = buf[i];
             match self.state {
-                ParseState::Start => {
-                    match b {
-                        0x00 => self.to(ParseState::StartOneZero),
-                        _ => self.err(b),
-                    }
+                ParseState::Start => match b {
+                    0x00 => self.to(ParseState::StartOneZero),
+                    _ => self.err(b),
                 },
-                ParseState::StartOneZero => {
-                    match b {
-                        0x00 => self.to(ParseState::StartTwoZero),
-                        _ => self.err(b),
-                    }
+                ParseState::StartOneZero => match b {
+                    0x00 => self.to(ParseState::StartTwoZero),
+                    _ => self.err(b),
                 },
                 ParseState::StartTwoZero => {
                     match b {
-                        0x00 => (),   // keep ignoring further 0x00 bytes
+                        0x00 => (), // keep ignoring further 0x00 bytes
                         0x01 => {
                             fake_and_start = Some((0, i + 1));
                             self.to(ParseState::InUnit);
-                        },
+                        }
                         _ => self.err(b),
                     }
-                },
+                }
                 ParseState::InUnit => {
                     let remaining = &buf[i..];
                     match memchr::memchr(0x00, remaining) {
                         Some(pos) => {
                             self.to(ParseState::InUnitOneZero);
                             i += pos;
-                        },
+                        }
                         None => {
                             // skip to end
                             i = buf.len();
                         }
                     }
+                }
+                ParseState::InUnitOneZero => match b {
+                    0x00 => self.to(ParseState::InUnitTwoZero),
+                    _ => self.to(ParseState::InUnit),
                 },
-                ParseState::InUnitOneZero => {
-                    match b {
-                        0x00 => self.to(ParseState::InUnitTwoZero),
-                        _ => self.to(ParseState::InUnit),
+                ParseState::InUnitTwoZero => match b {
+                    0x00 => {
+                        self.maybe_emit(buf, fake_and_start, i, 2, true);
+                        fake_and_start = None;
+                        self.to(ParseState::StartTwoZero);
                     }
-                },
-                ParseState::InUnitTwoZero => {
-                    match b {
-                        0x00 => {
-                            self.maybe_emit(buf, fake_and_start, i, 2, true);
-                            fake_and_start = None;
-                            self.to(ParseState::StartTwoZero);
-                        },
-                        0x01 => {
-                            self.maybe_emit(buf, fake_and_start, i, 2, true);
-                            fake_and_start = Some((0, i + 1));
-                            self.to(ParseState::InUnit);
-                        },
-                        _ => self.to(ParseState::InUnit),
+                    0x01 => {
+                        self.maybe_emit(buf, fake_and_start, i, 2, true);
+                        fake_and_start = Some((0, i + 1));
+                        self.to(ParseState::InUnit);
                     }
+                    _ => self.to(ParseState::InUnit),
                 },
             }
             i += 1;
         }
         if let Some(in_unit) = self.state.in_unit() {
-            self.maybe_emit(buf, fake_and_start, buf.len(), in_unit.backtrack_bytes, false);
+            self.maybe_emit(
+                buf,
+                fake_and_start,
+                buf.len(),
+                in_unit.backtrack_bytes,
+                false,
+            );
         }
     }
 
@@ -214,7 +212,8 @@ impl<H: NalFragmentHandler> AnnexBReader<H> {
             // a start-code, but actually reached the end of input, then we will now need to emit
             // those 0x00 bytes that we had been holding back,
             if in_unit.backtrack_bytes > 0 {
-                self.inner.nal_fragment(&[&[0u8; 2][..in_unit.backtrack_bytes]], true);
+                self.inner
+                    .nal_fragment(&[&[0u8; 2][..in_unit.backtrack_bytes]], true);
             } else {
                 self.inner.nal_fragment(&[], true);
             }
@@ -226,22 +225,36 @@ impl<H: NalFragmentHandler> AnnexBReader<H> {
         self.state = new_state;
     }
 
-    fn maybe_emit(&mut self, buf: &[u8], fake_and_start: Option<(usize, usize)>, end: usize, backtrack: usize, is_end: bool) {
+    fn maybe_emit(
+        &mut self,
+        buf: &[u8],
+        fake_and_start: Option<(usize, usize)>,
+        end: usize,
+        backtrack: usize,
+        is_end: bool,
+    ) {
         match fake_and_start {
             Some((fake, start)) if start + backtrack < end => {
                 if fake > 0 {
-                    self.inner.nal_fragment(&[&[0u8; 2][..fake], &buf[start..end - backtrack]][..], is_end);
+                    self.inner.nal_fragment(
+                        &[&[0u8; 2][..fake], &buf[start..end - backtrack]][..],
+                        is_end,
+                    );
                 } else {
-                    self.inner.nal_fragment(&[&buf[start..end - backtrack]][..], is_end);
+                    self.inner
+                        .nal_fragment(&[&buf[start..end - backtrack]][..], is_end);
                 };
-            },
+            }
             Some(_) if is_end => self.inner.nal_fragment(&[], true),
-            _ => {},
+            _ => {}
         }
     }
 
     fn err(&mut self, b: u8) {
-        error!("AnnexBReader: state={:?}, invalid byte {:#x}", self.state, b);
+        error!(
+            "AnnexBReader: state={:?}, invalid byte {:#x}",
+            self.state, b
+        );
         self.state = ParseState::Start;
     }
 }
@@ -272,11 +285,11 @@ mod tests {
     fn simple_nal() {
         let mock = MockFragmentHandler::default();
         let mut r = AnnexBReader::for_fragment_handler(mock);
-        let data = vec!(
-            0, 0, 0, 1,  // start-code
-            3,           // NAL data
-            0, 0, 1      // end-code
-        );
+        let data = vec![
+            0, 0, 0, 1, // start-code
+            3, // NAL data
+            0, 0, 1, // end-code
+        ];
         r.push(&data[..]);
         let mock = r.into_fragment_handler();
         assert_eq!(&mock.data[..], &[3u8][..]);
@@ -287,11 +300,11 @@ mod tests {
     fn short_start_code() {
         let mock = MockFragmentHandler::default();
         let mut r = AnnexBReader::for_fragment_handler(mock);
-        let data = vec!(
-            0, 0, 1,  // start-code -- only three bytes rather than the usual 4
-            3,        // NAL data
-            0, 0, 1   // end-code
-        );
+        let data = vec![
+            0, 0, 1, // start-code -- only three bytes rather than the usual 4
+            3, // NAL data
+            0, 0, 1, // end-code
+        ];
         r.push(&data[..]);
         let mock = r.into_fragment_handler();
         assert_eq!(&mock.data[..], &[3u8][..]);
@@ -303,14 +316,14 @@ mod tests {
     fn rbsp_cabac() {
         let mock = MockFragmentHandler::default();
         let mut r = AnnexBReader::for_fragment_handler(mock);
-        let data = vec!(
-            0, 0, 0, 1,  // start-code
-            3,           // NAL data
-            0x80,        // 1 stop-bit + 7 alignment-zero-bits
-            0, 0, 3,     // cabac_zero_word + emulation_prevention_three_byte
-            0, 0, 3,     // cabac_zero_word + emulation_prevention_three_byte
-            0, 0, 0, 1,  // start-code
-        );
+        let data = vec![
+            0, 0, 0, 1,    // start-code
+            3,    // NAL data
+            0x80, // 1 stop-bit + 7 alignment-zero-bits
+            0, 0, 3, // cabac_zero_word + emulation_prevention_three_byte
+            0, 0, 3, // cabac_zero_word + emulation_prevention_three_byte
+            0, 0, 0, 1, // start-code
+        ];
         r.push(&data[..]);
         let mock = r.into_fragment_handler();
         assert_eq!(&mock.data[..], &[3, 0x80, 0, 0, 3, 0, 0, 3][..]);
@@ -322,14 +335,14 @@ mod tests {
     fn trailing_zero() {
         let mock = MockFragmentHandler::default();
         let mut r = AnnexBReader::for_fragment_handler(mock);
-        let data = vec!(
-            0, 0, 0, 1,  // start-code
-            3,           // NAL data
-            0x80,        // 1 stop-bit + 7 alignment-zero-bits
-            0,           // trailing_zero_8bits
-            0,           // trailing_zero_8bits
-            0, 0, 0, 1,  // start-code
-        );
+        let data = vec![
+            0, 0, 0, 1,    // start-code
+            3,    // NAL data
+            0x80, // 1 stop-bit + 7 alignment-zero-bits
+            0,    // trailing_zero_8bits
+            0,    // trailing_zero_8bits
+            0, 0, 0, 1, // start-code
+        ];
         r.push(&data[..]);
         let mock = r.into_fragment_handler();
         assert_eq!(&mock.data[..], &[3, 0x80][..]);
@@ -341,17 +354,17 @@ mod tests {
     fn recovery_on_corrupt_trailing_zero() {
         let mock = MockFragmentHandler::default();
         let mut r = AnnexBReader::for_fragment_handler(mock);
-        let data = vec!(
-            0, 0, 0, 1,  // start-code
-            3,           // NAL data
-            0x80,        // 1 stop-bit + 7 alignment-zero-bits
-            0, 0, 0,     // trailing_zero_8bits
-            42,          // unexpected byte
-            0, 0, 1,     // start-code
-            2, 3,        // NAL data
-            0x80,        // 1 stop-bit + 7 alignment-zero-bits
-            0, 0, 1,     // start-code
-        );
+        let data = vec![
+            0, 0, 0, 1,    // start-code
+            3,    // NAL data
+            0x80, // 1 stop-bit + 7 alignment-zero-bits
+            0, 0, 0,  // trailing_zero_8bits
+            42, // unexpected byte
+            0, 0, 1, // start-code
+            2, 3,    // NAL data
+            0x80, // 1 stop-bit + 7 alignment-zero-bits
+            0, 0, 1, // start-code
+        ];
         r.push(&data[..]);
         let mock = r.into_fragment_handler();
         assert_eq!(&mock.data[..], &[3, 0x80, 2, 3, 0x80][..]);
@@ -362,10 +375,10 @@ mod tests {
     fn implicit_end() {
         let mock = MockFragmentHandler::default();
         let mut r = AnnexBReader::for_fragment_handler(mock);
-        let data = vec!(
-            0, 0, 0, 1,  // start-code
-            3, 0         // NAL data
-        );
+        let data = vec![
+            0, 0, 0, 1, // start-code
+            3, 0, // NAL data
+        ];
         r.push(&data[..]);
         r.reset();
         let mock = r.into_fragment_handler();
@@ -377,16 +390,16 @@ mod tests {
     fn split_nal() {
         let mock = MockFragmentHandler::default();
         let mut r = AnnexBReader::for_fragment_handler(mock);
-        let data = vec!(
-            0, 0, 0, 1,  // start-code
-            2, 3,        // NAL data
-            0, 0, 1      // nd-code
-        );
-        r.push(&data[..5]);  // half-way through the NAL Unit
+        let data = vec![
+            0, 0, 0, 1, // start-code
+            2, 3, // NAL data
+            0, 0, 1, // nd-code
+        ];
+        r.push(&data[..5]); // half-way through the NAL Unit
         let mock = r.fragment_handler_ref();
         assert_eq!(&mock.data[..], &[2u8][..]);
         assert_eq!(0, mock.ended);
-        r.push(&data[5..]);  // second half of the NAL Unit
+        r.push(&data[5..]); // second half of the NAL Unit
         let mock = r.fragment_handler_ref();
         assert_eq!(&mock.data[..], &[2u8, 3u8][..]);
         assert_eq!(1, mock.ended);
@@ -395,7 +408,7 @@ mod tests {
     #[test]
     fn split_large() {
         let data = hex!(
-           "00 00 00 01 67 64 00 0A AC 72 84 44 26 84 00 00
+            "00 00 00 01 67 64 00 0A AC 72 84 44 26 84 00 00
             03 00 04 00 00 03 00 CA 3C 48 96 11 80 00 00 00
             01 68 E8 43 8F 13 21 30 00 00 01 65 88 81 00 05
             4E 7F 87 DF 61 A5 8B 95 EE A4 E9 38 B7 6A 30 6A
@@ -433,9 +446,10 @@ mod tests {
             52 15 CA B5 AC 60 3E 36 42 F1 2C BD 99 77 AB A8
             A9 A4 8E 9C 8B 84 DE 73 F0 91 29 97 AE DB AF D6
             F8 5E 9B 86 B3 B3 03 B3 AC 75 6F A6 11 69 2F 3D
-            3A CE FA 53 86 60 95 6C BB C5 4E F3");
+            3A CE FA 53 86 60 95 6C BB C5 4E F3"
+        );
         let expected = hex!(
-           "67 64 00 0A AC 72 84 44 26 84 00 00
+            "67 64 00 0A AC 72 84 44 26 84 00 00
             03 00 04 00 00 03 00 CA 3C 48 96 11 80
             68 E8 43 8F 13 21 30 65 88 81 00 05
             4E 7F 87 DF 61 A5 8B 95 EE A4 E9 38 B7 6A 30 6A
@@ -473,8 +487,9 @@ mod tests {
             52 15 CA B5 AC 60 3E 36 42 F1 2C BD 99 77 AB A8
             A9 A4 8E 9C 8B 84 DE 73 F0 91 29 97 AE DB AF D6
             F8 5E 9B 86 B3 B3 03 B3 AC 75 6F A6 11 69 2F 3D
-            3A CE FA 53 86 60 95 6C BB C5 4E F3");
-        for i in 1..data.len()-1 {
+            3A CE FA 53 86 60 95 6C BB C5 4E F3"
+        );
+        for i in 1..data.len() - 1 {
             let mock = MockFragmentHandler::default();
             let mut r = AnnexBReader::for_fragment_handler(mock);
             let (head, tail) = data.split_at(i);
@@ -489,7 +504,7 @@ mod tests {
     #[test]
     fn onebyte_large() {
         let data = hex!(
-           "00 00 00 01 67 64 00 0A AC 72 84 44 26 84 00 00
+            "00 00 00 01 67 64 00 0A AC 72 84 44 26 84 00 00
             03 00 04 00 00 03 00 CA 3C 48 96 11 80 00 00 00
             01 68 E8 43 8F 13 21 30 00 00 01 65 88 81 00 05
             4E 7F 87 DF 61 A5 8B 95 EE A4 E9 38 B7 6A 30 6A
@@ -527,9 +542,10 @@ mod tests {
             52 15 CA B5 AC 60 3E 36 42 F1 2C BD 99 77 AB A8
             A9 A4 8E 9C 8B 84 DE 73 F0 91 29 97 AE DB AF D6
             F8 5E 9B 86 B3 B3 03 B3 AC 75 6F A6 11 69 2F 3D
-            3A CE FA 53 86 60 95 6C BB C5 4E F3");
+            3A CE FA 53 86 60 95 6C BB C5 4E F3"
+        );
         let expected = hex!(
-           "67 64 00 0A AC 72 84 44 26 84 00 00
+            "67 64 00 0A AC 72 84 44 26 84 00 00
             03 00 04 00 00 03 00 CA 3C 48 96 11 80
             68 E8 43 8F 13 21 30 65 88 81 00 05
             4E 7F 87 DF 61 A5 8B 95 EE A4 E9 38 B7 6A 30 6A
@@ -567,11 +583,12 @@ mod tests {
             52 15 CA B5 AC 60 3E 36 42 F1 2C BD 99 77 AB A8
             A9 A4 8E 9C 8B 84 DE 73 F0 91 29 97 AE DB AF D6
             F8 5E 9B 86 B3 B3 03 B3 AC 75 6F A6 11 69 2F 3D
-            3A CE FA 53 86 60 95 6C BB C5 4E F3");
+            3A CE FA 53 86 60 95 6C BB C5 4E F3"
+        );
         let mock = MockFragmentHandler::default();
         let mut r = AnnexBReader::for_fragment_handler(mock);
         for i in 0..data.len() {
-            r.push(&data[i..i+1]);
+            r.push(&data[i..i + 1]);
         }
         r.reset();
         let mock = r.into_fragment_handler();
