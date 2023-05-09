@@ -52,7 +52,6 @@ pub struct ByteReader<R: BufRead> {
     // self.state describes the state before self.inner[self.i].
     //
     // self.inner[self.i..] has yet to be examined.
-
     inner: R,
     state: ParseState,
     i: usize,
@@ -90,11 +89,11 @@ impl<R: BufRead> ByteReader<R> {
                     Some(nonzero_len) => {
                         self.i += nonzero_len;
                         self.state = ParseState::OneZero;
-                    },
+                    }
                     None => {
                         self.i = chunk.len();
-                        break
-                    },
+                        break;
+                    }
                 },
                 ParseState::OneZero => match chunk[self.i] {
                     0x00 => self.state = ParseState::TwoZero,
@@ -103,33 +102,37 @@ impl<R: BufRead> ByteReader<R> {
                 ParseState::TwoZero => match chunk[self.i] {
                     0x03 => {
                         self.state = ParseState::Three;
-                        break
-                    },
-                    0x00 => return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("invalid RBSP byte {:#x} in state {:?}", 0x00, &self.state),
-                    )),
+                        break;
+                    }
+                    0x00 => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("invalid RBSP byte {:#x} in state {:?}", 0x00, &self.state),
+                        ))
+                    }
                     _ => self.state = ParseState::Start,
                 },
                 ParseState::HeaderByte => {
                     debug_assert_eq!(self.i, 0);
                     self.inner.consume(1);
                     self.state = ParseState::Start;
-                    break
-                },
+                    break;
+                }
                 ParseState::Three => {
                     debug_assert_eq!(self.i, 0);
                     self.inner.consume(1);
                     self.state = ParseState::PostThree;
-                    break
+                    break;
                 }
                 ParseState::PostThree => match chunk[self.i] {
                     0x00 => self.state = ParseState::OneZero,
                     0x01 | 0x02 | 0x03 => self.state = ParseState::Start,
-                    o => return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("invalid RBSP byte {:#x} in state {:?}", o, &self.state),
-                    )),
+                    o => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("invalid RBSP byte {:#x} in state {:?}", o, &self.state),
+                        ))
+                    }
                 },
             }
             self.i += 1;
@@ -226,7 +229,7 @@ pub enum BitReaderError {
 }
 
 pub trait BitRead {
-    fn read_ue(&mut self, name: &'static str) -> Result<u32,BitReaderError>;
+    fn read_ue(&mut self, name: &'static str) -> Result<u32, BitReaderError>;
     fn read_se(&mut self, name: &'static str) -> Result<i32, BitReaderError>;
     fn read_bool(&mut self, name: &'static str) -> Result<bool, BitReaderError>;
     fn read_u8(&mut self, bit_count: u32, name: &'static str) -> Result<u8, BitReaderError>;
@@ -257,7 +260,9 @@ pub struct BitReader<R: std::io::BufRead + Clone> {
 }
 impl<R: std::io::BufRead + Clone> BitReader<R> {
     pub fn new(inner: R) -> Self {
-        Self { reader: bitstream_io::read::BitReader::new(inner) }
+        Self {
+            reader: bitstream_io::read::BitReader::new(inner),
+        }
     }
 
     /// Borrows the underlying reader if byte-aligned.
@@ -267,13 +272,16 @@ impl<R: std::io::BufRead + Clone> BitReader<R> {
 }
 
 impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
-    fn read_ue(&mut self, name: &'static str) -> Result<u32,BitReaderError> {
-        let count = self.reader.read_unary1().map_err(|e| BitReaderError::ReaderErrorFor(name, e))?;
+    fn read_ue(&mut self, name: &'static str) -> Result<u32, BitReaderError> {
+        let count = self
+            .reader
+            .read_unary1()
+            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))?;
         if count > 31 {
             return Err(BitReaderError::ExpGolombTooLarge(name));
         } else if count > 0 {
             let val = self.read_u32(count, name)?;
-            Ok((1 << count) -1 + val)
+            Ok((1 << count) - 1 + val)
         } else {
             Ok(0)
         }
@@ -284,23 +292,33 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
     }
 
     fn read_bool(&mut self, name: &'static str) -> Result<bool, BitReaderError> {
-        self.reader.read_bit().map_err(|e| BitReaderError::ReaderErrorFor(name, e) )
+        self.reader
+            .read_bit()
+            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
     fn read_u8(&mut self, bit_count: u32, name: &'static str) -> Result<u8, BitReaderError> {
-        self.reader.read(bit_count).map_err(|e| BitReaderError::ReaderErrorFor(name, e))
+        self.reader
+            .read(bit_count)
+            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
     fn read_u16(&mut self, bit_count: u32, name: &'static str) -> Result<u16, BitReaderError> {
-        self.reader.read(bit_count).map_err(|e| BitReaderError::ReaderErrorFor(name, e))
+        self.reader
+            .read(bit_count)
+            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
     fn read_u32(&mut self, bit_count: u32, name: &'static str) -> Result<u32, BitReaderError> {
-        self.reader.read(bit_count).map_err(|e| BitReaderError::ReaderErrorFor(name, e))
+        self.reader
+            .read(bit_count)
+            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
     fn read_i32(&mut self, bit_count: u32, name: &'static str) -> Result<i32, BitReaderError> {
-        self.reader.read(bit_count).map_err(|e| BitReaderError::ReaderErrorFor(name, e))
+        self.reader
+            .read(bit_count)
+            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
     fn has_more_rbsp_data(&mut self, name: &'static str) -> Result<bool, BitReaderError> {
@@ -319,7 +337,11 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
 
     fn finish_rbsp(mut self) -> Result<(), BitReaderError> {
         // The next bit is expected to be the final one bit.
-        if !self.reader.read_bit().map_err(|e| BitReaderError::ReaderErrorFor("finish", e))? {
+        if !self
+            .reader
+            .read_bit()
+            .map_err(|e| BitReaderError::ReaderErrorFor("finish", e))?
+        {
             // It was a zero! Determine if we're past the end or haven't reached it yet.
             match self.reader.read_unary1() {
                 Err(e) => return Err(BitReaderError::ReaderErrorFor("finish", e)),
@@ -339,7 +361,7 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(e) => return Err(BitReaderError::ReaderErrorFor("finish", e)),
             Ok(false) => return Err(BitReaderError::RemainingData),
-            Ok(true) => {},
+            Ok(true) => {}
         }
         match self.reader.read_unary1() {
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(()),
@@ -362,20 +384,26 @@ mod tests {
     #[test]
     fn byte_reader() {
         let data = hex!(
-           "67 64 00 0A AC 72 84 44 26 84 00 00 03
-            00 04 00 00 03 00 CA 3C 48 96 11 80");
-        for i in 1..data.len()-1 {
+            "67 64 00 0A AC 72 84 44 26 84 00 00 03
+            00 04 00 00 03 00 CA 3C 48 96 11 80"
+        );
+        for i in 1..data.len() - 1 {
             let (head, tail) = data.split_at(i);
             let r = head.chain(tail);
             let mut r = ByteReader::new(r);
             let mut rbsp = Vec::new();
             r.read_to_end(&mut rbsp).unwrap();
             let expected = hex!(
-           "64 00 0A AC 72 84 44 26 84 00 00
-            00 04 00 00 00 CA 3C 48 96 11 80");
-            assert!(rbsp == &expected[..],
-                    "Mismatch with on split_at({}):\nrbsp     {:02x}\nexpected {:02x}",
-                    i, rbsp.as_hex(), expected.as_hex());
+                "64 00 0A AC 72 84 44 26 84 00 00
+            00 04 00 00 00 CA 3C 48 96 11 80"
+            );
+            assert!(
+                rbsp == &expected[..],
+                "Mismatch with on split_at({}):\nrbsp     {:02x}\nexpected {:02x}",
+                i,
+                rbsp.as_hex(),
+                expected.as_hex()
+            );
         }
     }
 
@@ -395,12 +423,17 @@ mod tests {
 
         // should also work when there are cabac-zero-words.
         let mut reader = BitReader::new(&[0x80, 0x00, 0x00][..]);
-        assert!(!reader.has_more_rbsp_data("at end with cabac-zero-words").unwrap());
+        assert!(!reader
+            .has_more_rbsp_data("at end with cabac-zero-words")
+            .unwrap());
     }
 
     #[test]
     fn read_ue_overflow() {
         let mut reader = BitReader::new(&[0, 0, 0, 0, 255, 255, 255, 255, 255][..]);
-        assert!(matches!(reader.read_ue("test"), Err(BitReaderError::ExpGolombTooLarge("test"))));
+        assert!(matches!(
+            reader.read_ue("test"),
+            Err(BitReaderError::ExpGolombTooLarge("test"))
+        ));
     }
 }

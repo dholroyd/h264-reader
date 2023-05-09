@@ -1,8 +1,8 @@
-use crate::nal::sei::SeiMessage;
 use crate::nal::sei::HeaderType;
+use crate::nal::sei::SeiMessage;
+use crate::nal::sps;
 use crate::rbsp::BitRead;
 use crate::rbsp::BitReader;
-use crate::nal::sps;
 use crate::rbsp::BitReaderError;
 
 #[derive(Debug)]
@@ -126,7 +126,7 @@ pub enum SecMinHour {
     None,
     S(u8),
     SM(u8, u8),
-    SMH(u8, u8, u8)
+    SMH(u8, u8, u8),
 }
 impl SecMinHour {
     pub fn seconds(&self) -> u8 {
@@ -167,7 +167,10 @@ pub struct ClockTimestamp {
     pub time_offset: Option<i32>,
 }
 impl ClockTimestamp {
-    fn read<R: BitRead>(r: &mut R, sps: &sps::SeqParameterSet) -> Result<ClockTimestamp, PicTimingError> {
+    fn read<R: BitRead>(
+        r: &mut R,
+        sps: &sps::SeqParameterSet,
+    ) -> Result<ClockTimestamp, PicTimingError> {
         let ct_type = CtType::from_id(r.read_u8(2, "ct_type")?);
         let nuit_field_based_flag = r.read_bool("nuit_field_based_flag")?;
         let counting_type = CountingType::from_id(r.read_u8(5, "counting_type")?);
@@ -241,7 +244,10 @@ impl PicTiming {
     /// Parses a `PicTiming` from the given SEI message.
     /// The caller is expected to have found the correct SPS by buffering the `SeiMessage`
     /// until after examining the following slice header.
-    pub fn read(sps: &sps::SeqParameterSet, msg: &SeiMessage<'_>) -> Result<PicTiming, PicTimingError> {
+    pub fn read(
+        sps: &sps::SeqParameterSet,
+        msg: &SeiMessage<'_>,
+    ) -> Result<PicTiming, PicTimingError> {
         assert_eq!(msg.payload_type, HeaderType::PicTiming);
         let mut r = BitReader::new(msg.payload);
         let pic_timing = PicTiming {
@@ -252,12 +258,25 @@ impl PicTiming {
         Ok(pic_timing)
     }
 
-    fn read_delays<R: BitRead>(r: &mut R, sps: &sps::SeqParameterSet) -> Result<Option<Delays>,PicTimingError> {
+    fn read_delays<R: BitRead>(
+        r: &mut R,
+        sps: &sps::SeqParameterSet,
+    ) -> Result<Option<Delays>, PicTimingError> {
         Ok(if let Some(ref vui_params) = sps.vui_parameters {
-            if let Some(ref hrd) = vui_params.nal_hrd_parameters.as_ref().or_else(|| vui_params.nal_hrd_parameters.as_ref() ) {
+            if let Some(ref hrd) = vui_params
+                .nal_hrd_parameters
+                .as_ref()
+                .or_else(|| vui_params.nal_hrd_parameters.as_ref())
+            {
                 Some(Delays {
-                    cpb_removal_delay: r.read_u32(u32::from(hrd.cpb_removal_delay_length_minus1)+1, "cpb_removal_delay")?,
-                    dpb_output_delay: r.read_u32(u32::from(hrd.dpb_output_delay_length_minus1)+1, "dpb_output_delay")?,
+                    cpb_removal_delay: r.read_u32(
+                        u32::from(hrd.cpb_removal_delay_length_minus1) + 1,
+                        "cpb_removal_delay",
+                    )?,
+                    dpb_output_delay: r.read_u32(
+                        u32::from(hrd.dpb_output_delay_length_minus1) + 1,
+                        "dpb_output_delay",
+                    )?,
                 })
             } else {
                 None
@@ -267,7 +286,10 @@ impl PicTiming {
         })
     }
 
-    fn read_pic_struct<R: BitRead>(r: &mut R, sps: &sps::SeqParameterSet) -> Result<Option<PicStruct>,PicTimingError> {
+    fn read_pic_struct<R: BitRead>(
+        r: &mut R,
+        sps: &sps::SeqParameterSet,
+    ) -> Result<Option<PicStruct>, PicTimingError> {
         Ok(if let Some(ref vui_params) = sps.vui_parameters {
             if vui_params.pic_struct_present_flag {
                 let pic_struct = PicStructType::from_id(r.read_u8(4, "pic_struct")?)?;
@@ -285,7 +307,11 @@ impl PicTiming {
         })
     }
 
-    fn read_clock_timestamps<R: BitRead>(r: &mut R, pic_struct: &PicStructType, sps: &sps::SeqParameterSet) -> Result<Vec<Option<ClockTimestamp>>,PicTimingError> {
+    fn read_clock_timestamps<R: BitRead>(
+        r: &mut R,
+        pic_struct: &PicStructType,
+        sps: &sps::SeqParameterSet,
+    ) -> Result<Vec<Option<ClockTimestamp>>, PicTimingError> {
         let mut res = Vec::new();
         for _ in 0..pic_struct.num_clock_timestamps() {
             res.push(if r.read_bool("clock_timestamp_flag")? {
@@ -299,8 +325,8 @@ impl PicTiming {
 }
 #[cfg(test)]
 mod test {
-    use hex_literal::hex;
     use crate::rbsp;
+    use hex_literal::hex;
 
     use super::*;
 
@@ -308,26 +334,31 @@ mod test {
     fn parse() {
         // https://standards.iso.org/ittf/PubliclyAvailableStandards/ISO_IEC_14496-4_2004_Amd_6_2005_Bitstreams/
         // This example taken from CVSEFDFT3_Sony_E.zip.
-        let sps = hex!("
+        let sps = hex!(
+            "
             4d 60 15 8d 8d 28 58 9d 08 00 00 0f a0 00 07 53
             07 00 00 00 92 7c 00 00 12 4f 80 fb dc 18 00 00
             0f 42 40 00 07 a1 20 7d ee 07 c6 0c 62 60
-        ");
+        "
+        );
         let sps = sps::SeqParameterSet::from_bits(rbsp::BitReader::new(&sps[..])).unwrap();
         let msg = SeiMessage {
             payload_type: HeaderType::PicTiming,
             payload: &hex!("00 00 00 00 00 0c 72")[..],
         };
         let pic_timing = PicTiming::read(&sps, &msg).unwrap();
-        assert_eq!(pic_timing, PicTiming {
-            delays: Some(Delays {
-                cpb_removal_delay: 0,
-                dpb_output_delay: 12,
-            }),
-            pic_struct: Some(PicStruct {
-                pic_struct: PicStructType::FrameDoubling,
-                clock_timestamps: vec![None, None],
-            }),
-        });
+        assert_eq!(
+            pic_timing,
+            PicTiming {
+                delays: Some(Delays {
+                    cpb_removal_delay: 0,
+                    dpb_output_delay: 12,
+                }),
+                pic_struct: Some(PicStruct {
+                    pic_struct: PicStructType::FrameDoubling,
+                    clock_timestamps: vec![None, None],
+                }),
+            }
+        );
     }
 }

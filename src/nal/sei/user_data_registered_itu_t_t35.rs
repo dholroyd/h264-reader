@@ -3,7 +3,7 @@ use crate::nal::sei::SeiMessage;
 
 #[derive(Debug)]
 pub enum ItuTT35Error {
-    NotEnoughData { expected: usize, actual: usize }
+    NotEnoughData { expected: usize, actual: usize },
 }
 
 #[derive(Debug, PartialEq)]
@@ -210,7 +210,10 @@ impl ItuTT35 {
     pub fn read<'a>(msg: &SeiMessage<'a>) -> Result<(ItuTT35, &'a [u8]), ItuTT35Error> {
         assert_eq!(msg.payload_type, HeaderType::UserDataRegisteredItuTT35);
         if msg.payload.is_empty() {
-            return Err(ItuTT35Error::NotEnoughData { expected: 1, actual: 0 });
+            return Err(ItuTT35Error::NotEnoughData {
+                expected: 1,
+                actual: 0,
+            });
         }
         let buf = msg.payload;
         let itu_t_t35_country_code = buf[0];
@@ -219,7 +222,10 @@ impl ItuTT35 {
             0b0000_0001 => (ItuTT35::Albania, &buf[1..]),
             0b0000_0010 => (ItuTT35::Algeria, &buf[1..]),
             0b0000_0011 => (ItuTT35::AmericanSamoa, &buf[1..]),
-            0b0000_0100 => (ItuTT35::GermanyFederalRepublicOf(itu_t_t35_country_code), &buf[1..]),
+            0b0000_0100 => (
+                ItuTT35::GermanyFederalRepublicOf(itu_t_t35_country_code),
+                &buf[1..],
+            ),
             0b0000_0101 => (ItuTT35::Anguilla, &buf[1..]),
             0b0000_0110 => (ItuTT35::AntiguaandBarbuda, &buf[1..]),
             0b0000_0111 => (ItuTT35::Argentina, &buf[1..]),
@@ -281,7 +287,10 @@ impl ItuTT35 {
             0b0011_1111 => (ItuTT35::FrenchSouthernAndAntarcticLands, &buf[1..]),
             0b0100_0000 => (ItuTT35::Gabon, &buf[1..]),
             0b0100_0001 => (ItuTT35::Gambia, &buf[1..]),
-            0b0100_0010 => (ItuTT35::GermanyFederalRepublicOf(itu_t_t35_country_code), &buf[1..]),
+            0b0100_0010 => (
+                ItuTT35::GermanyFederalRepublicOf(itu_t_t35_country_code),
+                &buf[1..],
+            ),
             0b0100_0011 => (ItuTT35::Angola, &buf[1..]),
             0b0100_0100 => (ItuTT35::Ghana, &buf[1..]),
             0b0100_0101 => (ItuTT35::Gibraltar, &buf[1..]),
@@ -414,10 +423,13 @@ impl ItuTT35 {
             0b1100_0100 => (ItuTT35::Zimbabwe, &buf[1..]),
             0b1111_1111 => {
                 if buf.len() < 2 {
-                    return Err(ItuTT35Error::NotEnoughData { expected: 2, actual: buf.len() });
+                    return Err(ItuTT35Error::NotEnoughData {
+                        expected: 2,
+                        actual: buf.len(),
+                    });
                 }
                 (ItuTT35::Extended(buf[1]), &buf[1..])
-            },
+            }
             _ => (ItuTT35::Unknown(itu_t_t35_country_code), &buf[1..]),
         })
     }
@@ -433,6 +445,9 @@ mod test {
             payload_type: HeaderType::UserDataRegisteredItuTT35,
             payload: &[0b1011_0100, 0x00],
         };
-        assert_eq!(ItuTT35::read(&msg).unwrap(), (ItuTT35::UnitedKingdom, &[0x00][..]));
+        assert_eq!(
+            ItuTT35::read(&msg).unwrap(),
+            (ItuTT35::UnitedKingdom, &[0x00][..])
+        );
     }
 }

@@ -137,7 +137,7 @@ impl<H: AccumulatedNalHandler> NalFragmentHandler for NalAccumulator<H> {
             let nal = if !self.buf.is_empty() {
                 RefNal::new(&self.buf[..], bufs, end)
             } else if bufs.is_empty() {
-                return;  // no-op.
+                return; // no-op.
             } else {
                 RefNal::new(bufs[0], &bufs[1..], end)
             };
@@ -150,9 +150,9 @@ impl<H: AccumulatedNalHandler> NalFragmentHandler for NalAccumulator<H> {
                     for b in bufs {
                         self.buf.extend_from_slice(b);
                     }
-                },
+                }
                 NalInterest::Ignore => self.interest = NalInterest::Ignore,
-                _ => {},
+                _ => {}
             }
         }
         if end {
@@ -174,8 +174,8 @@ impl<H: AccumulatedNalHandler + std::fmt::Debug> std::fmt::Debug for NalAccumula
 
 #[cfg(test)]
 mod test {
-    use std::io::{BufRead, Read};
     use crate::nal::Nal;
+    use std::io::{BufRead, Read};
 
     use super::*;
 
@@ -202,11 +202,14 @@ mod test {
         accumulator.nal_fragment(&[], false);
         accumulator.nal_fragment(&[&[3]], false);
         accumulator.nal_fragment(&[], true);
-        assert_eq!(nals, &[
-            &[0b0101_0001, 1][..],
-            &[0b0101_0001, 2][..],
-            &[0b0101_0001, 3][..],
-        ]);
+        assert_eq!(
+            nals,
+            &[
+                &[0b0101_0001, 1][..],
+                &[0b0101_0001, 2][..],
+                &[0b0101_0001, 3][..],
+            ]
+        );
 
         // Try buffering nothing and see what's given on the first push.
         nals.clear();
@@ -225,10 +228,13 @@ mod test {
         accumulator.nal_fragment(&[], false);
         accumulator.nal_fragment(&[&[3]], false);
         accumulator.nal_fragment(&[], true);
-        assert_eq!(nals, &[
-            &[0b0101_0001, 1][..],
-            &[0b0101_0001][..],
-            &[0b0101_0001][..],
-        ]);
+        assert_eq!(
+            nals,
+            &[
+                &[0b0101_0001, 1][..],
+                &[0b0101_0001][..],
+                &[0b0101_0001][..],
+            ]
+        );
     }
 }

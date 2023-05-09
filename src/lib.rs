@@ -3,11 +3,11 @@
 #![forbid(unsafe_code)]
 #![deny(rust_2018_idioms)]
 
-pub mod rbsp;
 pub mod annexb;
-pub mod nal;
 pub mod avcc;
+pub mod nal;
 pub mod push;
+pub mod rbsp;
 
 /// Contextual data that needs to be tracked between evaluations of different portions of H264
 /// syntax.
@@ -22,10 +22,14 @@ impl Default for Context {
 }
 impl Context {
     pub fn new() -> Self {
-        let mut seq_param_sets = vec!();
-        for _ in 0..32 { seq_param_sets.push(None); }
-        let mut pic_param_sets = vec!();
-        for _ in 0..32 { pic_param_sets.push(None); }
+        let mut seq_param_sets = vec![];
+        for _ in 0..32 {
+            seq_param_sets.push(None);
+        }
+        let mut pic_param_sets = vec![];
+        for _ in 0..32 {
+            pic_param_sets.push(None);
+        }
         Context {
             seq_param_sets,
             pic_param_sets,

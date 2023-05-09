@@ -2,14 +2,17 @@
 //! File Format_ (AKA MP4), as the specified in _ISO/IEC 14496-15_.
 //!
 
-use crate::nal::{Nal, NalHeader, NalHeaderError, RefNal, UnitType, pps, sps};
-use std::convert::TryFrom;
-use crate::nal::sps::{ProfileIdc, Level, ConstraintFlags, SeqParameterSet};
+use crate::nal::sps::{ConstraintFlags, Level, ProfileIdc, SeqParameterSet};
+use crate::nal::{pps, sps, Nal, NalHeader, NalHeaderError, RefNal, UnitType};
 use crate::Context;
+use std::convert::TryFrom;
 
 #[derive(Debug)]
 pub enum AvccError {
-    NotEnoughData { expected: usize, actual: usize },
+    NotEnoughData {
+        expected: usize,
+        actual: usize,
+    },
     /// The AvcDecoderConfigurationRecord used a version number other than `1`.
     UnsupportedConfigurationVersion(u8),
     ParamSet(ParamSetError),
@@ -18,19 +21,21 @@ pub enum AvccError {
 }
 
 pub struct AvcDecoderConfigurationRecord<'buf> {
-    data: &'buf[u8],
+    data: &'buf [u8],
 }
-impl<'buf> TryFrom<&'buf[u8]> for AvcDecoderConfigurationRecord<'buf> {
+impl<'buf> TryFrom<&'buf [u8]> for AvcDecoderConfigurationRecord<'buf> {
     type Error = AvccError;
 
-    fn try_from(data: &'buf[u8]) -> Result<Self, Self::Error> {
+    fn try_from(data: &'buf [u8]) -> Result<Self, Self::Error> {
         let avcc = AvcDecoderConfigurationRecord { data };
         // we must confirm we have enough bytes for all fixed fields before we do anything else,
         avcc.ck(Self::MIN_CONF_SIZE)?;
         if avcc.configuration_version() != 1 {
             // The spec requires that decoders ignore streams where the version number is not 1,
             // indicating there was an incompatible change in the configuration format,
-            return Err(AvccError::UnsupportedConfigurationVersion(avcc.configuration_version()));
+            return Err(AvccError::UnsupportedConfigurationVersion(
+                avcc.configuration_version(),
+            ));
         }
         // Do a whole load of work to ensure that the buffer is large enough for all the optional
         // fields actually indicated to be present, so that we don't have to put these checks into
@@ -42,12 +47,11 @@ impl<'buf> TryFrom<&'buf[u8]> for AvcDecoderConfigurationRecord<'buf> {
         len += 1;
         while num_pps > 0 {
             avcc.ck(len + 2)?;
-            let pps_len = (u16::from(data[len]) << 8 | u16::from(data[len +1 ])) as usize;
+            let pps_len = (u16::from(data[len]) << 8 | u16::from(data[len + 1])) as usize;
             len += 2;
             avcc.ck(len + pps_len)?;
             len += pps_len;
             num_pps -= 1;
-
         }
 
         Ok(avcc)
@@ -69,9 +73,12 @@ impl<'buf> AvcDecoderConfigurationRecord<'buf> {
         }
         Ok(len)
     }
-    fn ck(&self, len: usize)  -> Result<(), AvccError> {
+    fn ck(&self, len: usize) -> Result<(), AvccError> {
         if self.data.len() < len {
-            Err(AvccError::NotEnoughData { expected: len, actual: self.data.len() })
+            Err(AvccError::NotEnoughData {
+                expected: len,
+                actual: self.data.len(),
+            })
         } else {
             Ok(())
         }
@@ -96,18 +103,20 @@ impl<'buf> AvcDecoderConfigurationRecord<'buf> {
     pub fn length_size_minus_one(&self) -> u8 {
         self.data[4] & 0b0000_0011
     }
-    pub fn sequence_parameter_sets(&self) -> impl Iterator<Item = Result<&'buf[u8], ParamSetError>> {
+    pub fn sequence_parameter_sets(
+        &self,
+    ) -> impl Iterator<Item = Result<&'buf [u8], ParamSetError>> {
         let num = self.num_of_sequence_parameter_sets();
         let data = &self.data[Self::MIN_CONF_SIZE..];
-        ParamSetIter::new(data, UnitType::SeqParameterSet)
-            .take(num)
+        ParamSetIter::new(data, UnitType::SeqParameterSet).take(num)
     }
-    pub fn picture_parameter_sets(&self) -> impl Iterator<Item = Result<&'buf[u8], ParamSetError>> + 'buf {
+    pub fn picture_parameter_sets(
+        &self,
+    ) -> impl Iterator<Item = Result<&'buf [u8], ParamSetError>> + 'buf {
         let offset = self.seq_param_sets_end().unwrap();
         let num = self.data[offset];
-        let data = &self.data[offset+1..];
-        ParamSetIter::new(data, UnitType::PicParameterSet)
-            .take(num as usize)
+        let data = &self.data[offset + 1..];
+        ParamSetIter::new(data, UnitType::PicParameterSet).take(num as usize)
     }
 
     /// Creates an H264 parser context, using the settings encoded into
@@ -120,13 +129,15 @@ impl<'buf> AvcDecoderConfigurationRecord<'buf> {
         for sps in self.sequence_parameter_sets() {
             let sps = sps.map_err(AvccError::ParamSet)?;
             let sps = RefNal::new(&sps[..], &[], true);
-            let sps = crate::nal::sps::SeqParameterSet::from_bits(sps.rbsp_bits()).map_err(AvccError::Sps)?;
+            let sps = crate::nal::sps::SeqParameterSet::from_bits(sps.rbsp_bits())
+                .map_err(AvccError::Sps)?;
             ctx.put_seq_param_set(sps);
         }
         for pps in self.picture_parameter_sets() {
             let pps = pps.map_err(AvccError::ParamSet)?;
             let pps = RefNal::new(&pps[..], &[], true);
-            let pps = crate::nal::pps::PicParameterSet::from_bits(&ctx, pps.rbsp_bits()).map_err(AvccError::Pps)?;
+            let pps = crate::nal::pps::PicParameterSet::from_bits(&ctx, pps.rbsp_bits())
+                .map_err(AvccError::Pps)?;
             ctx.put_pic_param_set(pps);
         }
         Ok(ctx)
@@ -136,22 +147,24 @@ impl<'buf> AvcDecoderConfigurationRecord<'buf> {
 #[derive(Debug)]
 pub enum ParamSetError {
     NalHeader(NalHeaderError),
-    IncorrectNalType { expected: UnitType, actual: UnitType },
+    IncorrectNalType {
+        expected: UnitType,
+        actual: UnitType,
+    },
     /// A _sequence parameter set_ found within the AVC decoder config was not consistent with the
     /// settings of the decoder config itself
     IncompatibleSps(SeqParameterSet),
 }
 
-struct ParamSetIter<'buf>(&'buf[u8], UnitType);
+struct ParamSetIter<'buf>(&'buf [u8], UnitType);
 
 impl<'buf> ParamSetIter<'buf> {
-    pub fn new(buf: &'buf[u8], unit_type: UnitType) -> ParamSetIter<'buf> {
+    pub fn new(buf: &'buf [u8], unit_type: UnitType) -> ParamSetIter<'buf> {
         ParamSetIter(buf, unit_type)
     }
 }
-impl<'buf> Iterator for ParamSetIter<'buf>
-{
-    type Item = Result<&'buf[u8], ParamSetError>;
+impl<'buf> Iterator for ParamSetIter<'buf> {
+    type Item = Result<&'buf [u8], ParamSetError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.is_empty() {
@@ -166,9 +179,12 @@ impl<'buf> Iterator for ParamSetIter<'buf>
                         self.0 = remainder;
                         Ok(data)
                     } else {
-                        Err(ParamSetError::IncorrectNalType { expected: self.1, actual: nal_header.nal_unit_type() })
+                        Err(ParamSetError::IncorrectNalType {
+                            expected: self.1,
+                            actual: nal_header.nal_unit_type(),
+                        })
                     }
-                },
+                }
                 Err(err) => Err(ParamSetError::NalHeader(err)),
             };
             Some(res)
@@ -197,24 +213,29 @@ mod test {
         assert!(!flags.flag4());
         assert!(!flags.flag5());
         let ctx = avcc.create_context().unwrap();
-        let sps = ctx.sps_by_id(ParamSetId::from_u32(0).unwrap())
+        let sps = ctx
+            .sps_by_id(ParamSetId::from_u32(0).unwrap())
             .expect("missing sps");
         assert_eq!(avcc.avc_level_indication(), sps.level());
         assert_eq!(avcc.avc_profile_indication(), sps.profile_idc);
         assert_eq!(ParamSetId::from_u32(0).unwrap(), sps.seq_parameter_set_id);
-        let _pps = ctx.pps_by_id(ParamSetId::from_u32(0).unwrap())
+        let _pps = ctx
+            .pps_by_id(ParamSetId::from_u32(0).unwrap())
             .expect("missing pps");
     }
     #[test]
     fn sps_with_emulation_protection() {
         // From a Hikvision 2CD2032-I.
-        let avcc_data = hex!("014d401e ffe10017 674d401e 9a660a0f
+        let avcc_data = hex!(
+            "014d401e ffe10017 674d401e 9a660a0f
                               ff350101 01400000 fa000003 01f40101
-                              000468ee 3c80");
+                              000468ee 3c80"
+        );
         let avcc = AvcDecoderConfigurationRecord::try_from(&avcc_data[..]).unwrap();
         let _sps_data = avcc.sequence_parameter_sets().next().unwrap().unwrap();
         let ctx = avcc.create_context().unwrap();
-        let _sps = ctx.sps_by_id(ParamSetId::from_u32(0).unwrap())
+        let _sps = ctx
+            .sps_by_id(ParamSetId::from_u32(0).unwrap())
             .expect("missing sps");
     }
 }

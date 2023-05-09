@@ -1,9 +1,9 @@
 use super::SeiMessage;
-use crate::nal::{sps, pps};
-use crate::rbsp::BitRead;
-use crate::Context;
 use crate::nal::sei::HeaderType;
+use crate::nal::{pps, sps};
+use crate::rbsp::BitRead;
 use crate::rbsp::BitReaderError;
+use crate::Context;
 
 #[derive(Debug)]
 pub enum BufferingPeriodError {
@@ -28,12 +28,17 @@ struct InitialCpbRemoval {
     initial_cpb_removal_delay_offset: u32,
 }
 
-fn read_cpb_removal_delay_list<R: BitRead>(r: &mut R, count: usize, length: u32) -> Result<Vec<InitialCpbRemoval>,BitReaderError> {
-    let mut res = vec!();
+fn read_cpb_removal_delay_list<R: BitRead>(
+    r: &mut R,
+    count: usize,
+    length: u32,
+) -> Result<Vec<InitialCpbRemoval>, BitReaderError> {
+    let mut res = vec![];
     for _ in 0..count {
         res.push(InitialCpbRemoval {
             initial_cpb_removal_delay: r.read_u32(length, "initial_cpb_removal_delay")?,
-            initial_cpb_removal_delay_offset: r.read_u32(length, "initial_cpb_removal_delay_offset")?,
+            initial_cpb_removal_delay_offset: r
+                .read_u32(length, "initial_cpb_removal_delay_offset")?,
         });
     }
     Ok(res)
@@ -45,20 +50,32 @@ pub struct BufferingPeriod {
     vcl_hrd_bp: Option<Vec<InitialCpbRemoval>>,
 }
 impl BufferingPeriod {
-    pub fn read(ctx: &Context, msg: &SeiMessage<'_>) -> Result<BufferingPeriod,BufferingPeriodError> {
+    pub fn read(
+        ctx: &Context,
+        msg: &SeiMessage<'_>,
+    ) -> Result<BufferingPeriod, BufferingPeriodError> {
         assert_eq!(msg.payload_type, HeaderType::BufferingPeriod);
         let mut r = crate::rbsp::BitReader::new(msg.payload);
         let seq_parameter_set_id = pps::ParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)?;
-        let sps = ctx.sps_by_id(seq_parameter_set_id)
+        let sps = ctx
+            .sps_by_id(seq_parameter_set_id)
             .ok_or_else(|| BufferingPeriodError::UndefinedSeqParamSetId(seq_parameter_set_id))?;
         let vui = sps.vui_parameters.as_ref();
-        let mut read = |p: &sps::HrdParameters| read_cpb_removal_delay_list(
-            &mut r,
-            p.cpb_specs.len(),
-            u32::from(p.initial_cpb_removal_delay_length_minus1) + 1,
-        );
-        let nal_hrd_bp = vui.and_then(|v| v.nal_hrd_parameters.as_ref()).map(&mut read).transpose()?;
-        let vcl_hrd_bp = vui.and_then(|v| v.vcl_hrd_parameters.as_ref()).map(&mut read).transpose()?;
+        let mut read = |p: &sps::HrdParameters| {
+            read_cpb_removal_delay_list(
+                &mut r,
+                p.cpb_specs.len(),
+                u32::from(p.initial_cpb_removal_delay_length_minus1) + 1,
+            )
+        };
+        let nal_hrd_bp = vui
+            .and_then(|v| v.nal_hrd_parameters.as_ref())
+            .map(&mut read)
+            .transpose()?;
+        let vcl_hrd_bp = vui
+            .and_then(|v| v.vcl_hrd_parameters.as_ref())
+            .map(&mut read)
+            .transpose()?;
         r.finish_sei_payload()?;
         Ok(BufferingPeriod {
             nal_hrd_bp,
@@ -80,30 +97,33 @@ mod test {
         // https://standards.iso.org/ittf/PubliclyAvailableStandards/ISO_IEC_14496-4_2004_Amd_6_2005_Bitstreams/
         // This example taken from CVSEFDFT3_Sony_E.zip.
         let mut ctx = Context::default();
-        let sps_rbsp = hex!("
+        let sps_rbsp = hex!(
+            "
             4d 60 15 8d 8d 28 58 9d 08 00 00 0f a0 00 07 53
             07 00 00 00 92 7c 00 00 12 4f 80 fb dc 18 00 00
             0f 42 40 00 07 a1 20 7d ee 07 c6 0c 62 60
-        ");
-        ctx.put_seq_param_set(sps::SeqParameterSet::from_bits(rbsp::BitReader::new(&sps_rbsp[..])).unwrap());
+        "
+        );
+        ctx.put_seq_param_set(
+            sps::SeqParameterSet::from_bits(rbsp::BitReader::new(&sps_rbsp[..])).unwrap(),
+        );
 
         let msg = SeiMessage {
             payload_type: HeaderType::BufferingPeriod,
             payload: &hex!("d7 e4 00 00 57 e4 00 00 40")[..],
         };
-        assert_eq!(BufferingPeriod::read(&ctx, &msg).unwrap(), BufferingPeriod {
-            nal_hrd_bp: Some(vec![
-                InitialCpbRemoval {
+        assert_eq!(
+            BufferingPeriod::read(&ctx, &msg).unwrap(),
+            BufferingPeriod {
+                nal_hrd_bp: Some(vec![InitialCpbRemoval {
                     initial_cpb_removal_delay: 45_000,
                     initial_cpb_removal_delay_offset: 0,
-                },
-            ]),
-            vcl_hrd_bp: Some(vec![
-                InitialCpbRemoval {
+                },]),
+                vcl_hrd_bp: Some(vec![InitialCpbRemoval {
                     initial_cpb_removal_delay: 45_000,
                     initial_cpb_removal_delay_offset: 0,
-                },
-            ]),
-        });
+                },]),
+            }
+        );
     }
 }
