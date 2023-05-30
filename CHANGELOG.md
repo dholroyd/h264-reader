@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.0 - 2023-05-30
+
 ### Changed
 *   Make `PicOrderCountLsb::FieldsAbsolute` field names mirror the spec, rather than doing some calculations during
     parsing.
