@@ -12,3 +12,7 @@ updates:
   - dependency-name: pretty_assertions
     versions:
     - 0.7.1
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: weekly
