@@ -12,6 +12,7 @@ cargo-fuzz = true
 [dependencies]
 hex-slice = "0.1.4"
 libfuzzer-sys = "0.3"
+h26forge = { path = "../../h26forge" }
 
 [dependencies.h264-reader]
 path = ".."
