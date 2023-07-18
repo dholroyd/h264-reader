@@ -4,8 +4,10 @@ use h264_reader::annexb::AnnexBReader;
 use h264_reader::Context;
 use h264_reader::nal::{Nal, RefNal, UnitType, aud, pps, slice, sei, sps, sps_extension, subset_sps};
 use h264_reader::push::NalInterest;
+use h26forge::generate_video_from_film_contents;
 
 fuzz_target!(|data: &[u8]| {
+    let video = generate_video_from_film_contents(data.to_vec());
     let mut ctx = Context::default();
     let mut scratch = Vec::new();
     let mut annexb_reader = AnnexBReader::accumulate(|nal: RefNal<'_>| {
@@ -63,7 +65,7 @@ fuzz_target!(|data: &[u8]| {
         }
         NalInterest::Buffer
     });
-    annexb_reader.push(data);
+    annexb_reader.push(&video);
     annexb_reader.reset();
     ctx.sps().for_each(|sps| { let _ = sps.pixel_dimensions(); });
 });
