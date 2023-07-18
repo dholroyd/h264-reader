@@ -7,7 +7,26 @@ use h264_reader::push::NalInterest;
 use h26forge::generate_video_from_film_contents;
 
 fuzz_target!(|data: &[u8]| {
-    let video = generate_video_from_film_contents(data.to_vec());
+    let seed = 0;
+    let ignore_intra_pred = true;
+    let ignore_edge_intra_pred = true;
+    let ignore_ipcm = true;
+    let small_video = true;
+    let silent_mode = true;
+    let empty_slice_data = true;
+    let undefined_nalus = false;
+
+    let video = generate_video_from_film_contents(
+        data.to_vec(), 
+        seed,
+        ignore_intra_pred,
+        ignore_edge_intra_pred,
+        ignore_ipcm,
+        empty_slice_data,
+        small_video,
+        silent_mode,
+        undefined_nalus);
+    
     let mut ctx = Context::default();
     let mut scratch = Vec::new();
     let mut annexb_reader = AnnexBReader::accumulate(|nal: RefNal<'_>| {
