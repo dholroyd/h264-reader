@@ -134,6 +134,11 @@ impl<R: BufRead> ByteReader<R> {
         }
         Ok(true)
     }
+
+    /// Borrows the underlying reader
+    pub fn reader(&mut self) -> &mut R {
+        &mut self.inner
+    }
 }
 impl<R: BufRead> Read for ByteReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
