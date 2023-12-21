@@ -274,6 +274,15 @@ impl<R: std::io::BufRead + Clone> BitReader<R> {
     pub fn reader(&mut self) -> Option<&mut R> {
         self.reader.reader()
     }
+
+    /// Unwraps internal reader and disposes of BitReader.
+    ///
+    /// # Warning
+    ///
+    /// Any unread partial bits are discarded.
+    pub fn into_reader(self) -> R {
+        self.reader.into_reader()
+    }
 }
 
 impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
