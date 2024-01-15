@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 #![deny(rust_2018_idioms)]
 
+use std::fmt::Debug;
+
 pub mod annexb;
 pub mod avcc;
 pub mod nal;
@@ -11,58 +13,89 @@ pub mod rbsp;
 
 /// Contextual data that needs to be tracked between evaluations of different portions of H264
 /// syntax.
+#[derive(Default, Debug)]
 pub struct Context {
-    seq_param_sets: Vec<Option<nal::sps::SeqParameterSet>>,
-    pic_param_sets: Vec<Option<nal::pps::PicParameterSet>>,
-}
-impl Default for Context {
-    fn default() -> Self {
-        Self::new()
-    }
+    seq_param_sets: ParamSetMap<nal::sps::SeqParameterSet>,
+    pic_param_sets: ParamSetMap<nal::pps::PicParameterSet>,
 }
 impl Context {
+    #[inline]
     pub fn new() -> Self {
-        let mut seq_param_sets = vec![];
-        for _ in 0..32 {
-            seq_param_sets.push(None);
-        }
-        let mut pic_param_sets = vec![];
-        for _ in 0..32 {
-            pic_param_sets.push(None);
-        }
-        Context {
-            seq_param_sets,
-            pic_param_sets,
-        }
+        Default::default()
+    }
+    #[inline]
+    pub fn sps_by_id(&self, id: nal::pps::ParamSetId) -> Option<&nal::sps::SeqParameterSet> {
+        self.seq_param_sets.get(usize::from(id.id()))
+    }
+    #[inline]
+    pub fn sps(&self) -> impl Iterator<Item = &nal::sps::SeqParameterSet> {
+        self.seq_param_sets.iter()
+    }
+    #[inline]
+    pub fn put_seq_param_set(&mut self, sps: nal::sps::SeqParameterSet) {
+        let i = usize::from(sps.seq_parameter_set_id.id());
+        self.seq_param_sets.put(i, sps);
+    }
+    #[inline]
+    pub fn pps_by_id(&self, id: nal::pps::ParamSetId) -> Option<&nal::pps::PicParameterSet> {
+        self.pic_param_sets.get(usize::from(id.id()))
+    }
+    #[inline]
+    pub fn pps(&self) -> impl Iterator<Item = &nal::pps::PicParameterSet> {
+        self.pic_param_sets.iter()
+    }
+    #[inline]
+    pub fn put_pic_param_set(&mut self, pps: nal::pps::PicParameterSet) {
+        let i = usize::from(pps.pic_parameter_set_id.id());
+        self.pic_param_sets.put(i, pps);
     }
 }
-impl Context {
-    pub fn sps_by_id(&self, id: nal::pps::ParamSetId) -> Option<&nal::sps::SeqParameterSet> {
-        if id.id() > 31 {
-            None
-        } else {
-            self.seq_param_sets[id.id() as usize].as_ref()
+
+/// A map for very small indexes; SPS/PPS IDs must be in `[0, 32)`, and typically only 0 is used.
+struct ParamSetMap<T>(Vec<Option<T>>);
+impl<T> Default for ParamSetMap<T> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+impl<T> ParamSetMap<T> {
+    fn get(&self, index: usize) -> Option<&T> {
+        self.0.get(index).map(Option::as_ref).flatten()
+    }
+    fn put(&mut self, index: usize, t: T) {
+        if self.0.len() <= index {
+            self.0.resize_with(index + 1, || None);
         }
+        self.0[index] = Some(t);
     }
-    pub fn sps(&self) -> impl Iterator<Item = &nal::sps::SeqParameterSet> {
-        self.seq_param_sets.iter().filter_map(Option::as_ref)
+    fn iter(&self) -> impl Iterator<Item = &T> {
+        self.0.iter().filter_map(Option::as_ref)
     }
-    pub fn put_seq_param_set(&mut self, sps: nal::sps::SeqParameterSet) {
-        let i = sps.seq_parameter_set_id.id() as usize;
-        self.seq_param_sets[i] = Some(sps);
+}
+impl<T: Debug> Debug for ParamSetMap<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map()
+            .entries(
+                self.0
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, p)| p.as_ref().map(|p| (i, p))),
+            )
+            .finish()
     }
-    pub fn pps_by_id(&self, id: nal::pps::ParamSetId) -> Option<&nal::pps::PicParameterSet> {
-        if id.id() > 31 {
-            None
-        } else {
-            self.pic_param_sets[id.id() as usize].as_ref()
-        }
-    }
-    pub fn pps(&self) -> impl Iterator<Item = &nal::pps::PicParameterSet> {
-        self.pic_param_sets.iter().filter_map(Option::as_ref)
-    }
-    pub fn put_pic_param_set(&mut self, pps: nal::pps::PicParameterSet) {
-        let i = pps.pic_parameter_set_id.id() as usize;
-        self.pic_param_sets[i] = Some(pps);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn map() {
+        let mut s = super::ParamSetMap::default();
+        assert_eq!(s.iter().copied().collect::<Vec<_>>(), &[]);
+        s.put(0, 0);
+        assert_eq!(s.iter().copied().collect::<Vec<_>>(), &[0]);
+        s.put(2, 2);
+        assert_eq!(s.iter().copied().collect::<Vec<_>>(), &[0, 2]);
+        s.put(1, 1);
+        assert_eq!(s.iter().copied().collect::<Vec<_>>(), &[0, 1, 2]);
     }
 }
