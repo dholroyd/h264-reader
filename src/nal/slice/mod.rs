@@ -1,5 +1,5 @@
 use crate::nal::pps;
-use crate::nal::pps::{ParamSetId, PicParameterSet};
+use crate::nal::pps::{PicParamSetId, PicParameterSet};
 use crate::nal::sps;
 use crate::nal::sps::SeqParameterSet;
 use crate::nal::NalHeader;
@@ -79,9 +79,9 @@ impl SliceType {
 pub enum SliceHeaderError {
     RbspError(BitReaderError),
     InvalidSliceType(u32),
-    InvalidSeqParamSetId(pps::ParamSetIdError),
-    UndefinedPicParamSetId(pps::ParamSetId),
-    UndefinedSeqParamSetId(pps::ParamSetId),
+    InvalidSeqParamSetId(pps::PicParamSetIdError),
+    UndefinedPicParamSetId(pps::PicParamSetId),
+    UndefinedSeqParamSetId(sps::SeqParamSetId),
     ColourPlaneError(ColourPlaneError),
     InvalidModificationOfPicNumIdc(u32),
     InvalidMemoryManagementControlOperation(u32),
@@ -101,8 +101,8 @@ impl From<BitReaderError> for SliceHeaderError {
         SliceHeaderError::RbspError(e)
     }
 }
-impl From<pps::ParamSetIdError> for SliceHeaderError {
-    fn from(e: pps::ParamSetIdError) -> Self {
+impl From<pps::PicParamSetIdError> for SliceHeaderError {
+    fn from(e: pps::PicParamSetIdError) -> Self {
         SliceHeaderError::InvalidSeqParamSetId(e)
     }
 }
@@ -443,7 +443,7 @@ impl SliceHeader {
     ) -> Result<(SliceHeader, &'a SeqParameterSet, &'a PicParameterSet), SliceHeaderError> {
         let first_mb_in_slice = r.read_ue("first_mb_in_slice")?;
         let slice_type = SliceType::from_id(r.read_ue("slice_type")?)?;
-        let pic_parameter_set_id = ParamSetId::from_u32(r.read_ue("pic_parameter_set_id")?)?;
+        let pic_parameter_set_id = PicParamSetId::from_u32(r.read_ue("pic_parameter_set_id")?)?;
         let pps =
             ctx.pps_by_id(pic_parameter_set_id)
                 .ok_or(SliceHeaderError::UndefinedPicParamSetId(

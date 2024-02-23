@@ -444,7 +444,7 @@ mod test {
         r.consume(1);
         assert_eq!(r.fill_buf().unwrap(), &[1, 2, 3, 4]);
         r.consume(4);
-        assert_eq!(r.fill_buf().unwrap(), &[]);
+        assert!(r.fill_buf().unwrap().is_empty());
     }
 
     #[test]

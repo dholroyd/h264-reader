@@ -1,8 +1,25 @@
-use crate::{
-    nal::pps::{ParamSetId, ParamSetIdError},
-    rbsp::{BitRead, BitReaderError},
-};
+use crate::rbsp::{BitRead, BitReaderError};
 use std::fmt::{self, Debug};
+
+#[derive(Debug, PartialEq)]
+pub enum SeqParamSetIdError {
+    IdTooLarge(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SeqParamSetId(u8);
+impl SeqParamSetId {
+    pub fn from_u32(id: u32) -> Result<SeqParamSetId, SeqParamSetIdError> {
+        if id > 31 {
+            Err(SeqParamSetIdError::IdTooLarge(id))
+        } else {
+            Ok(SeqParamSetId(id as u8))
+        }
+    }
+    pub fn id(self) -> u8 {
+        self.0
+    }
+}
 
 #[derive(Debug)]
 pub enum SpsError {
@@ -13,7 +30,8 @@ pub enum SpsError {
     ScalingMatrix(ScalingMatrixError),
     /// log2_max_frame_num_minus4 must be between 0 and 12
     Log2MaxFrameNumMinus4OutOfRange(u32),
-    BadSeqParamSetId(ParamSetIdError),
+    BadSeqParamSetId(SeqParamSetIdError),
+    UnknownSeqParamSetId(SeqParamSetId),
     /// A field in the bitstream had a value too large for a subsequent calculation
     FieldValueTooLarge {
         name: &'static str,
@@ -861,7 +879,7 @@ pub struct SeqParameterSet {
     pub profile_idc: ProfileIdc,
     pub constraint_flags: ConstraintFlags,
     pub level_idc: u8,
-    pub seq_parameter_set_id: ParamSetId,
+    pub seq_parameter_set_id: SeqParamSetId,
     pub chroma_info: ChromaInfo,
     pub log2_max_frame_num_minus4: u8,
     pub pic_order_cnt: PicOrderCntType,
@@ -881,7 +899,7 @@ impl SeqParameterSet {
             profile_idc,
             constraint_flags: r.read_u8(8, "constraint_flags")?.into(),
             level_idc: r.read_u8(8, "level_idc")?,
-            seq_parameter_set_id: ParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)
+            seq_parameter_set_id: SeqParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)
                 .map_err(SpsError::BadSeqParamSetId)?,
             chroma_info: ChromaInfo::read(&mut r, profile_idc)?,
             log2_max_frame_num_minus4: Self::read_log2_max_frame_num_minus4(&mut r)?,
@@ -900,7 +918,7 @@ impl SeqParameterSet {
         Ok(sps)
     }
 
-    pub fn id(&self) -> ParamSetId {
+    pub fn id(&self) -> SeqParamSetId {
         self.seq_parameter_set_id
     }
 
@@ -1065,7 +1083,7 @@ mod test {
             profile_idc: ProfileIdc(0),
             constraint_flags: ConstraintFlags(0),
             level_idc: 0,
-            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo {
                 chroma_format: ChromaFormat::Monochrome,
                 separate_colour_plane_flag: false,
@@ -1105,7 +1123,7 @@ mod test {
             profile_idc: ProfileIdc::from(100),
             constraint_flags: ConstraintFlags::from(0),
             level_idc: 12,
-            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo{
                 chroma_format: ChromaFormat::YUV420,
                 ..ChromaInfo::default()
@@ -1143,7 +1161,7 @@ mod test {
             profile_idc: ProfileIdc::from(100),
             constraint_flags: ConstraintFlags::from(0),
             level_idc: 31,
-            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo{
                 chroma_format: ChromaFormat::YUV420,
                 ..ChromaInfo::default()
@@ -1196,7 +1214,7 @@ mod test {
             profile_idc: ProfileIdc::from(66),
             constraint_flags: ConstraintFlags::from(0b11000000),
             level_idc: 40,
-            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo{
                 chroma_format: ChromaFormat::YUV420,
                 ..ChromaInfo::default()
@@ -1244,7 +1262,7 @@ mod test {
             profile_idc: ProfileIdc::from(100),
             constraint_flags: ConstraintFlags::from(0),
             level_idc: 40,
-            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo{
                 chroma_format: ChromaFormat::YUV420,
                 ..ChromaInfo::default()
@@ -1297,7 +1315,7 @@ mod test {
             profile_idc: ProfileIdc::from(100),
             constraint_flags: ConstraintFlags::from(0),
             level_idc: 41,
-            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo{
                 chroma_format: ChromaFormat::YUV420,
                 ..ChromaInfo::default()
@@ -1354,7 +1372,7 @@ mod test {
             profile_idc: ProfileIdc::from(100),
             constraint_flags: ConstraintFlags::from(0),
             level_idc: 32,
-            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo{
                 chroma_format: ChromaFormat::YUV420,
                 ..ChromaInfo::default()
@@ -1393,7 +1411,7 @@ mod test {
             profile_idc: ProfileIdc::from(100),
             constraint_flags: ConstraintFlags::from(0),
             level_idc: 50,
-            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo{
                 chroma_format: ChromaFormat::YUV420,
                 ..ChromaInfo::default()
@@ -1471,7 +1489,7 @@ mod test {
             profile_idc: ProfileIdc::from(100),
             constraint_flags: ConstraintFlags::from(0),
             level_idc: 42,
-            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo{
                 chroma_format: ChromaFormat::YUV420,
                 ..ChromaInfo::default()
@@ -1541,7 +1559,7 @@ mod test {
             profile_idc: ProfileIdc::from(77),
             constraint_flags: ConstraintFlags::from(0),
             level_idc: 41,
-            seq_parameter_set_id: ParamSetId::from_u32(0).unwrap(),
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo{
                 chroma_format: ChromaFormat::YUV420,
                 ..ChromaInfo::default()
