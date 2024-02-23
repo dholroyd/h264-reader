@@ -195,7 +195,8 @@ impl<'buf> Iterator for ParamSetIter<'buf> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::nal::pps::ParamSetId;
+    use crate::nal::pps::PicParamSetId;
+    use crate::nal::sps::SeqParamSetId;
     use hex_literal::*;
 
     #[test]
@@ -214,13 +215,16 @@ mod test {
         assert!(!flags.flag5());
         let ctx = avcc.create_context().unwrap();
         let sps = ctx
-            .sps_by_id(ParamSetId::from_u32(0).unwrap())
+            .sps_by_id(SeqParamSetId::from_u32(0).unwrap())
             .expect("missing sps");
         assert_eq!(avcc.avc_level_indication(), sps.level());
         assert_eq!(avcc.avc_profile_indication(), sps.profile_idc);
-        assert_eq!(ParamSetId::from_u32(0).unwrap(), sps.seq_parameter_set_id);
+        assert_eq!(
+            SeqParamSetId::from_u32(0).unwrap(),
+            sps.seq_parameter_set_id
+        );
         let _pps = ctx
-            .pps_by_id(ParamSetId::from_u32(0).unwrap())
+            .pps_by_id(PicParamSetId::from_u32(0).unwrap())
             .expect("missing pps");
     }
     #[test]
@@ -235,7 +239,7 @@ mod test {
         let _sps_data = avcc.sequence_parameter_sets().next().unwrap().unwrap();
         let ctx = avcc.create_context().unwrap();
         let _sps = ctx
-            .sps_by_id(ParamSetId::from_u32(0).unwrap())
+            .sps_by_id(SeqParamSetId::from_u32(0).unwrap())
             .expect("missing sps");
     }
 }

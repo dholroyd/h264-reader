@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+*   BREAKING CHANGE: The `ParamSetId` type has been removed and replaced with separate `PicParamSetId` and
+    `SeqParamSetId` types, since the allowed range of values needs to be different in these two usages.
+
 ## 0.7.0 - 2023-05-30
 
 ### Changed

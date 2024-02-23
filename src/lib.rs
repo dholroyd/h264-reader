@@ -24,7 +24,7 @@ impl Context {
         Default::default()
     }
     #[inline]
-    pub fn sps_by_id(&self, id: nal::pps::ParamSetId) -> Option<&nal::sps::SeqParameterSet> {
+    pub fn sps_by_id(&self, id: nal::sps::SeqParamSetId) -> Option<&nal::sps::SeqParameterSet> {
         self.seq_param_sets.get(usize::from(id.id()))
     }
     #[inline]
@@ -37,7 +37,7 @@ impl Context {
         self.seq_param_sets.put(i, sps);
     }
     #[inline]
-    pub fn pps_by_id(&self, id: nal::pps::ParamSetId) -> Option<&nal::pps::PicParameterSet> {
+    pub fn pps_by_id(&self, id: nal::pps::PicParamSetId) -> Option<&nal::pps::PicParameterSet> {
         self.pic_param_sets.get(usize::from(id.id()))
     }
     #[inline]
@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn map() {
         let mut s = super::ParamSetMap::default();
-        assert_eq!(s.iter().copied().collect::<Vec<_>>(), &[]);
+        assert!(s.iter().copied().collect::<Vec<_>>().is_empty());
         s.put(0, 0);
         assert_eq!(s.iter().copied().collect::<Vec<_>>(), &[0]);
         s.put(2, 2);

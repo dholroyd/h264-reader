@@ -1,6 +1,6 @@
 use super::SeiMessage;
 use crate::nal::sei::HeaderType;
-use crate::nal::{pps, sps};
+use crate::nal::sps;
 use crate::rbsp::BitRead;
 use crate::rbsp::BitReaderError;
 use crate::Context;
@@ -8,16 +8,16 @@ use crate::Context;
 #[derive(Debug)]
 pub enum BufferingPeriodError {
     ReaderError(BitReaderError),
-    UndefinedSeqParamSetId(pps::ParamSetId),
-    InvalidSeqParamSetId(pps::ParamSetIdError),
+    UndefinedSeqParamSetId(sps::SeqParamSetId),
+    InvalidSeqParamSetId(sps::SeqParamSetIdError),
 }
 impl From<BitReaderError> for BufferingPeriodError {
     fn from(e: BitReaderError) -> Self {
         BufferingPeriodError::ReaderError(e)
     }
 }
-impl From<pps::ParamSetIdError> for BufferingPeriodError {
-    fn from(e: pps::ParamSetIdError) -> Self {
+impl From<sps::SeqParamSetIdError> for BufferingPeriodError {
+    fn from(e: sps::SeqParamSetIdError) -> Self {
         BufferingPeriodError::InvalidSeqParamSetId(e)
     }
 }
@@ -56,7 +56,8 @@ impl BufferingPeriod {
     ) -> Result<BufferingPeriod, BufferingPeriodError> {
         assert_eq!(msg.payload_type, HeaderType::BufferingPeriod);
         let mut r = crate::rbsp::BitReader::new(msg.payload);
-        let seq_parameter_set_id = pps::ParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)?;
+        let seq_parameter_set_id =
+            sps::SeqParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)?;
         let sps = ctx
             .sps_by_id(seq_parameter_set_id)
             .ok_or_else(|| BufferingPeriodError::UndefinedSeqParamSetId(seq_parameter_set_id))?;
