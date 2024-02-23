@@ -130,9 +130,9 @@ impl SliceGroup {
     ) -> Result<Vec<u32>, PpsError> {
         let pic_size_in_map_units_minus1 = r.read_ue("pic_size_in_map_units_minus1")?;
         // TODO: avoid any panics due to failed conversions
-        let size = ((1f64 + f64::from(pic_size_in_map_units_minus1)).log2()) as u32;
+        let size = ((1f64 + f64::from(num_slice_groups_minus1)).log2()) as u32;
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
-        for _ in 0..num_slice_groups_minus1 + 1 {
+        for _ in 0..pic_size_in_map_units_minus1 + 1 {
             run_length_minus1.push(r.read_u32(size, "slice_group_id")?);
         }
         Ok(run_length_minus1)
