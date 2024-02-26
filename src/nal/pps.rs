@@ -1,4 +1,5 @@
 use super::sps;
+use crate::nal::sps::SeqParameterSet;
 use crate::nal::sps::{SeqParamSetId, SeqParamSetIdError};
 use crate::rbsp::BitRead;
 use crate::{rbsp, Context};
@@ -14,6 +15,14 @@ pub enum PpsError {
     BadPicParamSetId(PicParamSetIdError),
     BadSeqParamSetId(SeqParamSetIdError),
     ScalingMatrix(sps::ScalingMatrixError),
+    InvalidSecondChromaQpIndexOffset(i32),
+    InvalidPicInitQpMinus26(i32),
+    InvalidPicInitQsMinus26(i32),
+    InvalidChromaQpIndexOffset(i32),
+    InvalidRunLengthMinus1(u32),
+    InvalidTopLeft(u32),
+    InvalidBottomRight(u32),
+    InvalidSliceGroupChangeRateMinus1(u32),
 }
 
 impl From<rbsp::BitReaderError> for PpsError {
@@ -45,11 +54,21 @@ pub struct SliceRect {
     bottom_right: u32,
 }
 impl SliceRect {
-    fn read<R: BitRead>(r: &mut R) -> Result<SliceRect, PpsError> {
-        Ok(SliceRect {
+    fn read<R: BitRead>(r: &mut R, sps: &SeqParameterSet) -> Result<SliceRect, PpsError> {
+        let rect = SliceRect {
             top_left: r.read_ue("top_left")?,
             bottom_right: r.read_ue("bottom_right")?,
-        })
+        };
+        if rect.top_left > rect.bottom_right {
+            return Err(PpsError::InvalidTopLeft(rect.top_left));
+        }
+        if rect.bottom_right > sps.pic_size_in_map_units() {
+            return Err(PpsError::InvalidBottomRight(rect.bottom_right));
+        }
+        if rect.top_left % sps.pic_width_in_mbs() > rect.bottom_right % sps.pic_width_in_mbs() {
+            return Err(PpsError::InvalidTopLeft(rect.top_left));
+        }
+        Ok(rect)
     }
 }
 
@@ -76,25 +95,38 @@ pub enum SliceGroup {
     },
 }
 impl SliceGroup {
-    fn read<R: BitRead>(r: &mut R, num_slice_groups_minus1: u32) -> Result<SliceGroup, PpsError> {
+    fn read<R: BitRead>(
+        r: &mut R,
+        num_slice_groups_minus1: u32,
+        sps: &SeqParameterSet,
+    ) -> Result<SliceGroup, PpsError> {
         let slice_group_map_type = r.read_ue("slice_group_map_type")?;
         match slice_group_map_type {
             0 => Ok(SliceGroup::Interleaved {
-                run_length_minus1: Self::read_run_lengths(r, num_slice_groups_minus1)?,
+                run_length_minus1: Self::read_run_lengths(r, num_slice_groups_minus1, sps)?,
             }),
             1 => Ok(SliceGroup::Dispersed {
                 num_slice_groups_minus1,
             }),
             2 => Ok(SliceGroup::ForegroundAndLeftover {
-                rectangles: Self::read_rectangles(r, num_slice_groups_minus1)?,
+                rectangles: Self::read_rectangles(r, num_slice_groups_minus1, sps)?,
             }),
-            3 | 4 | 5 => Ok(SliceGroup::Changing {
-                change_type: SliceGroupChangeType::from_id(slice_group_map_type)?,
-                num_slice_groups_minus1,
-                slice_group_change_direction_flag: r
-                    .read_bool("slice_group_change_direction_flag")?,
-                slice_group_change_rate_minus1: r.read_ue("slice_group_change_rate_minus1")?,
-            }),
+            3 | 4 | 5 => {
+                let slice_group_change_direction_flag =
+                    r.read_bool("slice_group_change_direction_flag")?;
+                let slice_group_change_rate_minus1 = r.read_ue("slice_group_change_rate_minus1")?;
+                if slice_group_change_rate_minus1 > sps.pic_size_in_map_units() - 1 {
+                    return Err(PpsError::InvalidSliceGroupChangeRateMinus1(
+                        slice_group_change_rate_minus1,
+                    ));
+                }
+                Ok(SliceGroup::Changing {
+                    change_type: SliceGroupChangeType::from_id(slice_group_map_type)?,
+                    num_slice_groups_minus1,
+                    slice_group_change_direction_flag,
+                    slice_group_change_rate_minus1,
+                })
+            }
             6 => Ok(SliceGroup::ExplicitAssignment {
                 num_slice_groups_minus1,
                 slice_group_id: Self::read_group_ids(r, num_slice_groups_minus1)?,
@@ -106,21 +138,27 @@ impl SliceGroup {
     fn read_run_lengths<R: BitRead>(
         r: &mut R,
         num_slice_groups_minus1: u32,
+        sps: &SeqParameterSet,
     ) -> Result<Vec<u32>, PpsError> {
-        let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
+        let mut run_lengths = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
         for _ in 0..num_slice_groups_minus1 + 1 {
-            run_length_minus1.push(r.read_ue("run_length_minus1")?);
+            let run_length_minus1 = r.read_ue("run_length_minus1")?;
+            if run_length_minus1 > sps.pic_size_in_map_units() - 1 {
+                return Err(PpsError::InvalidRunLengthMinus1(run_length_minus1));
+            }
+            run_lengths.push(run_length_minus1);
         }
-        Ok(run_length_minus1)
+        Ok(run_lengths)
     }
 
     fn read_rectangles<R: BitRead>(
         r: &mut R,
         num_slice_groups_minus1: u32,
+        seq_parameter_set: &SeqParameterSet,
     ) -> Result<Vec<SliceRect>, PpsError> {
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
         for _ in 0..num_slice_groups_minus1 + 1 {
-            run_length_minus1.push(SliceRect::read(r)?);
+            run_length_minus1.push(SliceRect::read(r, seq_parameter_set)?);
         }
         Ok(run_length_minus1)
     }
@@ -196,11 +234,18 @@ impl PicParameterSetExtra {
     ) -> Result<Option<PicParameterSetExtra>, PpsError> {
         Ok(if r.has_more_rbsp_data("transform_8x8_mode_flag")? {
             let transform_8x8_mode_flag = r.read_bool("transform_8x8_mode_flag")?;
-            Some(PicParameterSetExtra {
+            let extra = PicParameterSetExtra {
                 transform_8x8_mode_flag,
                 pic_scaling_matrix: PicScalingMatrix::read(r, sps, transform_8x8_mode_flag)?,
                 second_chroma_qp_index_offset: r.read_se("second_chroma_qp_index_offset")?,
-            })
+            };
+            if extra.second_chroma_qp_index_offset < -12 || extra.second_chroma_qp_index_offset > 12
+            {
+                return Err(PpsError::InvalidSecondChromaQpIndexOffset(
+                    extra.second_chroma_qp_index_offset,
+                ));
+            }
+            Some(extra)
         } else {
             None
         })
@@ -261,7 +306,7 @@ impl PicParameterSet {
             entropy_coding_mode_flag: r.read_bool("entropy_coding_mode_flag")?,
             bottom_field_pic_order_in_frame_present_flag: r
                 .read_bool("bottom_field_pic_order_in_frame_present_flag")?,
-            slice_groups: Self::read_slice_groups(&mut r)?,
+            slice_groups: Self::read_slice_groups(&mut r, seq_parameter_set)?,
             num_ref_idx_l0_default_active_minus1: read_num_ref_idx(
                 &mut r,
                 "num_ref_idx_l0_default_active_minus1",
@@ -281,11 +326,28 @@ impl PicParameterSet {
             redundant_pic_cnt_present_flag: r.read_bool("redundant_pic_cnt_present_flag")?,
             extension: PicParameterSetExtra::read(&mut r, seq_parameter_set)?,
         };
+        let qp_bd_offset_y = 6 * seq_parameter_set.chroma_info.bit_depth_luma_minus8;
+        if pps.pic_init_qp_minus26 < -(26 + i32::from(qp_bd_offset_y))
+            || pps.pic_init_qp_minus26 > 25
+        {
+            return Err(PpsError::InvalidPicInitQpMinus26(pps.pic_init_qp_minus26));
+        }
+        if pps.pic_init_qs_minus26 < -26 || pps.pic_init_qs_minus26 > 25 {
+            return Err(PpsError::InvalidPicInitQsMinus26(pps.pic_init_qs_minus26));
+        }
+        if pps.chroma_qp_index_offset < -12 || pps.chroma_qp_index_offset > 12 {
+            return Err(PpsError::InvalidChromaQpIndexOffset(
+                pps.chroma_qp_index_offset,
+            ));
+        }
         r.finish_rbsp()?;
         Ok(pps)
     }
 
-    fn read_slice_groups<R: BitRead>(r: &mut R) -> Result<Option<SliceGroup>, PpsError> {
+    fn read_slice_groups<R: BitRead>(
+        r: &mut R,
+        sps: &SeqParameterSet,
+    ) -> Result<Option<SliceGroup>, PpsError> {
         let num_slice_groups_minus1 = r.read_ue("num_slice_groups_minus1")?;
         if num_slice_groups_minus1 > 7 {
             // 7 is the maximum allowed in any profile; some profiles restrict it to 0.
@@ -294,7 +356,7 @@ impl PicParameterSet {
             ));
         }
         Ok(if num_slice_groups_minus1 > 0 {
-            Some(SliceGroup::read(r, num_slice_groups_minus1)?)
+            Some(SliceGroup::read(r, num_slice_groups_minus1, sps)?)
         } else {
             None
         })
@@ -312,6 +374,7 @@ fn read_num_ref_idx<R: BitRead>(r: &mut R, name: &'static str) -> Result<u32, Pp
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::nal::sps::SeqParameterSet;
     use hex_literal::*;
 
     #[test]
@@ -380,5 +443,22 @@ mod test {
         let pps = PicParameterSet::from_bits(&ctx, rbsp::BitReader::new(&pps[..])).unwrap();
 
         assert_eq!(pps.pic_parameter_set_id, PicParamSetId(33));
+    }
+
+    #[test]
+    fn invalid_pic_init_qs_minus26() {
+        let mut ctx = Context::default();
+        let sps = SeqParameterSet::from_bits(rbsp::BitReader::new(
+            &hex!("64 00 0b ac d9 42 4d f8 84")[..],
+        ))
+        .expect("sps");
+        println!("{:#?}", sps);
+        ctx.put_seq_param_set(sps);
+        let pps = PicParameterSet::from_bits(
+            &mut ctx,
+            rbsp::BitReader::new(&hex!("eb e8 02 3b 2c 8b")[..]),
+        );
+        // pic_init_qs_minus26 should be in the range [-26, 25]
+        assert!(matches!(pps, Err(PpsError::InvalidPicInitQsMinus26(-285))));
     }
 }
