@@ -37,6 +37,11 @@ pub enum SpsError {
         name: &'static str,
         value: u32,
     },
+    /// A field in the bitstream had a value that is too small
+    FieldValueTooSmall {
+        name: &'static str,
+        value: u32,
+    },
     /// The frame-cropping values are too large vs. the coded picture size,
     CroppingError(FrameCropping),
     /// The `cpb_cnt_minus1` field must be between 0 and 31 inclusive.
@@ -159,7 +164,7 @@ impl Debug for ConstraintFlags {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Hash, Eq)]
 #[allow(non_camel_case_types)]
 pub enum Level {
     Unknown(u8),
@@ -180,6 +185,9 @@ pub enum Level {
     L5,
     L5_1,
     L5_2,
+    L6,
+    L6_1,
+    L6_2,
 }
 impl Level {
     pub fn from_constraint_flags_and_level_idc(
@@ -209,6 +217,9 @@ impl Level {
             50 => Level::L5,
             51 => Level::L5_1,
             52 => Level::L5_2,
+            60 => Level::L6,
+            61 => Level::L6_1,
+            62 => Level::L6_2,
             _ => Level::Unknown(level_idc),
         }
     }
@@ -230,6 +241,9 @@ impl Level {
             Level::L5 => 50,
             Level::L5_1 => 51,
             Level::L5_2 => 52,
+            Level::L6 => 60,
+            Level::L6_1 => 61,
+            Level::L6_2 => 62,
             Level::Unknown(level_idc) => level_idc,
         }
     }
@@ -814,24 +828,132 @@ pub struct BitstreamRestrictions {
     pub max_dec_frame_buffering: u32,
 }
 impl BitstreamRestrictions {
-    fn read<R: BitRead>(r: &mut R) -> Result<Option<BitstreamRestrictions>, BitReaderError> {
+    fn read<R: BitRead>(
+        r: &mut R,
+        sps: &SeqParameterSet,
+    ) -> Result<Option<BitstreamRestrictions>, SpsError> {
         let bitstream_restriction_flag = r.read_bool("bitstream_restriction_flag")?;
         Ok(if bitstream_restriction_flag {
+            let motion_vectors_over_pic_boundaries_flag =
+                r.read_bool("motion_vectors_over_pic_boundaries_flag")?;
+            let max_bytes_per_pic_denom = r.read_ue("max_bytes_per_pic_denom")?;
+            if max_bytes_per_pic_denom > 16 {
+                return Err(SpsError::FieldValueTooLarge {
+                    name: "max_bytes_per_pic_denom",
+                    value: max_bytes_per_pic_denom,
+                });
+            }
+            let max_bits_per_mb_denom = r.read_ue("max_bits_per_mb_denom")?;
+            if max_bits_per_mb_denom > 16 {
+                return Err(SpsError::FieldValueTooLarge {
+                    name: "max_bits_per_mb_denom",
+                    value: max_bits_per_mb_denom,
+                });
+            }
+            // more recent versions of the spec say log2_max_mv_length_horizontal and
+            // log2_max_mv_length_vertical - "shall be in the range of 0 to 15, inclusive."
+            // However, older versions of the spec say 0 to 16, and real bitstreams present 16, so
+            // we apply the more-permissive check to avoid rejecting real files.
+            let log2_max_mv_length_horizontal = r.read_ue("log2_max_mv_length_horizontal")?;
+            if log2_max_mv_length_horizontal > 16 {
+                return Err(SpsError::FieldValueTooLarge {
+                    name: "log2_max_mv_length_horizontal",
+                    value: log2_max_mv_length_horizontal,
+                });
+            }
+            let log2_max_mv_length_vertical = r.read_ue("log2_max_mv_length_vertical")?;
+            if log2_max_mv_length_vertical > 16 {
+                return Err(SpsError::FieldValueTooLarge {
+                    name: "log2_max_mv_length_vertical",
+                    value: log2_max_mv_length_vertical,
+                });
+            }
+            let max_num_reorder_frames = r.read_ue("max_num_reorder_frames")?;
+            let max_dec_frame_buffering = r.read_ue("max_dec_frame_buffering")?;
+            if max_num_reorder_frames > max_dec_frame_buffering {
+                return Err(SpsError::FieldValueTooLarge {
+                    name: "max_num_reorder_frames",
+                    value: max_num_reorder_frames,
+                });
+            }
+            // "The value of max_dec_frame_buffering shall be greater than or equal to
+            // max_num_ref_frames."
+            if max_dec_frame_buffering < sps.max_num_ref_frames {
+                return Err(SpsError::FieldValueTooSmall {
+                    name: "max_dec_frame_buffering",
+                    value: max_dec_frame_buffering,
+                });
+            }
+            /*let max = max_val_for_max_dec_frame_buffering(sps);
+            if max_dec_frame_buffering > max {
+                return Err(SpsError::FieldValueTooLarge {
+                    name: "max_dec_frame_buffering",
+                    value: max_dec_frame_buffering,
+                });
+            }*/
             Some(BitstreamRestrictions {
-                motion_vectors_over_pic_boundaries_flag: r
-                    .read_bool("motion_vectors_over_pic_boundaries_flag")?,
-                max_bytes_per_pic_denom: r.read_ue("max_bytes_per_pic_denom")?,
-                max_bits_per_mb_denom: r.read_ue("max_bits_per_mb_denom")?,
-                log2_max_mv_length_horizontal: r.read_ue("log2_max_mv_length_horizontal")?,
-                log2_max_mv_length_vertical: r.read_ue("log2_max_mv_length_vertical")?,
-                max_num_reorder_frames: r.read_ue("max_num_reorder_frames")?,
-                max_dec_frame_buffering: r.read_ue("max_dec_frame_buffering")?,
+                motion_vectors_over_pic_boundaries_flag,
+                max_bytes_per_pic_denom,
+                max_bits_per_mb_denom,
+                log2_max_mv_length_horizontal,
+                log2_max_mv_length_vertical,
+                max_num_reorder_frames,
+                max_dec_frame_buffering,
             })
         } else {
             None
         })
     }
 }
+
+// calculates the maximum allowed value for the max_dec_frame_buffering field
+/*fn max_val_for_max_dec_frame_buffering(sps: &SeqParameterSet) -> u32 {
+    let level = Level::from_constraint_flags_and_level_idc(
+        ConstraintFlags::from(sps.constraint_flags),
+        sps.level_idc,
+    );
+    let profile = Profile::from_profile_idc(sps.profile_idc);
+    let pic_width_in_mbs = sps.pic_width_in_mbs_minus1 + 1;
+    let pic_height_in_map_units = sps.pic_height_in_map_units_minus1 + 1;
+    let frame_height_in_mbs = if let FrameMbsFlags::Frames = sps.frame_mbs_flags {
+        1
+    } else {
+        2
+    } * pic_height_in_map_units;
+    let max_dpb_mbs = LEVEL_LIMITS.get(&level).unwrap().max_dpb_mbs;
+    match profile {
+        // "A.3.1 - Level limits common to the Baseline, Constrained Baseline, Main, and Extended
+        // profiles"
+        Profile::Baseline | Profile::Main | Profile::Extended => {
+            std::cmp::min(max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs), 16)
+        }
+        // "A.3.2 - Level limits common to the High, Progressive High, Constrained High, High 10,
+        // Progressive High 10, High 4:2:2, High 4:4:4 Predictive, High 10 Intra, High 4:2:2 Intra,
+        // High 4:4:4 Intra, and CAVLC 4:4:4 Intra profiles"
+        Profile::High | Profile::High422 | Profile::High10 | Profile::High444 => {
+            std::cmp::min(max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs), 16)
+        }
+
+        // "G.10.2.1 - Level limits common to Scalable Baseline, Scalable Constrained Baseline,
+        // Scalable High, Scalable Constrained High, and Scalable High Intra profiles"
+        Profile::ScalableBase | Profile::ScalableHigh => {
+            // Min( MaxDpbMbs / ( PicWidthInMbs * FrameHeightInMbs ), 16 )
+            std::cmp::min(max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs), 16)
+        }
+
+        // "H.10.2.1 - Level limits common to Multiview High, Stereo High, and MFC High profiles"
+        //Profile::MultiviewHigh | Profile::StereoHigh | Profile::MFCDepthHigh => {
+        //    // Min( mvcScaleFactor * MaxDpbMbs / ( PicWidthInMbs * FrameHeightInMbs ), Max( 1, Ceil( log2( NumViews ) ) ) * 16 )
+        //}
+
+        // "I.10.2.1 - Level limits common to Multiview Depth High profiles"
+        //Profile::MultiviewDepthHigh | Profile::EnhancedMultiviewDepthHigh => {
+        //    let mvcd_scale_factor = 2.5;
+        //    std::cmp::min( mvcd_scale_factor * max_dpb_mbs / ( TotalPicSizeInMbs / NumViews ) ), std::cmp::max(1, Ceil( log2( NumViews ) ) ) * 16 )
+        //}
+        _ => unimplemented!("{:?}", profile),
+    }
+}*/
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VuiParameters {
@@ -847,7 +969,10 @@ pub struct VuiParameters {
     pub bitstream_restrictions: Option<BitstreamRestrictions>,
 }
 impl VuiParameters {
-    fn read<R: BitRead>(r: &mut R) -> Result<Option<VuiParameters>, SpsError> {
+    fn read<R: BitRead>(
+        r: &mut R,
+        sps: &SeqParameterSet,
+    ) -> Result<Option<VuiParameters>, SpsError> {
         let vui_parameters_present_flag = r.read_bool("vui_parameters_present_flag")?;
         Ok(if vui_parameters_present_flag {
             let mut hrd_parameters_present = false;
@@ -865,7 +990,7 @@ impl VuiParameters {
                     None
                 },
                 pic_struct_present_flag: r.read_bool("pic_struct_present_flag")?,
-                bitstream_restrictions: BitstreamRestrictions::read(r)?,
+                bitstream_restrictions: BitstreamRestrictions::read(r, sps)?,
             })
         } else {
             None
@@ -894,10 +1019,12 @@ pub struct SeqParameterSet {
 impl SeqParameterSet {
     pub fn from_bits<R: BitRead>(mut r: R) -> Result<SeqParameterSet, SpsError> {
         let profile_idc = r.read::<u8>(8, "profile_idc")?.into();
-        let sps = SeqParameterSet {
+        let constraint_flags = r.read::<u8>(8, "constraint_flags")?.into();
+        let level_idc = r.read::<u8>(8, "level_idc")?;
+        let mut sps = SeqParameterSet {
             profile_idc,
-            constraint_flags: r.read::<u8>(8, "constraint_flags")?.into(),
-            level_idc: r.read(8, "level_idc")?,
+            constraint_flags,
+            level_idc,
             seq_parameter_set_id: SeqParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)
                 .map_err(SpsError::BadSeqParamSetId)?,
             chroma_info: ChromaInfo::read(&mut r, profile_idc)?,
@@ -911,8 +1038,13 @@ impl SeqParameterSet {
             frame_mbs_flags: FrameMbsFlags::read(&mut r)?,
             direct_8x8_inference_flag: r.read_bool("direct_8x8_inference_flag")?,
             frame_cropping: FrameCropping::read(&mut r)?,
-            vui_parameters: VuiParameters::read(&mut r)?,
+            // read the basic SPS data without reading VUI parameters yet, since checks of the
+            // bitstream restriction fields within the VUI parameters will need access to the
+            // initial SPS data
+            vui_parameters: None,
         };
+        let vui_parameters = VuiParameters::read(&mut r, &sps)?;
+        sps.vui_parameters = vui_parameters;
         r.finish_rbsp()?;
         Ok(sps)
     }
@@ -1034,7 +1166,300 @@ impl SeqParameterSet {
 
         Some((timing_info.time_scale as f64) / (2.0 * (timing_info.num_units_in_tick as f64)))
     }
+
+    pub fn pic_width_in_mbs(&self) -> u32 {
+        self.pic_width_in_mbs_minus1 + 1
+    }
+
+    /// From the spec: `PicHeightInMapUnits = pic_height_in_map_units_minus1 + 1`
+    pub fn pic_height_in_map_units(&self) -> u32 {
+        self.pic_height_in_map_units_minus1 + 1
+    }
+
+    /// From the spec: `PicSizeInMapUnits = PicWidthInMbs * PicHeightInMapUnits`
+    pub fn pic_size_in_map_units(&self) -> u32 {
+        self.pic_width_in_mbs() * self.pic_height_in_map_units()
+    }
 }
+
+/*struct LevelLimit {
+    max_mbps: u32,
+    max_fs: u32,
+    max_dpb_mbs: u32,
+    max_br: u32,
+    max_cpb: u32,
+    max_vmv_r: u32,
+    min_cr: u8,
+    max_mvs_per2mb: Option<NonZeroU8>,
+}
+
+lazy_static! {
+    // "Table A-1 – Level limits" from the spec
+    static ref LEVEL_LIMITS: std::collections::HashMap<Level, LevelLimit> = {
+        let mut m = std::collections::HashMap::new();
+        m.insert(
+            Level::L1,
+            LevelLimit {
+                max_mbps: 1485,
+                max_fs: 99,
+                max_dpb_mbs: 396,
+                max_br: 64,
+                max_cpb: 175,
+                max_vmv_r: 64,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            },
+        );
+        m.insert(
+            Level::L1_b,
+            LevelLimit {
+                max_mbps: 1485,
+                max_fs: 99,
+                max_dpb_mbs: 396,
+                max_br: 128,
+                max_cpb: 350,
+                max_vmv_r: 64,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            },
+        );
+        m.insert(
+            Level::L1_1,
+            LevelLimit {
+                max_mbps: 3000,
+                max_fs: 396,
+                max_dpb_mbs: 900,
+                max_br: 192,
+                max_cpb: 500,
+                max_vmv_r: 128,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            },
+        );
+        m.insert(
+            Level::L1_2,
+            LevelLimit {
+                max_mbps: 6000,
+                max_fs: 396,
+                max_dpb_mbs: 2376,
+                max_br: 384,
+                max_cpb: 1000,
+                max_vmv_r: 128,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            },
+        );
+        m.insert(
+            Level::L1_3,
+            LevelLimit {
+                max_mbps: 11880,
+                max_fs: 396,
+                max_dpb_mbs: 2376,
+                max_br: 768,
+                max_cpb: 2000,
+                max_vmv_r: 128,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            },
+        );
+        m.insert(
+            Level::L2,
+            LevelLimit {
+                max_mbps: 11880,
+                max_fs: 396,
+                max_dpb_mbs: 2376,
+                max_br: 2000,
+                max_cpb: 2000,
+                max_vmv_r: 128,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            },
+        );
+        m.insert(
+            Level::L2_1,
+            LevelLimit {
+                max_mbps: 19800,
+                max_fs: 792,
+                max_dpb_mbs: 4752,
+                max_br: 4000,
+                max_cpb: 4000,
+                max_vmv_r: 256,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            },
+        );
+        m.insert(
+            Level::L2_2,
+            LevelLimit {
+                max_mbps: 20250,
+                max_fs: 1620,
+                max_dpb_mbs: 8100,
+                max_br: 4000,
+                max_cpb: 4000,
+                max_vmv_r: 256,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            },
+        );
+        m.insert(
+            Level::L3,
+            LevelLimit {
+                max_mbps: 40500,
+                max_fs: 1620,
+                max_dpb_mbs: 8100,
+                max_br: 10000,
+                max_cpb: 10000,
+                max_vmv_r: 256,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(32),
+            },
+        );
+        m.insert(
+            Level::L3_1,
+            LevelLimit {
+                max_mbps: 108000,
+                max_fs: 3600,
+                max_dpb_mbs: 18000,
+                max_br: 14000,
+                max_cpb: 14000,
+                max_vmv_r: 512,
+                min_cr: 4,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m.insert(
+            Level::L3_2,
+            LevelLimit {
+                max_mbps: 216000,
+                max_fs: 5120,
+                max_dpb_mbs: 20480,
+                max_br: 20000,
+                max_cpb: 20000,
+                max_vmv_r: 512,
+                min_cr: 4,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m.insert(
+            Level::L4,
+            LevelLimit {
+                max_mbps: 245760,
+                max_fs: 8192,
+                max_dpb_mbs: 32768,
+                max_br: 20000,
+                max_cpb: 25000,
+                max_vmv_r: 512,
+                min_cr: 4,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m.insert(
+            Level::L4_1,
+            LevelLimit {
+                max_mbps: 245760,
+                max_fs: 8192,
+                max_dpb_mbs: 32768,
+                max_br: 50000,
+                max_cpb: 62500,
+                max_vmv_r: 512,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m.insert(
+            Level::L4_2,
+            LevelLimit {
+                max_mbps: 522240,
+                max_fs: 8704,
+                max_dpb_mbs: 34816,
+                max_br: 50000,
+                max_cpb: 62500,
+                max_vmv_r: 512,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m.insert(
+            Level::L5,
+            LevelLimit {
+                max_mbps: 589824,
+                max_fs: 22080,
+                max_dpb_mbs: 110400,
+                max_br: 135000,
+                max_cpb: 135000,
+                max_vmv_r: 512,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m.insert(
+            Level::L5_1,
+            LevelLimit {
+                max_mbps: 983040,
+                max_fs: 36864,
+                max_dpb_mbs: 184320,
+                max_br: 240000,
+                max_cpb: 240000,
+                max_vmv_r: 512,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m.insert(
+            Level::L5_2,
+            LevelLimit {
+                max_mbps: 2073600,
+                max_fs: 36864,
+                max_dpb_mbs: 184320,
+                max_br: 240000,
+                max_cpb: 240000,
+                max_vmv_r: 512,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m.insert(
+            Level::L6,
+            LevelLimit {
+                max_mbps: 4177920,
+                max_fs: 139264,
+                max_dpb_mbs: 696320,
+                max_br: 240000,
+                max_cpb: 240000,
+                max_vmv_r: 8192,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m.insert(
+            Level::L6_1,
+            LevelLimit {
+                max_mbps: 8355840,
+                max_fs: 139264,
+                max_dpb_mbs: 696320,
+                max_br: 480000,
+                max_cpb: 480000,
+                max_vmv_r: 8192,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m.insert(
+            Level::L6_2,
+            LevelLimit {
+                max_mbps: 16711680,
+                max_fs: 139264,
+                max_dpb_mbs: 696320,
+                max_br: 800000,
+                max_cpb: 800000,
+                max_vmv_r: 8192,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            },
+        );
+        m
+    };
+}*/
 
 #[cfg(test)]
 mod test {
