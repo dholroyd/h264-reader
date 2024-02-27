@@ -11,7 +11,7 @@ repository = "https://github.com/dholroyd/h264-reader"
 edition = "2018"
 
 [dependencies]
-bitstream-io = "1.1"
+bitstream-io = "2.2"
 hex-slice = "0.1.4"
 memchr = "2.1.1"
 rfc6381-codec = "0.1"
