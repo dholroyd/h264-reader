@@ -52,7 +52,8 @@ where
 }
 
 fn h264_reader(c: &mut Criterion) {
-    let buf = std::fs::read("big_buck_bunny_1080p.h264").expect("reading h264 file failed");
+    let buf =
+        std::fs::read("big_buck_bunny_1080p_24fps_h264.h264").expect("reading h264 file failed");
     let mut rbsp_len = 0;
     let mut rbsp_len_nal_handler = |nal: RefNal<'_>| {
         if nal.is_complete() {
@@ -111,6 +112,7 @@ fn h264_reader(c: &mut Criterion) {
                     Ok(_) => return NalInterest::Ignore,
                 }
             }
+            UnitType::AccessUnitDelimiter => {}
             _ => {
                 if nal.is_complete() {
                     panic!("unknown slice type {:?}", nal_hdr)

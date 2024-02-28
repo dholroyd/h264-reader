@@ -21,10 +21,16 @@ log = "0.4"
 hex-literal = "0.4.1"
 criterion = "0.5"
 test-case = "3.0.0"
+iai-callgrind = "0.10.2"
 
 [[bench]]
 name = "bench"
 harness = false
+
+[[bench]]
+name = "ci_bench"
+harness = false
+
 
 [profile.bench]
 # for profiling,

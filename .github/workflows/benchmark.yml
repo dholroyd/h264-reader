@@ -1,0 +1,33 @@
+name: Benchmark
+on:
+  push:
+    branches: master
+jobs:
+  benchmark_with_bencher:
+    name: Benchmark with Bencher
+    runs-on: ubuntu-22.04
+    env:
+      BENCHER_PROJECT: h264-reader
+      BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@1.76.0
+
+      - uses: bencherdev/bencher@main
+      - uses: cargo-bins/cargo-binstall@main
+
+      - run: sudo apt-get install valgrind
+      - run: cargo binstall --no-confirm iai-callgrind-runner@0.10.2
+      - run: |
+          IAI_CALLGRIND_COLOR=never cargo bench --bench ci_bench > perf.txt
+      - run: |
+          bencher run \
+          --branch "$GITHUB_REF_NAME" \
+          --err \
+          --adapter rust_iai_callgrind \
+          --hash "$GITHUB_SHA" \
+          --file "perf.txt"
