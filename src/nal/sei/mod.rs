@@ -3,10 +3,10 @@ pub mod pic_timing;
 pub mod user_data_registered_itu_t_t35;
 
 use crate::rbsp::BitReaderError;
+use hex_slice::AsHex;
 use std::convert::TryFrom;
 use std::fmt::{Debug, Formatter};
 use std::io::BufRead;
-use hex_slice::AsHex;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum HeaderType {
