@@ -153,5 +153,9 @@ fn hex_dump(nal: &RefNal) {
     nal.rbsp_bytes()
         .read_to_end(&mut nal_rbsp_bytes)
         .expect("read NAL");
-    println!("{:?}: {:02x}", nal.header().unwrap().nal_unit_type(), &nal_rbsp_bytes[..].plain_hex(false));
+    println!(
+        "{:?}: {:02x}",
+        nal.header().unwrap().nal_unit_type(),
+        &nal_rbsp_bytes[..].plain_hex(false)
+    );
 }
