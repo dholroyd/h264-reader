@@ -1,0 +1,28 @@
+name: Run and Cache Benchmarks
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cargo-bins/cargo-binstall@main
+
+      - run: sudo apt-get install valgrind
+      - run: cargo binstall --no-confirm iai-callgrind-runner@0.10.2
+      - run: |
+          IAI_CALLGRIND_COLOR=never cargo bench --bench ci_bench > benchmark_results.txt
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark_results.txt
+          path: ./benchmark_results.txt
+      - name: Upload GitHub Pull Request Event
+        uses: actions/upload-artifact@v4
+        with:
+          name: event.json
+          path: ${{ github.event_path }}
