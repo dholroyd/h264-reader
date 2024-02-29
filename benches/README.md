@@ -17,3 +17,5 @@ There are two benchmarks here,
 
 The latter benchmark is run from a github actions workflow on commits to the main branch and the benchmark results are
 uploaded to [bencher.dev](https://bencher.dev/perf/h264-reader).
+
+[![h264-reader - Bencher](https://api.bencher.dev/v0/projects/h264-reader/perf/img?branches=a53abf65-ea6e-482e-8c55-cf6726e77864&testbeds=19d2a260-47fc-44ec-b7f8-314d88408ce7&benchmarks=cc26ec97-55ef-43a5-860f-861ae847d8b3&measures=1dc590ca-477f-4477-8295-672b05d33086&start_time=1706605032000&end_time=1709197032000 "h264-reader")](https://bencher.dev/perf/h264-reader?key=true&reports_per_page=4&branches_per_page=8&testbeds_per_page=8&benchmarks_per_page=8&reports_page=1&branches_page=1&testbeds_page=1&benchmarks_page=1)
