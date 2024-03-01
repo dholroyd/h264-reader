@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: cargo-bins/cargo-binstall@main
 
       - run: sudo apt-get install valgrind
