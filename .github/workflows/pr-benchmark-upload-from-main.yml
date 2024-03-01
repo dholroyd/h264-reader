@@ -13,7 +13,6 @@ jobs:
     env:
       BENCHER_PROJECT: h264-reader
       BENCHER_ADAPTER: rust_iai_callgrind
-      BENCHER_TESTBED: ubuntu-22.04
       BENCHMARK_RESULTS: benchmark_results.txt
       PR_EVENT: event.json
     steps:
