@@ -14,7 +14,7 @@ edition = "2018"
 bitstream-io = "2.2"
 hex-slice = "0.1.4"
 memchr = "2.1.1"
-rfc6381-codec = "0.1"
+rfc6381-codec = "0.2"
 log = "0.4"
 
 [dev-dependencies]
