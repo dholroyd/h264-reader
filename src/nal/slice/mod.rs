@@ -23,7 +23,7 @@ enum SliceExclusive {
     NonExclusive,
 }
 #[derive(Debug, PartialEq)]
-struct SliceType {
+pub struct SliceType {
     family: SliceFamily,
     exclusive: SliceExclusive,
 }
@@ -113,7 +113,7 @@ impl From<ColourPlaneError> for SliceHeaderError {
 }
 
 #[derive(Debug)]
-enum ColourPlane {
+pub enum ColourPlane {
     /// Indicates the _chroma_ colour plane
     Y,
     /// Indicates the _blue-difference_ colour plane
@@ -159,7 +159,7 @@ pub enum PicOrderCountLsb {
 }
 
 #[derive(Debug)]
-enum NumRefIdxActive {
+pub enum NumRefIdxActive {
     P {
         num_ref_idx_l0_active_minus1: u32,
     },
@@ -183,13 +183,13 @@ impl NumRefIdxActive {
 }
 
 #[derive(Debug)]
-enum ModificationOfPicNums {
+pub enum ModificationOfPicNums {
     Subtract(u32),
     Add(u32),
     LongTermRef(u32),
 }
 #[derive(Debug)]
-enum RefPicListModifications {
+pub enum RefPicListModifications {
     I,
     P {
         ref_pic_list_modification_l0: Vec<ModificationOfPicNums>,
@@ -243,16 +243,16 @@ impl RefPicListModifications {
 }
 
 #[derive(Debug)]
-struct PredWeight {
-    weight: i32,
-    offset: i32,
+pub struct PredWeight {
+    pub weight: i32,
+    pub offset: i32,
 }
 #[derive(Debug)]
-struct PredWeightTable {
-    luma_log2_weight_denom: u32,
-    chroma_log2_weight_denom: Option<u32>,
-    luma_weights: Vec<Option<PredWeight>>,
-    chroma_weights: Vec<Vec<PredWeight>>,
+pub struct PredWeightTable {
+    pub luma_log2_weight_denom: u32,
+    pub chroma_log2_weight_denom: Option<u32>,
+    pub luma_weights: Vec<Option<PredWeight>>,
+    pub chroma_weights: Vec<Vec<PredWeight>>,
 }
 impl PredWeightTable {
     fn read<R: BitRead>(
@@ -316,7 +316,7 @@ impl PredWeightTable {
 }
 
 #[derive(Debug)]
-enum MemoryManagementControlOperation {
+pub enum MemoryManagementControlOperation {
     /// `memory_management_control_operation` value of `1`
     ShortTermUnusedForRef { difference_of_pic_nums_minus1: u32 },
     /// `memory_management_control_operation` value of `2`
@@ -336,7 +336,7 @@ enum MemoryManagementControlOperation {
 
 /// Decoded reference picture marking
 #[derive(Debug)]
-enum DecRefPicMarking {
+pub enum DecRefPicMarking {
     Idr {
         no_output_of_prior_pics_flag: bool,
         long_term_reference_flag: bool,
@@ -416,24 +416,24 @@ impl DecRefPicMarking {
 
 #[derive(Debug)]
 pub struct SliceHeader {
-    first_mb_in_slice: u32,
-    slice_type: SliceType,
-    colour_plane: Option<ColourPlane>,
+    pub first_mb_in_slice: u32,
+    pub slice_type: SliceType,
+    pub colour_plane: Option<ColourPlane>,
     pub frame_num: u16,
     pub field_pic: FieldPic,
-    idr_pic_id: Option<u32>,
+    pub idr_pic_id: Option<u32>,
     pub pic_order_cnt_lsb: Option<PicOrderCountLsb>,
-    redundant_pic_cnt: Option<u32>,
-    direct_spatial_mv_pred_flag: Option<bool>,
-    num_ref_idx_active: Option<NumRefIdxActive>,
-    ref_pic_list_modification: Option<RefPicListModifications>, // may become an enum rather than Option in future (for ref_pic_list_mvc_modification)
-    pred_weight_table: Option<PredWeightTable>,
-    dec_ref_pic_marking: Option<DecRefPicMarking>,
-    cabac_init_idc: Option<u32>,
-    slice_qp_delta: i32,
-    sp_for_switch_flag: Option<bool>,
-    slice_qs: Option<u32>,
-    disable_deblocking_filter_idc: u8,
+    pub redundant_pic_cnt: Option<u32>,
+    pub direct_spatial_mv_pred_flag: Option<bool>,
+    pub num_ref_idx_active: Option<NumRefIdxActive>,
+    pub ref_pic_list_modification: Option<RefPicListModifications>, // may become an enum rather than Option in future (for ref_pic_list_mvc_modification)
+    pub pred_weight_table: Option<PredWeightTable>,
+    pub dec_ref_pic_marking: Option<DecRefPicMarking>,
+    pub cabac_init_idc: Option<u32>,
+    pub slice_qp_delta: i32,
+    pub sp_for_switch_flag: Option<bool>,
+    pub slice_qs: Option<u32>,
+    pub disable_deblocking_filter_idc: u8,
 }
 impl SliceHeader {
     pub fn from_bits<'a, R: BitRead>(
