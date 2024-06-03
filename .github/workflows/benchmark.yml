@@ -20,7 +20,7 @@ jobs:
       - uses: bencherdev/bencher@main
       - uses: cargo-bins/cargo-binstall@main
 
-      - run: sudo apt-get install valgrind
+      - run: sudo apt update && sudo apt install valgrind
       - run: cargo binstall --no-confirm iai-callgrind-runner@0.10.2
       - run: |
           IAI_CALLGRIND_COLOR=never cargo bench --bench ci_bench > perf.txt
