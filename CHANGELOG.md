@@ -13,6 +13,10 @@
     the variant `rbsp::BitReaderError::ReadErrorFor` which additionally supplies the field name.
 *   BREAKING CHANGE: some methods in `rbsp::BitRead` have been renamed to match the `bitstream-io` conventions.
 
+### Added
+
+*   Make some fields of `SliceType` public.
+
 ## 0.7.0 - 2023-05-30
 
 ### Changed
