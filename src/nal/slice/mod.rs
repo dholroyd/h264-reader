@@ -8,7 +8,7 @@ use crate::rbsp::BitReaderError;
 use crate::Context;
 
 #[derive(Debug, PartialEq)]
-enum SliceFamily {
+pub enum SliceFamily {
     P,
     B,
     I,
@@ -16,7 +16,7 @@ enum SliceFamily {
     SI,
 }
 #[derive(Debug, PartialEq)]
-enum SliceExclusive {
+pub enum SliceExclusive {
     /// All slices in the picture have the same type
     Exclusive,
     /// Other slices in the picture may have a different type than the current slice
@@ -24,8 +24,8 @@ enum SliceExclusive {
 }
 #[derive(Debug, PartialEq)]
 pub struct SliceType {
-    family: SliceFamily,
-    exclusive: SliceExclusive,
+    pub family: SliceFamily,
+    pub exclusive: SliceExclusive,
 }
 impl SliceType {
     fn from_id(id: u32) -> Result<SliceType, SliceHeaderError> {
