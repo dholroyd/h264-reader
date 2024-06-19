@@ -1,4 +1,4 @@
-use super::sps;
+use super::sps::{self, ScalingList};
 use crate::nal::sps::SeqParameterSet;
 use crate::nal::sps::{SeqParamSetId, SeqParamSetIdError};
 use crate::rbsp::BitRead;
@@ -180,7 +180,10 @@ impl SliceGroup {
 
 #[derive(Debug, Clone)]
 pub struct PicScalingMatrix {
-    // TODO
+    /// always has length 6
+    pub scaling_list4x4: Vec<ScalingList<16>>,
+    /// `Some` when `transform_8x8_mode_flag` is `true`, `None` otherwise
+    pub scaling_list8x8: Option<Vec<ScalingList<64>>>,
 }
 impl PicScalingMatrix {
     fn read<R: BitRead>(
@@ -189,35 +192,49 @@ impl PicScalingMatrix {
         transform_8x8_mode_flag: bool,
     ) -> Result<Option<PicScalingMatrix>, PpsError> {
         let pic_scaling_matrix_present_flag = r.read_bool("pic_scaling_matrix_present_flag")?;
-        Ok(if pic_scaling_matrix_present_flag {
-            let mut scaling_list4x4 = vec![];
-            let mut scaling_list8x8 = vec![];
 
-            let count = if transform_8x8_mode_flag {
-                if sps.chroma_info.chroma_format == sps::ChromaFormat::YUV444 {
-                    6
-                } else {
-                    2
-                }
+        if !pic_scaling_matrix_present_flag {
+            return Ok(None);
+        }
+
+        let count = if transform_8x8_mode_flag {
+            if sps.chroma_info.chroma_format == sps::ChromaFormat::YUV444 {
+                6
             } else {
-                0
-            };
-            for i in 0..6 + count {
-                let seq_scaling_list_present_flag = r.read_bool("seq_scaling_list_present_flag")?;
-                if seq_scaling_list_present_flag {
-                    if i < 6 {
-                        scaling_list4x4
-                            .push(sps::ScalingList::read(r, 16).map_err(PpsError::ScalingMatrix)?);
-                    } else {
-                        scaling_list8x8
-                            .push(sps::ScalingList::read(r, 64).map_err(PpsError::ScalingMatrix)?);
-                    }
-                }
+                2
             }
-            Some(PicScalingMatrix {})
         } else {
+            0
+        };
+
+        let mut scaling_list4x4 = Vec::with_capacity(6);
+        let mut scaling_list8x8 = Vec::with_capacity(count);
+
+        for i in 0..6 + count {
+            let seq_scaling_list_present_flag = r.read_bool("seq_scaling_list_present_flag")?;
+            if i < 6 {
+                scaling_list4x4.push(
+                    sps::ScalingList::<16>::read(r, seq_scaling_list_present_flag)
+                        .map_err(PpsError::ScalingMatrix)?,
+                );
+            } else {
+                scaling_list8x8.push(
+                    sps::ScalingList::<64>::read(r, seq_scaling_list_present_flag)
+                        .map_err(PpsError::ScalingMatrix)?,
+                );
+            }
+        }
+
+        let scaling_list8x8 = if scaling_list8x8.is_empty() {
             None
-        })
+        } else {
+            Some(scaling_list8x8)
+        };
+
+        Ok(Some(PicScalingMatrix {
+            scaling_list4x4,
+            scaling_list8x8,
+        }))
     }
 }
 
@@ -423,9 +440,9 @@ mod test {
             pps.extension,
             Some(PicParameterSetExtra {
                 transform_8x8_mode_flag: true,
-                pic_scaling_matrix: Some(_),
+                pic_scaling_matrix: Some(PicScalingMatrix { scaling_list4x4, scaling_list8x8: Some(scaling_list8x8) }),
                 ..
-            })
+            }) if scaling_list4x4.len() == 6 && scaling_list8x8.len() == 2
         ));
     }
 
