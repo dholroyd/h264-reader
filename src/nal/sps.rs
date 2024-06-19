@@ -1,5 +1,8 @@
 use crate::rbsp::{BitRead, BitReaderError};
-use std::fmt::{self, Debug};
+use std::{
+    fmt::{self, Debug},
+    num::NonZeroU8,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum SeqParamSetIdError {
@@ -292,33 +295,55 @@ impl From<ProfileIdc> for u8 {
     }
 }
 
-pub struct ScalingList {
-    // TODO
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScalingList<const S: usize> {
+    NotPresent,
+    UseDefault,
+    List([NonZeroU8; S]),
 }
-impl ScalingList {
-    pub fn read<R: BitRead>(r: &mut R, size: u8) -> Result<ScalingList, ScalingMatrixError> {
-        let mut scaling_list = vec![];
-        let mut last_scale = 8;
-        let mut next_scale = 8;
-        let mut _use_default_scaling_matrix_flag = false;
-        for j in 0..size {
-            if next_scale != 0 {
-                let delta_scale = r.read_se("delta_scale")?;
-                if delta_scale < -128 || delta_scale > 127 {
-                    return Err(ScalingMatrixError::DeltaScaleOutOfRange(delta_scale));
-                }
-                next_scale = (last_scale + delta_scale + 256) % 256;
-                _use_default_scaling_matrix_flag = j == 0 && next_scale == 0;
+
+/// returns 'use_default_scaling_matrix_flag'
+fn fill_scaling_list<R: BitRead>(
+    r: &mut R,
+    scaling_list: &mut [NonZeroU8],
+) -> Result<bool, ScalingMatrixError> {
+    let mut last_scale = NonZeroU8::new(8).unwrap();
+    let mut next_scale = 8;
+    let mut use_default_scaling_matrix_flag = false;
+
+    for j in 0..scaling_list.len() {
+        if next_scale != 0 {
+            let delta_scale = r.read_se("delta_scale")?;
+            if delta_scale < -128 || delta_scale > 127 {
+                return Err(ScalingMatrixError::DeltaScaleOutOfRange(delta_scale));
             }
-            let new_value = if next_scale == 0 {
-                last_scale
-            } else {
-                next_scale
-            };
-            scaling_list.push(new_value);
-            last_scale = new_value;
+            next_scale = (last_scale.get() as i32 + delta_scale + 256) % 256;
+            use_default_scaling_matrix_flag = j == 0 && next_scale == 0;
         }
-        Ok(ScalingList {})
+        let new_value = NonZeroU8::new(next_scale as u8).unwrap_or(last_scale);
+        scaling_list[j] = new_value;
+        last_scale = new_value;
+    }
+
+    Ok(use_default_scaling_matrix_flag)
+}
+
+impl<const S: usize> ScalingList<S> {
+    pub fn read<R: BitRead>(
+        r: &mut R,
+        present: bool,
+    ) -> Result<ScalingList<S>, ScalingMatrixError> {
+        if !present {
+            return Ok(ScalingList::NotPresent);
+        }
+        let mut scaling_list = [NonZeroU8::new(1).unwrap(); S];
+
+        let use_default_scaling_matrix_flag = fill_scaling_list(r, &mut scaling_list)?;
+        if use_default_scaling_matrix_flag {
+            Ok(ScalingList::UseDefault)
+        } else {
+            Ok(ScalingList::List(scaling_list))
+        }
     }
 }
 
@@ -337,7 +362,8 @@ impl From<BitReaderError> for ScalingMatrixError {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SeqScalingMatrix {
-    // TODO
+    pub scaling_list4x4: Vec<ScalingList<16>>,
+    pub scaling_list8x8: Vec<ScalingList<64>>,
 }
 
 impl SeqScalingMatrix {
@@ -345,21 +371,24 @@ impl SeqScalingMatrix {
         r: &mut R,
         chroma_format_idc: u32,
     ) -> Result<SeqScalingMatrix, ScalingMatrixError> {
-        let mut scaling_list4x4 = vec![];
-        let mut scaling_list8x8 = vec![];
-
         let count = if chroma_format_idc == 3 { 12 } else { 8 };
+
+        let mut scaling_list4x4 = Vec::with_capacity(6);
+        let mut scaling_list8x8 = Vec::with_capacity(count - 6);
+
         for i in 0..count {
             let seq_scaling_list_present_flag = r.read_bool("seq_scaling_list_present_flag")?;
-            if seq_scaling_list_present_flag {
-                if i < 6 {
-                    scaling_list4x4.push(ScalingList::read(r, 16)?);
-                } else {
-                    scaling_list8x8.push(ScalingList::read(r, 64)?);
-                }
+            if i < 6 {
+                scaling_list4x4.push(ScalingList::<16>::read(r, seq_scaling_list_present_flag)?);
+            } else {
+                scaling_list8x8.push(ScalingList::<64>::read(r, seq_scaling_list_present_flag)?);
             }
         }
-        Ok(SeqScalingMatrix {})
+
+        Ok(SeqScalingMatrix {
+            scaling_list4x4,
+            scaling_list8x8,
+        })
     }
 }
 
@@ -370,7 +399,7 @@ pub struct ChromaInfo {
     pub bit_depth_luma_minus8: u8,
     pub bit_depth_chroma_minus8: u8,
     pub qpprime_y_zero_transform_bypass_flag: bool,
-    pub scaling_matrix: SeqScalingMatrix,
+    pub scaling_matrix: Option<SeqScalingMatrix>,
 }
 impl ChromaInfo {
     pub fn read<R: BitRead>(r: &mut R, profile_idc: ProfileIdc) -> Result<ChromaInfo, SpsError> {
@@ -404,12 +433,14 @@ impl ChromaInfo {
     fn read_scaling_matrix<R: BitRead>(
         r: &mut R,
         chroma_format_idc: u32,
-    ) -> Result<SeqScalingMatrix, SpsError> {
+    ) -> Result<Option<SeqScalingMatrix>, SpsError> {
         let scaling_matrix_present_flag = r.read_bool("scaling_matrix_present_flag")?;
         if scaling_matrix_present_flag {
-            SeqScalingMatrix::read(r, chroma_format_idc).map_err(SpsError::ScalingMatrix)
+            Ok(Some(
+                SeqScalingMatrix::read(r, chroma_format_idc).map_err(SpsError::ScalingMatrix)?,
+            ))
         } else {
-            Ok(SeqScalingMatrix::default())
+            Ok(None)
         }
     }
 }
@@ -1827,9 +1858,9 @@ mod test {
     )]
     #[test_case(
         vec![
-            103, 100, 0, 50, 173, 132, 1, 12, 32, 8, 97, 0, 67, 8, 2,
-            24, 64, 16, 194, 0, 132, 59, 80, 20, 0, 90, 211,
-            112, 16, 16, 20, 0, 0, 3, 0, 4, 0, 0, 3, 0, 162, 16,
+            103, 100, 0, 50, 173, 132, 99, 210, 73, 36, 146, 73, 37, 8, 127,
+            255, 132, 63, 255, 194, 31, 255, 225, 15, 255, 225, 218,
+            128, 160, 2, 214, 155, 128, 128, 128, 160, 0, 0, 3, 0, 32, 0, 0, 5, 16, 128
         ],
         SeqParameterSet{
             profile_idc: ProfileIdc::from(100),
@@ -1838,6 +1869,37 @@ mod test {
             seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
             chroma_info: ChromaInfo{
                 chroma_format: ChromaFormat::YUV420,
+                scaling_matrix: Some(SeqScalingMatrix {
+                    scaling_list4x4: vec![
+                        ScalingList::UseDefault,
+                        ScalingList::List([
+                            NonZeroU8::new(1).unwrap(),
+                            NonZeroU8::new(2).unwrap(),
+                            NonZeroU8::new(3).unwrap(),
+                            NonZeroU8::new(4).unwrap(),
+                            NonZeroU8::new(5).unwrap(),
+                            NonZeroU8::new(6).unwrap(),
+                            NonZeroU8::new(7).unwrap(),
+                            NonZeroU8::new(8).unwrap(),
+                            NonZeroU8::new(9).unwrap(),
+                            NonZeroU8::new(10).unwrap(),
+                            NonZeroU8::new(11).unwrap(),
+                            NonZeroU8::new(12).unwrap(),
+                            NonZeroU8::new(13).unwrap(),
+                            NonZeroU8::new(14).unwrap(),
+                            NonZeroU8::new(15).unwrap(),
+                            NonZeroU8::new(16).unwrap(),
+                        ]),
+                        ScalingList::List([NonZeroU8::new(16).unwrap(); 16]),
+                        ScalingList::List([NonZeroU8::new(16).unwrap(); 16]),
+                        ScalingList::List([NonZeroU8::new(16).unwrap(); 16]),
+                        ScalingList::List([NonZeroU8::new(16).unwrap(); 16]),
+                    ],
+                    scaling_list8x8: vec![
+                        ScalingList::NotPresent,
+                        ScalingList::NotPresent,
+                    ]
+                }),
                 ..ChromaInfo::default()
             },
             /*seq_scaling_list: Some(SeqScalingList{

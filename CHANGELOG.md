@@ -17,6 +17,10 @@
 
 *   Make some fields of `SliceType` public.
 
+### Added
+
+*   Parsing of scaling lists
+
 ## 0.7.0 - 2023-05-30
 
 ### Changed
