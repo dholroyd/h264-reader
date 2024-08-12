@@ -134,7 +134,7 @@ impl SliceGroup {
         let size = (1f64 + f64::from(num_slice_groups_minus1)).log2().ceil() as u32;
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
         for _ in 0..pic_size_in_map_units_minus1 + 1 {
-            run_length_minus1.push(r.read_u32(size, "slice_group_id")?);
+            run_length_minus1.push(r.read(size, "slice_group_id")?);
         }
         Ok(run_length_minus1)
     }
@@ -271,7 +271,7 @@ impl PicParameterSet {
                 "num_ref_idx_l1_default_active_minus1",
             )?,
             weighted_pred_flag: r.read_bool("weighted_pred_flag")?,
-            weighted_bipred_idc: r.read_u8(2, "weighted_bipred_idc")?,
+            weighted_bipred_idc: r.read(2, "weighted_bipred_idc")?,
             pic_init_qp_minus26: r.read_se("pic_init_qp_minus26")?,
             pic_init_qs_minus26: r.read_se("pic_init_qs_minus26")?,
             chroma_qp_index_offset: r.read_se("chroma_qp_index_offset")?,

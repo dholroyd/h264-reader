@@ -453,11 +453,11 @@ impl SliceHeader {
             SliceHeaderError::UndefinedSeqParamSetId(pps.seq_parameter_set_id),
         )?;
         let colour_plane = if sps.chroma_info.separate_colour_plane_flag {
-            Some(ColourPlane::from_id(r.read_u8(2, "colour_plane_id")?)?)
+            Some(ColourPlane::from_id(r.read(2, "colour_plane_id")?)?)
         } else {
             None
         };
-        let frame_num = r.read_u16(u32::from(sps.log2_max_frame_num()), "frame_num")?;
+        let frame_num = r.read(u32::from(sps.log2_max_frame_num()), "frame_num")?;
         let field_pic = if let sps::FrameMbsFlags::Fields { .. } = sps.frame_mbs_flags {
             if r.read_bool("field_pic_flag")? {
                 if r.read_bool("bottom_field_flag")? {
@@ -481,7 +481,7 @@ impl SliceHeader {
             sps::PicOrderCntType::TypeZero {
                 log2_max_pic_order_cnt_lsb_minus4,
             } => {
-                let pic_order_cnt_lsb = r.read_u32(
+                let pic_order_cnt_lsb = r.read(
                     u32::from(log2_max_pic_order_cnt_lsb_minus4) + 4,
                     "pic_order_cnt_lsb",
                 )?;

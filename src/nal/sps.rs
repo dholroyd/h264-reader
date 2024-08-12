@@ -545,7 +545,7 @@ impl AspectRatioInfo {
     fn read<R: BitRead>(r: &mut R) -> Result<Option<AspectRatioInfo>, BitReaderError> {
         let aspect_ratio_info_present_flag = r.read_bool("aspect_ratio_info_present_flag")?;
         Ok(if aspect_ratio_info_present_flag {
-            let aspect_ratio_idc = r.read_u8(8, "aspect_ratio_idc")?;
+            let aspect_ratio_idc = r.read(8, "aspect_ratio_idc")?;
             Some(match aspect_ratio_idc {
                 0 => AspectRatioInfo::Unspecified,
                 1 => AspectRatioInfo::Ratio1_1,
@@ -564,10 +564,9 @@ impl AspectRatioInfo {
                 14 => AspectRatioInfo::Ratio4_3,
                 15 => AspectRatioInfo::Ratio3_2,
                 16 => AspectRatioInfo::Ratio2_1,
-                255 => AspectRatioInfo::Extended(
-                    r.read_u16(16, "sar_width")?,
-                    r.read_u16(16, "sar_height")?,
-                ),
+                255 => {
+                    AspectRatioInfo::Extended(r.read(16, "sar_width")?, r.read(16, "sar_height")?)
+                }
                 _ => AspectRatioInfo::Reserved(aspect_ratio_idc),
             })
         } else {
@@ -670,9 +669,9 @@ impl ColourDescription {
         let colour_description_present_flag = r.read_bool("colour_description_present_flag")?;
         Ok(if colour_description_present_flag {
             Some(ColourDescription {
-                colour_primaries: r.read_u8(8, "colour_primaries")?,
-                transfer_characteristics: r.read_u8(8, "transfer_characteristics")?,
-                matrix_coefficients: r.read_u8(8, "matrix_coefficients")?,
+                colour_primaries: r.read(8, "colour_primaries")?,
+                transfer_characteristics: r.read(8, "transfer_characteristics")?,
+                matrix_coefficients: r.read(8, "matrix_coefficients")?,
             })
         } else {
             None
@@ -691,7 +690,7 @@ impl VideoSignalType {
         let video_signal_type_present_flag = r.read_bool("video_signal_type_present_flag")?;
         Ok(if video_signal_type_present_flag {
             Some(VideoSignalType {
-                video_format: VideoFormat::from(r.read_u8(3, "video_format")?),
+                video_format: VideoFormat::from(r.read(3, "video_format")?),
                 video_full_range_flag: r.read_bool("video_full_range_flag")?,
                 colour_description: ColourDescription::read(r)?,
             })
@@ -732,8 +731,8 @@ impl TimingInfo {
         let timing_info_present_flag = r.read_bool("timing_info_present_flag")?;
         Ok(if timing_info_present_flag {
             Some(TimingInfo {
-                num_units_in_tick: r.read_u32(32, "num_units_in_tick")?,
-                time_scale: r.read_u32(32, "time_scale")?,
+                num_units_in_tick: r.read(32, "num_units_in_tick")?,
+                time_scale: r.read(32, "time_scale")?,
                 fixed_frame_rate_flag: r.read_bool("fixed_frame_rate_flag")?,
             })
         } else {
@@ -782,14 +781,14 @@ impl HrdParameters {
             }
             let cpb_cnt = cpb_cnt_minus1 + 1;
             Some(HrdParameters {
-                bit_rate_scale: r.read_u8(4, "bit_rate_scale")?,
-                cpb_size_scale: r.read_u8(4, "cpb_size_scale")?,
+                bit_rate_scale: r.read(4, "bit_rate_scale")?,
+                cpb_size_scale: r.read(4, "cpb_size_scale")?,
                 cpb_specs: Self::read_cpb_specs(r, cpb_cnt)?,
                 initial_cpb_removal_delay_length_minus1: r
-                    .read_u8(5, "initial_cpb_removal_delay_length_minus1")?,
-                cpb_removal_delay_length_minus1: r.read_u8(5, "cpb_removal_delay_length_minus1")?,
-                dpb_output_delay_length_minus1: r.read_u8(5, "dpb_output_delay_length_minus1")?,
-                time_offset_length: r.read_u8(5, "time_offset_length")?,
+                    .read(5, "initial_cpb_removal_delay_length_minus1")?,
+                cpb_removal_delay_length_minus1: r.read(5, "cpb_removal_delay_length_minus1")?,
+                dpb_output_delay_length_minus1: r.read(5, "dpb_output_delay_length_minus1")?,
+                time_offset_length: r.read(5, "time_offset_length")?,
             })
         } else {
             None
@@ -894,11 +893,11 @@ pub struct SeqParameterSet {
 }
 impl SeqParameterSet {
     pub fn from_bits<R: BitRead>(mut r: R) -> Result<SeqParameterSet, SpsError> {
-        let profile_idc = r.read_u8(8, "profile_idc")?.into();
+        let profile_idc = r.read::<u8>(8, "profile_idc")?.into();
         let sps = SeqParameterSet {
             profile_idc,
-            constraint_flags: r.read_u8(8, "constraint_flags")?.into(),
-            level_idc: r.read_u8(8, "level_idc")?,
+            constraint_flags: r.read::<u8>(8, "constraint_flags")?.into(),
+            level_idc: r.read(8, "level_idc")?,
             seq_parameter_set_id: SeqParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)
                 .map_err(SpsError::BadSeqParamSetId)?,
             chroma_info: ChromaInfo::read(&mut r, profile_idc)?,

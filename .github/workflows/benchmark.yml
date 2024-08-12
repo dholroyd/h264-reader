@@ -15,7 +15,7 @@ jobs:
           lfs: true
 
       - name: Install toolchain
-        uses: dtolnay/rust-toolchain@1.76.0
+        uses: dtolnay/rust-toolchain@1.79.0
 
       - uses: bencherdev/bencher@main
       - uses: cargo-bins/cargo-binstall@main

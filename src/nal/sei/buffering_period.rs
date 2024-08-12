@@ -36,9 +36,8 @@ fn read_cpb_removal_delay_list<R: BitRead>(
     let mut res = vec![];
     for _ in 0..count {
         res.push(InitialCpbRemoval {
-            initial_cpb_removal_delay: r.read_u32(length, "initial_cpb_removal_delay")?,
-            initial_cpb_removal_delay_offset: r
-                .read_u32(length, "initial_cpb_removal_delay_offset")?,
+            initial_cpb_removal_delay: r.read(length, "initial_cpb_removal_delay")?,
+            initial_cpb_removal_delay_offset: r.read(length, "initial_cpb_removal_delay_offset")?,
         });
     }
     Ok(res)

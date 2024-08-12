@@ -26,19 +26,27 @@ use bitstream_io::read::BitRead as _;
 use std::borrow::Cow;
 use std::io::BufRead;
 use std::io::Read;
+use std::num::NonZeroUsize;
 
 #[derive(Copy, Clone, Debug)]
 enum ParseState {
     Start,
     OneZero,
     TwoZero,
-    HeaderByte,
+    Skip(NonZeroUsize),
     Three,
     PostThree,
 }
 
-/// [`BufRead`] adapter which returns RBSP bytes given NAL bytes by removing
-/// the NAL header and `emulation-prevention-three` bytes.
+const H264_HEADER_LEN: NonZeroUsize = match NonZeroUsize::new(1) {
+    Some(one) => one,
+    None => panic!("1 should be non-zero"),
+};
+
+/// [`BufRead`] adapter which returns RBSP from NAL bytes.
+///
+/// This optionally skips a given number of leading bytes, then returns any bytes except the
+/// `emulation-prevention-three` bytes.
 ///
 /// See also [module docs](self).
 ///
@@ -57,16 +65,39 @@ pub struct ByteReader<R: BufRead> {
     i: usize,
 
     /// The maximum number of bytes in a fresh chunk. Surprisingly, it's
-    /// significantly faster to limit this, maybe due to CPU cache effects.
+    /// significantly faster to limit this, maybe due to CPU cache effects, or
+    /// maybe because it's common to examine at most the headers of large slice NALs.
     max_fill: usize,
 }
 impl<R: BufRead> ByteReader<R> {
-    /// Constructs an adapter from the given [BufRead]. The NAL header byte is
-    /// expected to be present.
-    pub fn new(inner: R) -> Self {
+    /// Constructs an adapter from the given [`BufRead`] which does not skip any initial bytes.
+    pub fn without_skip(inner: R) -> Self {
         Self {
             inner,
-            state: ParseState::HeaderByte,
+            state: ParseState::Start,
+            i: 0,
+            max_fill: 128,
+        }
+    }
+
+    /// Constructs an adapter from the given [`BufRead`] which skips the 1-byte H.264 header.
+    pub fn skipping_h264_header(inner: R) -> Self {
+        Self {
+            inner,
+            state: ParseState::Skip(H264_HEADER_LEN),
+            i: 0,
+            max_fill: 128,
+        }
+    }
+
+    /// Constructs an adapter from the given [`BufRead`] which will skip over the first `skip` bytes.
+    ///
+    /// This can be useful for parsing H.265, which uses the same
+    /// `emulation-prevention-three-bytes` convention but two-byte NAL headers.
+    pub fn skipping_bytes(inner: R, skip: NonZeroUsize) -> Self {
+        Self {
+            inner,
+            state: ParseState::Skip(skip),
             i: 0,
             max_fill: 128,
         }
@@ -112,10 +143,13 @@ impl<R: BufRead> ByteReader<R> {
                     }
                     _ => self.state = ParseState::Start,
                 },
-                ParseState::HeaderByte => {
+                ParseState::Skip(remaining) => {
                     debug_assert_eq!(self.i, 0);
-                    self.inner.consume(1);
-                    self.state = ParseState::Start;
+                    let skip = std::cmp::min(chunk.len(), remaining.get());
+                    self.inner.consume(skip);
+                    self.state = NonZeroUsize::new(remaining.get() - skip)
+                        .map(ParseState::Skip)
+                        .unwrap_or(ParseState::Start);
                     break;
                 }
                 ParseState::Three => {
@@ -197,7 +231,7 @@ impl<R: BufRead> BufRead for ByteReader<R> {
 pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Result<Cow<'a, [u8]>, std::io::Error> {
     let mut reader = ByteReader {
         inner: nal_unit,
-        state: ParseState::HeaderByte,
+        state: ParseState::Skip(H264_HEADER_LEN),
         i: 0,
         max_fill: usize::MAX, // to borrow if at all possible.
     };
@@ -221,7 +255,6 @@ pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Result<Cow<'a, [u8]>, std::io::Erro
 
 #[derive(Debug)]
 pub enum BitReaderError {
-    ReaderError(std::io::Error),
     ReaderErrorFor(&'static str, std::io::Error),
 
     /// An Exp-Golomb-coded syntax elements value has more than 32 bits.
@@ -233,14 +266,30 @@ pub enum BitReaderError {
     Unaligned,
 }
 
+pub use bitstream_io::{Numeric, Primitive};
+
 pub trait BitRead {
+    /// Reads an unsigned Exp-Golomb-coded value, as defined in the H.264 spec.
     fn read_ue(&mut self, name: &'static str) -> Result<u32, BitReaderError>;
+
+    /// Reads a signed Exp-Golomb-coded value, as defined in the H.264 spec.
     fn read_se(&mut self, name: &'static str) -> Result<i32, BitReaderError>;
+
+    /// Reads a single bit, as in [`crate::bitstream_io::read::BitRead::read_bool`].
     fn read_bool(&mut self, name: &'static str) -> Result<bool, BitReaderError>;
-    fn read_u8(&mut self, bit_count: u32, name: &'static str) -> Result<u8, BitReaderError>;
-    fn read_u16(&mut self, bit_count: u32, name: &'static str) -> Result<u16, BitReaderError>;
-    fn read_u32(&mut self, bit_count: u32, name: &'static str) -> Result<u32, BitReaderError>;
-    fn read_i32(&mut self, bit_count: u32, name: &'static str) -> Result<i32, BitReaderError>;
+
+    /// Reads an unsigned value from the bitstream with the given number of bytes, as in
+    /// [`crate::bitstream_io::read::BitRead::read`].
+    fn read<U: Numeric>(&mut self, bit_count: u32, name: &'static str)
+        -> Result<U, BitReaderError>;
+
+    /// Reads a whole value from the bitstream whose size is equal to its byte size, as in
+    /// [`crate::bitstream_io::read::BitRead::read_to`].
+    fn read_to<V: Primitive>(&mut self, name: &'static str) -> Result<V, BitReaderError>;
+
+    /// Skips the given number of bits in the bitstream, as in
+    /// [`crate::bitstream_io::read::BitRead::skip`].
+    fn skip(&mut self, bit_count: u32, name: &'static str) -> Result<(), BitReaderError>;
 
     /// Returns true if positioned before the RBSP trailing bits.
     ///
@@ -294,7 +343,7 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
         if count > 31 {
             return Err(BitReaderError::ExpGolombTooLarge(name));
         } else if count > 0 {
-            let val = self.read_u32(count, name)?;
+            let val: u32 = self.read(count, name)?;
             Ok((1 << count) - 1 + val)
         } else {
             Ok(0)
@@ -311,27 +360,25 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
             .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
-    fn read_u8(&mut self, bit_count: u32, name: &'static str) -> Result<u8, BitReaderError> {
+    fn read<U: Numeric>(
+        &mut self,
+        bit_count: u32,
+        name: &'static str,
+    ) -> Result<U, BitReaderError> {
         self.reader
             .read(bit_count)
             .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
-    fn read_u16(&mut self, bit_count: u32, name: &'static str) -> Result<u16, BitReaderError> {
+    fn read_to<V: Primitive>(&mut self, name: &'static str) -> Result<V, BitReaderError> {
         self.reader
-            .read(bit_count)
+            .read_to()
             .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
-    fn read_u32(&mut self, bit_count: u32, name: &'static str) -> Result<u32, BitReaderError> {
+    fn skip(&mut self, bit_count: u32, name: &'static str) -> Result<(), BitReaderError> {
         self.reader
-            .read(bit_count)
-            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
-    }
-
-    fn read_i32(&mut self, bit_count: u32, name: &'static str) -> Result<i32, BitReaderError> {
-        self.reader
-            .read(bit_count)
+            .skip(bit_count)
             .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
     }
 
@@ -404,7 +451,7 @@ mod tests {
         for i in 1..data.len() - 1 {
             let (head, tail) = data.split_at(i);
             let r = head.chain(tail);
-            let mut r = ByteReader::new(r);
+            let mut r = ByteReader::skipping_h264_header(r);
             let mut rbsp = Vec::new();
             r.read_to_end(&mut rbsp).unwrap();
             let expected = hex!(
@@ -426,13 +473,13 @@ mod tests {
         // Should work when the end bit is byte-aligned.
         let mut reader = BitReader::new(&[0x12, 0x80][..]);
         assert!(reader.has_more_rbsp_data("call 1").unwrap());
-        assert_eq!(reader.read_u8(8, "u8 1").unwrap(), 0x12);
+        assert_eq!(reader.read::<u8>(8, "u8 1").unwrap(), 0x12);
         assert!(!reader.has_more_rbsp_data("call 2").unwrap());
 
         // and when it's not.
         let mut reader = BitReader::new(&[0x18][..]);
         assert!(reader.has_more_rbsp_data("call 3").unwrap());
-        assert_eq!(reader.read_u8(4, "u8 2").unwrap(), 0x1);
+        assert_eq!(reader.read::<u8>(4, "u8 2").unwrap(), 0x1);
         assert!(!reader.has_more_rbsp_data("call 4").unwrap());
 
         // should also work when there are cabac-zero-words.

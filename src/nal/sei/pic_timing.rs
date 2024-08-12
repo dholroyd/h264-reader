@@ -171,25 +171,25 @@ impl ClockTimestamp {
         r: &mut R,
         sps: &sps::SeqParameterSet,
     ) -> Result<ClockTimestamp, PicTimingError> {
-        let ct_type = CtType::from_id(r.read_u8(2, "ct_type")?);
+        let ct_type = CtType::from_id(r.read(2, "ct_type")?);
         let nuit_field_based_flag = r.read_bool("nuit_field_based_flag")?;
-        let counting_type = CountingType::from_id(r.read_u8(5, "counting_type")?);
+        let counting_type = CountingType::from_id(r.read(5, "counting_type")?);
         let full_timestamp_flag = r.read_bool("full_timestamp_flag")?;
         let discontinuity_flag = r.read_bool("discontinuity_flag")?;
         let cnt_dropped_flag = r.read_bool("cnt_dropped_flag")?;
-        let n_frames = r.read_u8(8, "n_frames")?;
+        let n_frames = r.read(8, "n_frames")?;
         let smh = if full_timestamp_flag {
             SecMinHour::SMH(
-                r.read_u8(6, "seconds_value")?,
-                r.read_u8(6, "minutes_value")?,
-                r.read_u8(5, "hours_value")?,
+                r.read(6, "seconds_value")?,
+                r.read(6, "minutes_value")?,
+                r.read(5, "hours_value")?,
             )
         } else if r.read_bool("seconds_flag")? {
-            let seconds = r.read_u8(6, "seconds_value")?;
+            let seconds = r.read(6, "seconds_value")?;
             if r.read_bool("minutes_flag")? {
-                let minutes = r.read_u8(6, "minutes_value")?;
+                let minutes = r.read(6, "minutes_value")?;
                 if r.read_bool("hours_flag")? {
-                    let hours = r.read_u8(5, "hours_value")?;
+                    let hours = r.read(5, "hours_value")?;
                     SecMinHour::SMH(seconds, minutes, hours)
                 } else {
                     SecMinHour::SM(seconds, minutes)
@@ -214,7 +214,7 @@ impl ClockTimestamp {
         let time_offset = if time_offset_length == 0 {
             None
         } else {
-            Some(r.read_i32(u32::from(time_offset_length), "time_offset_length")?)
+            Some(r.read(u32::from(time_offset_length), "time_offset_length")?)
         };
         Ok(ClockTimestamp {
             ct_type,
@@ -269,11 +269,11 @@ impl PicTiming {
                 .or_else(|| vui_params.nal_hrd_parameters.as_ref())
             {
                 Some(Delays {
-                    cpb_removal_delay: r.read_u32(
+                    cpb_removal_delay: r.read(
                         u32::from(hrd.cpb_removal_delay_length_minus1) + 1,
                         "cpb_removal_delay",
                     )?,
-                    dpb_output_delay: r.read_u32(
+                    dpb_output_delay: r.read(
                         u32::from(hrd.dpb_output_delay_length_minus1) + 1,
                         "dpb_output_delay",
                     )?,
@@ -292,7 +292,7 @@ impl PicTiming {
     ) -> Result<Option<PicStruct>, PicTimingError> {
         Ok(if let Some(ref vui_params) = sps.vui_parameters {
             if vui_params.pic_struct_present_flag {
-                let pic_struct = PicStructType::from_id(r.read_u8(4, "pic_struct")?)?;
+                let pic_struct = PicStructType::from_id(r.read(4, "pic_struct")?)?;
                 let clock_timestamps = Self::read_clock_timestamps(r, &pic_struct, sps)?;
 
                 Some(PicStruct {
