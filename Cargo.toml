@@ -21,7 +21,7 @@ log = "0.4"
 hex-literal = "0.4.1"
 criterion = "0.5"
 test-case = "3.0.0"
-iai-callgrind = "0.11.0"
+iai-callgrind = "0.12.3"
 
 [[bench]]
 name = "bench"
