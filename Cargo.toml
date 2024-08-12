@@ -1,6 +1,6 @@
 [package]
 name = "h264-reader"
-version = "0.7.1-dev"
+version = "0.8.0-dev"
 authors = ["David Holroyd <dave@badgers-in-foil.co.uk>"]
 license = "MIT/Apache-2.0"
 description = "Reader for H264 bitstream syntax"

@@ -194,9 +194,9 @@ impl fmt::Debug for NalHeader {
 ///
 /// // Reading RBSP as a bit sequence:
 /// let mut r = nal.rbsp_bits();
-/// assert_eq!(r.read_u8(4, "first nibble").unwrap(), 0x1);
-/// assert_eq!(r.read_u8(4, "second nibble").unwrap(), 0x2);
-/// assert_eq!(r.read_u32(23, "23 bits at a time").unwrap(), 0x1a_00_00);
+/// assert_eq!(r.read::<u8>(4, "first nibble").unwrap(), 0x1);
+/// assert_eq!(r.read::<u8>(4, "second nibble").unwrap(), 0x2);
+/// assert_eq!(r.read::<u32>(23, "23 bits at a time").unwrap(), 0x1a_00_00);
 /// assert!(r.has_more_rbsp_data("more left").unwrap());
 /// ```
 pub trait Nal {
@@ -217,7 +217,7 @@ pub trait Nal {
     /// emulation-prevention-three-bytes).
     #[inline]
     fn rbsp_bytes(&self) -> rbsp::ByteReader<Self::BufRead> {
-        rbsp::ByteReader::new(self.reader())
+        rbsp::ByteReader::skipping_h264_header(self.reader())
     }
 
     /// Reads bits within the RBSP form.
