@@ -6,6 +6,12 @@
 
 *   BREAKING CHANGE: The `ParamSetId` type has been removed and replaced with separate `PicParamSetId` and
     `SeqParamSetId` types, since the allowed range of values needs to be different in these two usages.
+*   BREAKING CHANGE: The `rbsp::ByteReader::new` constructor has been removed in favor of more explicit
+    `ByteReader::skipping_h264_header`, alongside the new `ByteReader::without_skip` and `ByteReader::skipping_bytes`
+    that are suitable for other situations or parsing H.265 streams with two-byte NAL headers.
+*   BREAKING CHANGE: the `rbsp::BitReaderError::ReadError` has been removed; methods consistently return
+    the variant `rbsp::BitReaderError::ReadErrorFor` which additionally supplies the field name.
+*   BREAKING CHANGE: some methods in `rbsp::BitRead` have been renamed to match the `bitstream-io` conventions.
 
 ## 0.7.0 - 2023-05-30
 
