@@ -8,7 +8,7 @@ use crate::rbsp::BitReaderError;
 use crate::Context;
 
 #[derive(Debug, PartialEq)]
-enum SliceFamily {
+pub enum SliceFamily {
     P,
     B,
     I,
@@ -16,7 +16,7 @@ enum SliceFamily {
     SI,
 }
 #[derive(Debug, PartialEq)]
-enum SliceExclusive {
+pub enum SliceExclusive {
     /// All slices in the picture have the same type
     Exclusive,
     /// Other slices in the picture may have a different type than the current slice
@@ -24,8 +24,8 @@ enum SliceExclusive {
 }
 #[derive(Debug, PartialEq)]
 pub struct SliceType {
-    family: SliceFamily,
-    exclusive: SliceExclusive,
+    pub family: SliceFamily,
+    pub exclusive: SliceExclusive,
 }
 impl SliceType {
     fn from_id(id: u32) -> Result<SliceType, SliceHeaderError> {
@@ -504,13 +504,17 @@ impl SliceHeader {
                 ..
             } => {
                 if delta_pic_order_always_zero_flag {
-                    None
+                    Some(PicOrderCountLsb::FieldsDelta([0, 0]))
                 } else {
-                    Some(PicOrderCountLsb::FieldsDelta([
-                        // TODO: can't remember what field names these are in the spec, to give for debugging
-                        r.read_se("FieldsDelta[0]")?,
-                        r.read_se("FieldsDelta[1]")?,
-                    ]))
+                    let delta0 = r.read_se("delta_pic_order_cnt[0]")?;
+                    if pps.bottom_field_pic_order_in_frame_present_flag
+                        && field_pic == FieldPic::Frame
+                    {
+                        let delta1 = r.read_se("delta_pic_order_cnt[1]")?;
+                        Some(PicOrderCountLsb::FieldsDelta([delta0, delta1]))
+                    } else {
+                        Some(PicOrderCountLsb::FieldsDelta([delta0, 0]))
+                    }
                 }
             }
             sps::PicOrderCntType::TypeTwo => None,
