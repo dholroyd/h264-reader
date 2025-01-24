@@ -691,14 +691,12 @@ mod test {
         let pps = RefNal::new(&hex!("28 c5 56 6a 08 41 00 fd")[..], &[], true);
         let pps = PicParameterSet::from_bits(&ctx, pps.rbsp_bits()).unwrap();
         ctx.put_pic_param_set(pps);
-        let nal = RefNal::new(
-            &hex!("41 3f 3f 00 00 03 00 03 ed 60 bb bb bb")[..],
-            &[],
-            true,
+        let nal = RefNal::new(&hex!("41 26 25 03 00")[..], &[], true);
+        let r = SliceHeader::from_bits(&ctx, &mut nal.rbsp_bits(), nal.header().unwrap());
+        assert!(
+            matches!(r, Err(SliceHeaderError::InvalidNumRefIdx(_, _))),
+            "r={:#?}",
+            r
         );
-        assert!(matches!(
-            SliceHeader::from_bits(&ctx, &mut nal.rbsp_bits(), nal.header().unwrap()),
-            Err(SliceHeaderError::InvalidNumRefIdx(_, _))
-        ));
     }
 }
