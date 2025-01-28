@@ -12,14 +12,18 @@
 *   BREAKING CHANGE: the `rbsp::BitReaderError::ReadError` has been removed; methods consistently return
     the variant `rbsp::BitReaderError::ReadErrorFor` which additionally supplies the field name.
 *   BREAKING CHANGE: some methods in `rbsp::BitRead` have been renamed to match the `bitstream-io` conventions.
+*   BREAKING CHANGE: updated `rfc6381-codec` version from 0.1 to 0.2.
 
 ### Added
 
 *   Make some fields of `SliceType` public.
+*   Parsing of scaling lists.
 
-### Added
+### Fixed
 
-*   Parsing of scaling lists
+*   Fix parsing of `delta_pic_order_cnt` fields in `SliceHeader`.
+*   Fix parsing of `slice_group_id` fields in `SliceGroup` ([#57](https://github.com/dholroyd/h264-reader/issues/57)).
+*   Fix overflow on `SliceHeader.qs_y` calculation by adding bounds checks on `pps.pic_init_qs_minus26`.
 
 ## 0.7.0 - 2023-05-30
 

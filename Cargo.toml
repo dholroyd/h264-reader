@@ -1,6 +1,6 @@
 [package]
 name = "h264-reader"
-version = "0.8.0-dev"
+version = "0.8.0"
 authors = ["David Holroyd <dave@badgers-in-foil.co.uk>"]
 license = "MIT/Apache-2.0"
 description = "Reader for H264 bitstream syntax"
@@ -9,6 +9,7 @@ keywords = [ "H-264" ]
 readme = "README.md"
 repository = "https://github.com/dholroyd/h264-reader"
 edition = "2018"
+exclude = ["/*.h264"]
 
 [dependencies]
 bitstream-io = "2.2"
