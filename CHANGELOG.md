@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8.0 - 2025-01-28
+
 ### Changed
 
 *   BREAKING CHANGE: The `ParamSetId` type has been removed and replaced with separate `PicParamSetId` and
