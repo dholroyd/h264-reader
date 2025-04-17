@@ -12,7 +12,7 @@ edition = "2018"
 exclude = ["/*.h264"]
 
 [dependencies]
-bitstream-io = "2.2"
+bitstream-io = "3.2"
 hex-slice = "0.1.4"
 memchr = "2.1.1"
 rfc6381-codec = "0.2"
