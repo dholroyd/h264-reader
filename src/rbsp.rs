@@ -23,6 +23,7 @@
 //! the sequence `0x00 0x00 0x03` with `0x00 0x00`).
 
 use bitstream_io::read::BitRead as _;
+use log::warn;
 use std::borrow::Cow;
 use std::io::BufRead;
 use std::io::Read;
@@ -260,8 +261,10 @@ pub enum BitReaderError {
     /// An Exp-Golomb-coded syntax elements value has more than 32 bits.
     ExpGolombTooLarge(&'static str),
 
-    /// The stream was positioned before the final one bit on [BitRead::finish_rbsp].
-    RemainingData,
+    /// The stream did not have a stop bit equal to one when finishing a stream.
+    StopBitNotOne,
+    /// The stream did not have all alignment bits equal to zero when finishing a stream.
+    AlignmentBitNotZero,
 
     Unaligned,
 }
@@ -397,37 +400,81 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
     }
 
     fn finish_rbsp(mut self) -> Result<(), BitReaderError> {
-        // The next bit is expected to be the final one bit.
+        // rbsp_trailing_bits( ) {
+        //     rbsp_stop_one_bit /* equal to 1 */
+        //     while( !byte_aligned( ) )
+        //         rbsp_alignment_zero_bit /* equal to 0 */
+        // }
+
+        // consume `rbsp_stop_one_bit`
         if !self
             .reader
             .read_bit()
-            .map_err(|e| BitReaderError::ReaderErrorFor("finish", e))?
+            .map_err(|e| BitReaderError::ReaderErrorFor("rbsp_stop_one_bit", e))?
         {
-            // It was a zero! Determine if we're past the end or haven't reached it yet.
-            match self.reader.read_unary1() {
-                Err(e) => return Err(BitReaderError::ReaderErrorFor("finish", e)),
-                Ok(_) => return Err(BitReaderError::RemainingData),
+            return Err(BitReaderError::StopBitNotOne);
+        }
+
+        // consume `rbsp_alignment_zero_bit`(s)
+        while !self.reader.byte_aligned() {
+            match self.reader.read_bit() {
+                Ok(true) => return Err(BitReaderError::AlignmentBitNotZero),
+                Ok(false) => continue,
+                Err(e) => return Err(BitReaderError::ReaderErrorFor("rbsp_alignment_zero_bit", e)),
             }
         }
-        // All remaining bits in the stream must then be zeros.
-        match self.reader.read_unary1() {
+
+        // verify that there's nothing past the end `rbsp_trailing_bits`
+        match self.reader.read_bit() {
+            Ok(_) => {
+                // this branch only gets taken if there is extra data after `rbsp_trailing_bits`
+                warn!("BitReader: extra data after `rbsp_trailing_bits`");
+                Ok(())
+            }
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(()),
             Err(e) => Err(BitReaderError::ReaderErrorFor("finish", e)),
-            Ok(_) => Err(BitReaderError::RemainingData),
         }
     }
 
     fn finish_sei_payload(mut self) -> Result<(), BitReaderError> {
-        match self.reader.read_bit() {
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
-            Err(e) => return Err(BitReaderError::ReaderErrorFor("finish", e)),
-            Ok(false) => return Err(BitReaderError::RemainingData),
-            Ok(true) => {}
+        // if( !byte_aligned( ) ) {
+        //     bit_equal_to_one /* equal to 1 */
+        //     while( !byte_aligned( ) )
+        //         bit_equal_to_zero /* equal to 0 */
+        // }
+
+        if !self.reader.byte_aligned() {
+            // consume `bit_equal_to_one`
+            if !self
+                .reader
+                .read_bit()
+                .map_err(|e| BitReaderError::ReaderErrorFor("bit_equal_to_one", e))?
+            {
+                return Err(BitReaderError::StopBitNotOne);
+            }
+            while !self.reader.byte_aligned() {
+                // consume `bit_equal_to_zero`(s)
+                while !self.reader.byte_aligned() {
+                    match self.reader.read_bit() {
+                        Ok(true) => return Err(BitReaderError::AlignmentBitNotZero),
+                        Ok(false) => continue,
+                        Err(e) => {
+                            return Err(BitReaderError::ReaderErrorFor("bit_equal_to_zero", e))
+                        }
+                    }
+                }
+            }
         }
-        match self.reader.read_unary1() {
+
+        // verify that there's nothing past the end
+        match self.reader.read_bit() {
+            Ok(_) => {
+                // this branch only gets taken if there is extra data after the SEI payload
+                warn!("BitReader: extra data after SEI payload");
+                Ok(())
+            }
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(()),
             Err(e) => Err(BitReaderError::ReaderErrorFor("finish", e)),
-            Ok(_) => Err(BitReaderError::RemainingData),
         }
     }
 }

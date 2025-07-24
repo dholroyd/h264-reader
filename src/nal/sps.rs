@@ -2116,6 +2116,60 @@ mod test {
         1080,
         25.0; "1920x1080 hikvision nal hrd + vcl hrd"
     )]
+    #[test_case(
+        vec![
+            103, 100, 0, 21, 172, 228, 5, 132,
+            183, 254, 1, 0, 0, 234, 32, 0,
+            0, 3, 0, 32, 0, 0, 7, 147,
+            226, 133, 73, 0, 10
+        ],
+        SeqParameterSet{
+            profile_idc: ProfileIdc::from(100),
+            constraint_flags: ConstraintFlags::from(0),
+            level_idc: 21,
+            seq_parameter_set_id: SeqParamSetId::from_u32(0).unwrap(),
+            chroma_info: ChromaInfo{
+                chroma_format: ChromaFormat::YUV420,
+                ..ChromaInfo::default()
+            },
+            log2_max_frame_num_minus4: 0,
+            pic_order_cnt: PicOrderCntType::TypeZero {
+                log2_max_pic_order_cnt_lsb_minus4: 0
+            },
+            max_num_ref_frames: 3,
+            gaps_in_frame_num_value_allowed_flag: false,
+            pic_width_in_mbs_minus1: 21,
+            pic_height_in_map_units_minus1: 8,
+            frame_mbs_flags: FrameMbsFlags::Fields {
+                mb_adaptive_frame_field_flag: true
+            },
+            direct_8x8_inference_flag: true,
+            frame_cropping: None,
+            vui_parameters: Some(VuiParameters{
+                aspect_ratio_info: Some(AspectRatioInfo::Extended(128, 117)),
+                video_signal_type: None,
+                timing_info: Some(TimingInfo{
+                    num_units_in_tick: 1,
+                    time_scale: 60,
+                    fixed_frame_rate_flag: true,
+                }),
+                pic_struct_present_flag: true,
+                bitstream_restrictions: Some(BitstreamRestrictions {
+                    motion_vectors_over_pic_boundaries_flag: true,
+                    max_bytes_per_pic_denom: 0,
+                    max_bits_per_mb_denom: 0,
+                    log2_max_mv_length_horizontal: 9,
+                    log2_max_mv_length_vertical: 9,
+                    max_num_reorder_frames: 0,
+                    max_dec_frame_buffering: 3
+                }),
+                ..VuiParameters::default()
+            }),
+        },
+        352,
+        288,
+        30.0; "crew_cif (with extra trailing bytes)"
+    )]
     fn test_sps(byts: Vec<u8>, sps: SeqParameterSet, width: u32, height: u32, fps: f64) {
         let sps_rbsp = decode_nal(&byts).unwrap();
         let sps2 = SeqParameterSet::from_bits(BitReader::new(&*sps_rbsp)).unwrap();
