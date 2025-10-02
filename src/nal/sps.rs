@@ -271,6 +271,15 @@ impl ChromaFormat {
             _ => ChromaFormat::Invalid(chroma_format_idc),
         }
     }
+    pub fn to_u32(self) -> u32 {
+        match self {
+            ChromaFormat::Monochrome => 0,
+            ChromaFormat::YUV420 => 1,
+            ChromaFormat::YUV422 => 2,
+            ChromaFormat::YUV444 => 3,
+            ChromaFormat::Invalid(chroma_format_idc) => chroma_format_idc,
+        }
+    }
 }
 
 // _Profile Indication_ value
@@ -652,6 +661,30 @@ impl AspectRatioInfo {
             }
         }
     }
+
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            AspectRatioInfo::Unspecified => 0,
+            AspectRatioInfo::Ratio1_1 => 1,
+            AspectRatioInfo::Ratio12_11 => 2,
+            AspectRatioInfo::Ratio10_11 => 3,
+            AspectRatioInfo::Ratio16_11 => 4,
+            AspectRatioInfo::Ratio40_33 => 5,
+            AspectRatioInfo::Ratio24_11 => 6,
+            AspectRatioInfo::Ratio20_11 => 7,
+            AspectRatioInfo::Ratio32_11 => 8,
+            AspectRatioInfo::Ratio80_33 => 9,
+            AspectRatioInfo::Ratio18_11 => 10,
+            AspectRatioInfo::Ratio15_11 => 11,
+            AspectRatioInfo::Ratio64_33 => 12,
+            AspectRatioInfo::Ratio160_99 => 13,
+            AspectRatioInfo::Ratio4_3 => 14,
+            AspectRatioInfo::Ratio3_2 => 15,
+            AspectRatioInfo::Ratio2_1 => 16,
+            AspectRatioInfo::Reserved(aspect_ratio_idc) => *aspect_ratio_idc,
+            AspectRatioInfo::Extended(..) => 255,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -699,6 +732,17 @@ impl VideoFormat {
             5 => VideoFormat::Unspecified,
             6 | 7 => VideoFormat::Reserved(video_format),
             _ => panic!("unsupported video_format value {}", video_format),
+        }
+    }
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            VideoFormat::Component => 0,
+            VideoFormat::PAL => 1,
+            VideoFormat::NTSC => 2,
+            VideoFormat::SECAM => 3,
+            VideoFormat::MAC => 4,
+            VideoFormat::Unspecified => 5,
+            VideoFormat::Reserved(video_format) => *video_format,
         }
     }
 }
