@@ -19,7 +19,7 @@ rfc6381-codec = "0.2"
 log = "0.4"
 
 [dev-dependencies]
-hex-literal = "0.4.1"
+hex-literal = "1.0.0"
 criterion = "0.5"
 test-case = "3.0.0"
 iai-callgrind = "0.14.0"
