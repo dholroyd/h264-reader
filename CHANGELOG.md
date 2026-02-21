@@ -6,6 +6,7 @@
 
 *   Added support for `luma_weights_l1` and `chroma_weights_l1` to `PredWeightTable`.
 *   Give `has_chroma_info()` newer profile_idc values 118, 128, 134, 135, 138, 139, implementing SPS parse support for Multiview High, Stereo High, and related profiles.
+*   Add `Profile::CavlcIntra444` (profile_idc 44) and `Profile::MFCHigh` (profile_idc 134) enum variants.
 
 ### Fixed
 
