@@ -28,10 +28,10 @@ jobs:
             jq '.packages[] | select(.name == "iai-callgrind").version' |\
             tr -d '"'
           )
-          cargo binstall --no-confirm iai-callgrind-runner --version $version
+          cargo binstall --no-confirm iai-callgrind-runner --version $version --root $PWD/iai/
 
       - run: |
-          IAI_CALLGRIND_COLOR=never cargo bench --bench ci_bench > perf.txt
+          IAI_CALLGRIND_COLOR=never IAI_CALLGRIND_RUNNER=$PWD/iai/bin/iai-callgrind-runner cargo bench --bench ci_bench > perf.txt
       - run: |
           bencher run \
           --branch "$GITHUB_REF_NAME" \
