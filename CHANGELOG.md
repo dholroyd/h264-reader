@@ -5,6 +5,7 @@
 ### Fixed
 
 *   Fix `Profile::High444.profile_idc()` returning 144 instead of the correct value 244.
+*   Fix `PicTiming::read_delays` falling back to `nal_hrd_parameters` instead of `vcl_hrd_parameters`.
 
 ## 0.8.0 - 2025-01-28
 

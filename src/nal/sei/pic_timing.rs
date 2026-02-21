@@ -266,7 +266,7 @@ impl PicTiming {
             if let Some(ref hrd) = vui_params
                 .nal_hrd_parameters
                 .as_ref()
-                .or_else(|| vui_params.nal_hrd_parameters.as_ref())
+                .or_else(|| vui_params.vcl_hrd_parameters.as_ref())
             {
                 Some(Delays {
                     cpb_removal_delay: r.read(
