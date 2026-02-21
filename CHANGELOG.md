@@ -7,6 +7,7 @@
 *   Fix `Profile::High444.profile_idc()` returning 144 instead of the correct value 244.
 *   Fix `PicTiming::read_delays` falling back to `nal_hrd_parameters` instead of `vcl_hrd_parameters`.
 *   Fix `pred_weight_table` being parsed for SP slices regardless of `weighted_pred_flag`.
+*   Fix `ByteReader` skipping emulation prevention byte removal for bytes beyond `max_fill` in a chunk.
 
 ## 0.8.0 - 2025-01-28
 
