@@ -564,8 +564,8 @@ impl SliceHeader {
         } else {
             RefPicListModifications::read(&slice_type.family, r)?
         };
-        let pred_weight_table = if (pps.weighted_pred_flag && slice_type.family == SliceFamily::P
-            || slice_type.family == SliceFamily::SP)
+        let pred_weight_table = if (pps.weighted_pred_flag
+            && (slice_type.family == SliceFamily::P || slice_type.family == SliceFamily::SP))
             || (pps.weighted_bipred_idc == 1 && slice_type.family == SliceFamily::B)
         {
             Some(PredWeightTable::read(
