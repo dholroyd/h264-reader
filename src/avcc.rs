@@ -22,12 +22,17 @@ pub enum AvccError {
 
 pub struct AvcDecoderConfigurationRecord<'buf> {
     data: &'buf [u8],
+    /// Byte offset of extension fields (chroma_format, bit_depth, SPS ext) if present.
+    extension_offset: Option<usize>,
 }
 impl<'buf> TryFrom<&'buf [u8]> for AvcDecoderConfigurationRecord<'buf> {
     type Error = AvccError;
 
     fn try_from(data: &'buf [u8]) -> Result<Self, Self::Error> {
-        let avcc = AvcDecoderConfigurationRecord { data };
+        let avcc = AvcDecoderConfigurationRecord {
+            data,
+            extension_offset: None,
+        };
         // we must confirm we have enough bytes for all fixed fields before we do anything else,
         avcc.ck(Self::MIN_CONF_SIZE)?;
         if avcc.configuration_version() != 1 {
@@ -54,7 +59,33 @@ impl<'buf> TryFrom<&'buf [u8]> for AvcDecoderConfigurationRecord<'buf> {
             num_pps -= 1;
         }
 
-        Ok(avcc)
+        // Per ISO/IEC 14496-15, profiles with chroma info have extension fields after the PPS
+        // array: chroma_format, bit_depth_luma_minus8, bit_depth_chroma_minus8, and an optional
+        // array of SPS extension NAL units.
+        let extension_offset = if avcc.avc_profile_indication().has_chroma_info()
+            && data.len() > len
+        {
+            let ext_start = len;
+            avcc.ck(len + 4)?;
+            len += 3; // chroma_format, bit_depth_luma_minus8, bit_depth_chroma_minus8
+            let num_sps_ext = data[len] as usize;
+            len += 1;
+            for _ in 0..num_sps_ext {
+                avcc.ck(len + 2)?;
+                let sps_ext_len = (u16::from(data[len]) << 8 | u16::from(data[len + 1])) as usize;
+                len += 2;
+                avcc.ck(len + sps_ext_len)?;
+                len += sps_ext_len;
+            }
+            Some(ext_start)
+        } else {
+            None
+        };
+
+        Ok(AvcDecoderConfigurationRecord {
+            data,
+            extension_offset,
+        })
     }
 }
 impl<'buf> AvcDecoderConfigurationRecord<'buf> {
@@ -109,6 +140,32 @@ impl<'buf> AvcDecoderConfigurationRecord<'buf> {
         let num = self.num_of_sequence_parameter_sets();
         let data = &self.data[Self::MIN_CONF_SIZE..];
         ParamSetIter::new(data, UnitType::SeqParameterSet).take(num)
+    }
+    /// Returns the chroma format (0-3) from the extension fields, if present.
+    pub fn chroma_format(&self) -> Option<u8> {
+        self.extension_offset
+            .map(|off| self.data[off] & 0b0000_0011)
+    }
+    /// Returns bit_depth_luma_minus8 (0-7) from the extension fields, if present.
+    pub fn bit_depth_luma_minus8(&self) -> Option<u8> {
+        self.extension_offset
+            .map(|off| self.data[off + 1] & 0b0000_0111)
+    }
+    /// Returns bit_depth_chroma_minus8 (0-7) from the extension fields, if present.
+    pub fn bit_depth_chroma_minus8(&self) -> Option<u8> {
+        self.extension_offset
+            .map(|off| self.data[off + 2] & 0b0000_0111)
+    }
+    pub fn sequence_parameter_set_extensions(
+        &self,
+    ) -> impl Iterator<Item = Result<&'buf [u8], ParamSetError>> + 'buf {
+        let (data, num) = if let Some(off) = self.extension_offset {
+            let num = self.data[off + 3] as usize;
+            (&self.data[off + 4..], num)
+        } else {
+            (&self.data[..0], 0)
+        };
+        ParamSetIter::new(data, UnitType::SeqParameterSetExtension).take(num)
     }
     pub fn picture_parameter_sets(
         &self,
@@ -213,6 +270,11 @@ mod test {
         assert!(!flags.flag3());
         assert!(!flags.flag4());
         assert!(!flags.flag5());
+        // Baseline profile has no extension fields
+        assert_eq!(avcc.chroma_format(), None);
+        assert_eq!(avcc.bit_depth_luma_minus8(), None);
+        assert_eq!(avcc.bit_depth_chroma_minus8(), None);
+        assert_eq!(avcc.sequence_parameter_set_extensions().count(), 0);
         let ctx = avcc.create_context().unwrap();
         let sps = ctx
             .sps_by_id(SeqParamSetId::from_u32(0).unwrap())
@@ -226,6 +288,58 @@ mod test {
         let _pps = ctx
             .pps_by_id(PicParamSetId::from_u32(0).unwrap())
             .expect("missing pps");
+    }
+    #[test]
+    fn high_profile_extension_fields() {
+        // Hand-crafted avcC with High profile (100) and extension fields:
+        //   chroma_format=1 (4:2:0), bit_depth_luma_minus8=0, bit_depth_chroma_minus8=0,
+        //   0 SPS extension NAL units.
+        // Base: version=1, profile=100(High), compat=0x00, level=31
+        //   lengthSizeMinusOne=3 (0xff = reserved|3)
+        //   1 SPS (0xe1 = reserved|1)
+        let sps_nalu = hex!("6764001e acd940a0 2ff96100 00030001 00000300 3c9c5802 d0000bb8 00004e20 6e200000 10000003 00010000 03000321");
+        let pps_nalu = hex!("68eb e3cb 22c0");
+        let mut avcc_data: Vec<u8> = Vec::new();
+        // Fixed header
+        avcc_data.extend_from_slice(&[0x01, 0x64, 0x00, 0x1e, 0xff]);
+        // 1 SPS
+        avcc_data.push(0xe1);
+        avcc_data.extend_from_slice(&(sps_nalu.len() as u16).to_be_bytes());
+        avcc_data.extend_from_slice(&sps_nalu);
+        // 1 PPS
+        avcc_data.push(0x01);
+        avcc_data.extend_from_slice(&(pps_nalu.len() as u16).to_be_bytes());
+        avcc_data.extend_from_slice(&pps_nalu);
+        // Extension fields: chroma_format=1, bit_depth_luma=0, bit_depth_chroma=0, 0 SPS ext
+        avcc_data.extend_from_slice(&[0xfd, 0xf8, 0xf8, 0x00]);
+
+        let avcc = AvcDecoderConfigurationRecord::try_from(&avcc_data[..]).unwrap();
+        assert_eq!(avcc.avc_profile_indication(), ProfileIdc::from(100));
+        assert_eq!(avcc.chroma_format(), Some(1));
+        assert_eq!(avcc.bit_depth_luma_minus8(), Some(0));
+        assert_eq!(avcc.bit_depth_chroma_minus8(), Some(0));
+        assert_eq!(avcc.sequence_parameter_set_extensions().count(), 0);
+    }
+    #[test]
+    fn high_profile_without_extension() {
+        // High profile avcC that omits the optional extension fields.
+        let sps_nalu = hex!("6764001e acd940a0 2ff96100 00030001 00000300 3c9c5802 d0000bb8 00004e20 6e200000 10000003 00010000 03000321");
+        let pps_nalu = hex!("68eb e3cb 22c0");
+        let mut avcc_data: Vec<u8> = Vec::new();
+        avcc_data.extend_from_slice(&[0x01, 0x64, 0x00, 0x1e, 0xff]);
+        avcc_data.push(0xe1);
+        avcc_data.extend_from_slice(&(sps_nalu.len() as u16).to_be_bytes());
+        avcc_data.extend_from_slice(&sps_nalu);
+        avcc_data.push(0x01);
+        avcc_data.extend_from_slice(&(pps_nalu.len() as u16).to_be_bytes());
+        avcc_data.extend_from_slice(&pps_nalu);
+        // No extension fields appended
+
+        let avcc = AvcDecoderConfigurationRecord::try_from(&avcc_data[..]).unwrap();
+        assert_eq!(avcc.avc_profile_indication(), ProfileIdc::from(100));
+        assert_eq!(avcc.chroma_format(), None);
+        assert_eq!(avcc.bit_depth_luma_minus8(), None);
+        assert_eq!(avcc.bit_depth_chroma_minus8(), None);
     }
     #[test]
     fn sps_with_emulation_protection() {
