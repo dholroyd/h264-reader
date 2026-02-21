@@ -104,7 +104,7 @@ impl Profile {
             Profile::High => 100,
             Profile::High422 => 122,
             Profile::High10 => 110,
-            Profile::High444 => 144,
+            Profile::High444 => 244,
             Profile::Extended => 88,
             Profile::ScalableBase => 83,
             Profile::ScalableHigh => 86,
@@ -1610,6 +1610,14 @@ mod test {
         // should return Err, rather than assert due to integer underflow for example,
         let dim = sps.pixel_dimensions();
         assert!(matches!(dim, Err(SpsError::CroppingError(_))));
+    }
+
+    #[test]
+    fn profile_idc_roundtrip() {
+        for idc in 0..=255 {
+            let profile = Profile::from_profile_idc(ProfileIdc(idc));
+            assert_eq!(idc, profile.profile_idc(), "round-trip failed for idc {idc}");
+        }
     }
 
     #[test_case(

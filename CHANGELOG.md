@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+*   Fix `Profile::High444.profile_idc()` returning 144 instead of the correct value 244.
+
 ## 0.8.0 - 2025-01-28
 
 ### Changed
