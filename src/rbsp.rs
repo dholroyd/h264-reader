@@ -122,7 +122,7 @@ impl<R: BufRead> ByteReader<R> {
                         self.state = ParseState::OneZero;
                     }
                     None => {
-                        self.i = chunk.len();
+                        self.i = limit;
                         break;
                     }
                 },
@@ -487,6 +487,23 @@ mod tests {
         assert!(!reader
             .has_more_rbsp_data("at end with cabac-zero-words")
             .unwrap());
+    }
+
+    #[test]
+    fn byte_reader_emulation_prevention_beyond_max_fill() {
+        // Input: 129 non-zero bytes followed by an emulation prevention
+        // sequence (00 00 03 01). With max_fill=128, the initial memchr scan
+        // only covers the first 128 bytes. A bug caused bytes beyond max_fill
+        // to be returned as RBSP without being checked, so the 0x03 emulation
+        // prevention byte would not be stripped.
+        let mut input = vec![0xFF; 129];
+        input.extend_from_slice(&[0x00, 0x00, 0x03, 0x01]);
+        let mut r = ByteReader::without_skip(&input[..]);
+        let mut rbsp = Vec::new();
+        r.read_to_end(&mut rbsp).unwrap();
+        let mut expected = vec![0xFF; 129];
+        expected.extend_from_slice(&[0x00, 0x00, 0x01]);
+        assert_eq!(rbsp, expected, "emulation prevention byte was not stripped");
     }
 
     #[test]
