@@ -1616,7 +1616,11 @@ mod test {
     fn profile_idc_roundtrip() {
         for idc in 0..=255 {
             let profile = Profile::from_profile_idc(ProfileIdc(idc));
-            assert_eq!(idc, profile.profile_idc(), "round-trip failed for idc {idc}");
+            assert_eq!(
+                idc,
+                profile.profile_idc(),
+                "round-trip failed for idc {idc}"
+            );
         }
     }
 
