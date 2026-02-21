@@ -151,13 +151,21 @@ impl SliceGroup {
         Ok(run_lengths)
     }
 
+    // The spec has:
+    //
+    // else if( slice_group_map_type == 2 )
+    //    for( iGroup = 0; iGroup < num_slice_groups_minus1; iGroup++ ) {
+    //      top_left[ iGroup ]
+    //       bottom_right[ iGroup ]
+    //    }
+    //
     fn read_rectangles<R: BitRead>(
         r: &mut R,
         num_slice_groups_minus1: u32,
         seq_parameter_set: &SeqParameterSet,
     ) -> Result<Vec<SliceRect>, PpsError> {
-        let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
-        for _ in 0..num_slice_groups_minus1 + 1 {
+        let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize);
+        for _ in 0..num_slice_groups_minus1 {
             run_length_minus1.push(SliceRect::read(r, seq_parameter_set)?);
         }
         Ok(run_length_minus1)

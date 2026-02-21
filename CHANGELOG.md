@@ -8,6 +8,7 @@
 *   Fix `PicTiming::read_delays` falling back to `nal_hrd_parameters` instead of `vcl_hrd_parameters`.
 *   Fix `pred_weight_table` being parsed for SP slices regardless of `weighted_pred_flag`.
 *   Fix `ByteReader` skipping emulation prevention byte removal for bytes beyond `max_fill` in a chunk.
+*   Fix off-by-one error in `SliceGroup::read_rectangles()`
 
 ## 0.8.0 - 2025-01-28
 
