@@ -180,6 +180,16 @@ impl NumRefIdxActive {
             } => num_ref_idx_l0_active_minus1,
         }
     }
+
+    fn num_ref_idx_l1_active_minus1(&self) -> Option<u32> {
+        match *self {
+            NumRefIdxActive::P { .. } => None,
+            NumRefIdxActive::B {
+                num_ref_idx_l1_active_minus1,
+                ..
+            } => Some(num_ref_idx_l1_active_minus1),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -251,9 +261,14 @@ pub struct PredWeight {
 pub struct PredWeightTable {
     pub luma_log2_weight_denom: u32,
     pub chroma_log2_weight_denom: Option<u32>,
-    pub luma_weights: Vec<Option<PredWeight>>,
-    pub chroma_weights: Vec<Vec<PredWeight>>,
+    pub luma_weights_l0: Vec<Option<PredWeight>>,
+    pub chroma_weights_l0: Vec<Vec<PredWeight>>,
+    pub luma_weights_l1: Vec<Option<PredWeight>>,
+    pub chroma_weights_l1: Vec<Vec<PredWeight>>,
 }
+
+struct WeightsPair(Vec<Option<PredWeight>>, Vec<Vec<PredWeight>>);
+
 impl PredWeightTable {
     fn read<R: BitRead>(
         r: &mut R,
@@ -279,9 +294,36 @@ impl PredWeightTable {
             .as_ref()
             .map(|n| n.num_ref_idx_l0_active_minus1())
             .unwrap_or_else(|| pps.num_ref_idx_l0_default_active_minus1);
-        let mut luma_weights = Vec::with_capacity((num_ref_idx_l0_active_minus1 + 1) as usize);
-        let mut chroma_weights = Vec::with_capacity((num_ref_idx_l0_active_minus1 + 1) as usize);
-        for _ in 0..=num_ref_idx_l0_active_minus1 {
+        let WeightsPair(luma_weights_l0, chroma_weights_l0) =
+            Self::read_weights(r, num_ref_idx_l0_active_minus1, chroma_array_type)?;
+        let WeightsPair(luma_weights_l1, chroma_weights_l1) = if slice_type.family == SliceFamily::B
+        {
+            let num_ref_idx_l1_active_minus1 = num_ref_active
+                .as_ref()
+                .and_then(|n| n.num_ref_idx_l1_active_minus1())
+                .unwrap_or(pps.num_ref_idx_l1_default_active_minus1);
+            Self::read_weights(r, num_ref_idx_l1_active_minus1, chroma_array_type)?
+        } else {
+            WeightsPair(Vec::new(), Vec::new())
+        };
+        Ok(PredWeightTable {
+            luma_log2_weight_denom,
+            chroma_log2_weight_denom,
+            luma_weights_l0,
+            chroma_weights_l0,
+            luma_weights_l1,
+            chroma_weights_l1,
+        })
+    }
+
+    fn read_weights<R: BitRead>(
+        r: &mut R,
+        num_ref_idx_minus1: u32,
+        chroma_array_type: sps::ChromaFormat,
+    ) -> Result<WeightsPair, SliceHeaderError> {
+        let mut luma_weights = Vec::with_capacity((num_ref_idx_minus1 + 1) as usize);
+        let mut chroma_weights = Vec::with_capacity((num_ref_idx_minus1 + 1) as usize);
+        for _ in 0..=num_ref_idx_minus1 {
             if r.read_bool("luma_weight_l0_flag")? {
                 luma_weights.push(Some(PredWeight {
                     weight: r.read_se("luma_weight_l0")?,
@@ -303,15 +345,7 @@ impl PredWeightTable {
                 chroma_weights.push(weights);
             }
         }
-        if slice_type.family == SliceFamily::B {
-            return Err(SliceHeaderError::UnsupportedSyntax("B frame"));
-        }
-        Ok(PredWeightTable {
-            luma_log2_weight_denom,
-            chroma_log2_weight_denom,
-            luma_weights,
-            chroma_weights,
-        })
+        Ok(WeightsPair(luma_weights, chroma_weights))
     }
 }
 
