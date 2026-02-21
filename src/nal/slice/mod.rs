@@ -180,6 +180,15 @@ impl NumRefIdxActive {
             } => num_ref_idx_l0_active_minus1,
         }
     }
+    fn num_ref_idx_l1_active_minus1(&self) -> Option<u32> {
+        match *self {
+            NumRefIdxActive::P { .. } => None,
+            NumRefIdxActive::B {
+                num_ref_idx_l1_active_minus1,
+                ..
+            } => Some(num_ref_idx_l1_active_minus1),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -253,6 +262,8 @@ pub struct PredWeightTable {
     pub chroma_log2_weight_denom: Option<u32>,
     pub luma_weights: Vec<Option<PredWeight>>,
     pub chroma_weights: Vec<Vec<PredWeight>>,
+    pub luma_weights_l1: Vec<Option<PredWeight>>,
+    pub chroma_weights_l1: Vec<Vec<PredWeight>>,
 }
 impl PredWeightTable {
     fn read<R: BitRead>(
@@ -291,7 +302,7 @@ impl PredWeightTable {
                 luma_weights.push(None);
             }
             if chroma_array_type != sps::ChromaFormat::Monochrome {
-                let mut weights = Vec::with_capacity(2); // TODO: just an array?
+                let mut weights = Vec::with_capacity(2);
                 if r.read_bool("chroma_weight_l0_flag")? {
                     for _j in 0..2 {
                         weights.push(PredWeight {
@@ -303,14 +314,45 @@ impl PredWeightTable {
                 chroma_weights.push(weights);
             }
         }
+        let mut luma_weights_l1 = vec![];
+        let mut chroma_weights_l1 = vec![];
         if slice_type.family == SliceFamily::B {
-            return Err(SliceHeaderError::UnsupportedSyntax("B frame"));
+            let num_ref_idx_l1_active_minus1 = num_ref_active
+                .as_ref()
+                .and_then(|n| n.num_ref_idx_l1_active_minus1())
+                .unwrap_or_else(|| pps.num_ref_idx_l1_default_active_minus1);
+            luma_weights_l1.reserve((num_ref_idx_l1_active_minus1 + 1) as usize);
+            chroma_weights_l1.reserve((num_ref_idx_l1_active_minus1 + 1) as usize);
+            for _ in 0..=num_ref_idx_l1_active_minus1 {
+                if r.read_bool("luma_weight_l1_flag")? {
+                    luma_weights_l1.push(Some(PredWeight {
+                        weight: r.read_se("luma_weight_l1")?,
+                        offset: r.read_se("luma_offset_l1")?,
+                    }));
+                } else {
+                    luma_weights_l1.push(None);
+                }
+                if chroma_array_type != sps::ChromaFormat::Monochrome {
+                    let mut weights = Vec::with_capacity(2);
+                    if r.read_bool("chroma_weight_l1_flag")? {
+                        for _j in 0..2 {
+                            weights.push(PredWeight {
+                                weight: r.read_se("chroma_weight_l1")?,
+                                offset: r.read_se("chroma_offset_l1")?,
+                            });
+                        }
+                    }
+                    chroma_weights_l1.push(weights);
+                }
+            }
         }
         Ok(PredWeightTable {
             luma_log2_weight_denom,
             chroma_log2_weight_denom,
             luma_weights,
             chroma_weights,
+            luma_weights_l1,
+            chroma_weights_l1,
         })
     }
 }

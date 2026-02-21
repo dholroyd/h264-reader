@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+*   Added support for `luma_weights_l1` and `chroma_weights_l1` to `PredWeightTable`.
+
 ### Fixed
 
 *   Fix `Profile::High444.profile_idc()` returning 144 instead of the correct value 244.
