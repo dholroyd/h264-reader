@@ -60,12 +60,12 @@ The following list shows the current state of support per H264 syntax element:
      * [ ] `alternative_depth_info()`
    * [x] `seq_parameter_set_rbsp()`
    * [x] `pic_parameter_set_rbsp()`
-   * [ ] `access_unit_delimiter_rbsp()`
+   * [x] `access_unit_delimiter_rbsp()`
    * [ ] `end_of_stream_rbsp()`
    * [ ] `filler_data_rbsp()`
-   * [ ] `seq_parameter_set_extension_rbsp()`
+   * [x] `seq_parameter_set_extension_rbsp()`
    * [ ] `prefix_nal_unit_rbsp()`
-   * [ ] `subset_seq_parameter_set_rbsp()`
+   * [x] `subset_seq_parameter_set_rbsp()`
    * [ ] `depth_parameter_set_rbsp()`
    * [ ] `slice_layer_without_partitioning_rbsp()`
    * [ ] `slice_layer_extension_rbsp()`
