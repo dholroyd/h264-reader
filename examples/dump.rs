@@ -6,6 +6,8 @@ use h264_reader::nal::sei::user_data_registered_itu_t_t35::ItuTT35;
 use h264_reader::nal::sei::HeaderType;
 use h264_reader::nal::slice::SliceHeader;
 use h264_reader::nal::sps::SeqParameterSet;
+use h264_reader::nal::sps_extension::SeqParameterSetExtension;
+use h264_reader::nal::subset_sps::SubsetSps;
 use h264_reader::nal::{sei, Nal, RefNal, UnitType};
 use h264_reader::push::NalInterest;
 use h264_reader::Context;
@@ -124,6 +126,23 @@ fn main() {
                             println!("{:?}", e);
                         }
                     }
+                }
+            }
+            UnitType::SeqParameterSetExtension => {
+                hex_dump(&nal);
+                match SeqParameterSetExtension::from_bits(nal.rbsp_bits()) {
+                    Ok(ext) => println!("{:#?}", ext),
+                    Err(e) => println!("SPS extension error: {:?}", e),
+                }
+            }
+            UnitType::SubsetSeqParameterSet => {
+                hex_dump(&nal);
+                match SubsetSps::from_bits(nal.rbsp_bits()) {
+                    Ok(subset) => {
+                        println!("{:#?}", subset);
+                        ctx.put_subset_seq_param_set(subset);
+                    }
+                    Err(e) => println!("Subset SPS error: {:?}", e),
                 }
             }
             _ => {

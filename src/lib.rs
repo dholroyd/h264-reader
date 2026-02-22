@@ -19,6 +19,7 @@ pub mod rbsp;
 pub struct Context {
     seq_param_sets: ParamSetMap<nal::sps::SeqParameterSet>,
     pic_param_sets: ParamSetMap<nal::pps::PicParameterSet>,
+    subset_seq_param_sets: ParamSetMap<nal::subset_sps::SubsetSps>,
 }
 impl Context {
     #[inline]
@@ -50,6 +51,25 @@ impl Context {
     pub fn put_pic_param_set(&mut self, pps: nal::pps::PicParameterSet) {
         let i = usize::from(pps.pic_parameter_set_id.id());
         self.pic_param_sets.put(i, pps);
+    }
+    #[inline]
+    pub fn subset_sps_by_id(
+        &self,
+        id: nal::sps::SeqParamSetId,
+    ) -> Option<&nal::subset_sps::SubsetSps> {
+        self.subset_seq_param_sets.get(usize::from(id.id()))
+    }
+    #[inline]
+    pub fn subset_sps(&self) -> impl Iterator<Item = &nal::subset_sps::SubsetSps> {
+        self.subset_seq_param_sets.iter()
+    }
+    /// Stores a subset SPS and also registers its base SPS in the regular SPS map
+    /// so that PPS and slice header parsing can find it via `sps_by_id()`.
+    #[inline]
+    pub fn put_subset_seq_param_set(&mut self, subset: nal::subset_sps::SubsetSps) {
+        let i = usize::from(subset.sps.seq_parameter_set_id.id());
+        self.seq_param_sets.put(i, subset.sps.clone());
+        self.subset_seq_param_sets.put(i, subset);
     }
 }
 

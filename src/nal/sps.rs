@@ -440,6 +440,16 @@ pub struct ChromaInfo {
     pub scaling_matrix: Option<SeqScalingMatrix>,
 }
 impl ChromaInfo {
+    /// Returns `ChromaArrayType` as defined by the spec: 0 if `separate_colour_plane_flag` is
+    /// true, otherwise equal to `chroma_format_idc`.
+    pub fn chroma_array_type(&self) -> u8 {
+        if self.separate_colour_plane_flag {
+            0
+        } else {
+            self.chroma_format.to_u32() as u8
+        }
+    }
+
     pub fn read<R: BitRead>(r: &mut R, profile_idc: ProfileIdc) -> Result<ChromaInfo, SpsError> {
         if profile_idc.has_chroma_info() {
             let chroma_format_idc = r.read_ue("chroma_format_idc")?;
@@ -1121,7 +1131,11 @@ pub struct SeqParameterSet {
     pub vui_parameters: Option<VuiParameters>,
 }
 impl SeqParameterSet {
-    pub fn from_bits<R: BitRead>(mut r: R) -> Result<SeqParameterSet, SpsError> {
+    /// Parses `seq_parameter_set_data()` (spec 7.3.2.1.1) without consuming the RBSP trailing
+    /// bits. This is used by both `from_bits()` and `subset_seq_parameter_set_rbsp()` parsing.
+    pub(crate) fn read_seq_parameter_set_data<R: BitRead>(
+        r: &mut R,
+    ) -> Result<SeqParameterSet, SpsError> {
         let profile_idc = r.read::<u8>(8, "profile_idc")?.into();
         let constraint_flags = r.read::<u8>(8, "constraint_flags")?.into();
         let level_idc = r.read::<u8>(8, "level_idc")?;
@@ -1131,24 +1145,29 @@ impl SeqParameterSet {
             level_idc,
             seq_parameter_set_id: SeqParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)
                 .map_err(SpsError::BadSeqParamSetId)?,
-            chroma_info: ChromaInfo::read(&mut r, profile_idc)?,
-            log2_max_frame_num_minus4: Self::read_log2_max_frame_num_minus4(&mut r)?,
-            pic_order_cnt: PicOrderCntType::read(&mut r).map_err(SpsError::PicOrderCnt)?,
+            chroma_info: ChromaInfo::read(r, profile_idc)?,
+            log2_max_frame_num_minus4: Self::read_log2_max_frame_num_minus4(r)?,
+            pic_order_cnt: PicOrderCntType::read(r).map_err(SpsError::PicOrderCnt)?,
             max_num_ref_frames: r.read_ue("max_num_ref_frames")?,
             gaps_in_frame_num_value_allowed_flag: r
                 .read_bool("gaps_in_frame_num_value_allowed_flag")?,
             pic_width_in_mbs_minus1: r.read_ue("pic_width_in_mbs_minus1")?,
             pic_height_in_map_units_minus1: r.read_ue("pic_height_in_map_units_minus1")?,
-            frame_mbs_flags: FrameMbsFlags::read(&mut r)?,
+            frame_mbs_flags: FrameMbsFlags::read(r)?,
             direct_8x8_inference_flag: r.read_bool("direct_8x8_inference_flag")?,
-            frame_cropping: FrameCropping::read(&mut r)?,
+            frame_cropping: FrameCropping::read(r)?,
             // read the basic SPS data without reading VUI parameters yet, since checks of the
             // bitstream restriction fields within the VUI parameters will need access to the
             // initial SPS data
             vui_parameters: None,
         };
-        let vui_parameters = VuiParameters::read(&mut r, &sps)?;
+        let vui_parameters = VuiParameters::read(r, &sps)?;
         sps.vui_parameters = vui_parameters;
+        Ok(sps)
+    }
+
+    pub fn from_bits<R: BitRead>(mut r: R) -> Result<SeqParameterSet, SpsError> {
+        let sps = Self::read_seq_parameter_set_data(&mut r)?;
         r.finish_rbsp()?;
         Ok(sps)
     }

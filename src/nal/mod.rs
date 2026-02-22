@@ -8,6 +8,8 @@ pub mod pps;
 pub mod sei;
 pub mod slice;
 pub mod sps;
+pub mod sps_extension;
+pub mod subset_sps;
 
 use crate::rbsp;
 use hex_slice::AsHex;
