@@ -8,7 +8,7 @@
 *   Give `has_chroma_info()` newer profile_idc values 118, 128, 134, 135, 138, 139, implementing SPS parse support for Multiview High, Stereo High, and related profiles.
 *   Add `Profile::CavlcIntra444` (profile_idc 44) and `Profile::MFCHigh` (profile_idc 134) enum variants.
 *   Parse AvcC extension fields (`chroma_format`, `bit_depth_luma_minus8`, `bit_depth_chroma_minus8`, SPS extension NAL units) for High profile and above.
-*   Parse `slice_group_change_cycle` in `SliceHeader` when the PPS uses slice group map types 3-5.
+*   Add `slice_group_change_cycle`, `slice_alpha_c0_offset_div2` and `slice_beta_offset_div2 to `SliceHeader`
 
 ### Fixed
 
