@@ -637,8 +637,9 @@ impl SliceHeader {
             None
         };
         let slice_qp_delta = r.read_se("slice_qp_delta")?;
-        if slice_qp_delta > 51 {
-            // TODO: or less than -qp_bd_offset
+        let qp_bd_offset_y = 6 * i32::from(sps.chroma_info.bit_depth_luma_minus8);
+        let slice_qp_y = 26 + pps.pic_init_qp_minus26 + slice_qp_delta;
+        if slice_qp_y < -qp_bd_offset_y || slice_qp_y > 51 {
             return Err(SliceHeaderError::InvalidSliceQpDelta(slice_qp_delta));
         }
         let mut sp_for_switch_flag = None;

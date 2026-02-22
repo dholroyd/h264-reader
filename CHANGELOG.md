@@ -17,6 +17,7 @@
 *   Fix `pred_weight_table` being parsed for SP slices regardless of `weighted_pred_flag`.
 *   Fix `ByteReader` skipping emulation prevention byte removal for bytes beyond `max_fill` in a chunk.
 *   Fix off-by-one error in `SliceGroup::read_rectangles()`
+*   Fix `slice_qp_delta` validation to check the derived `SliceQPY` against `[-QpBdOffsetY, 51]` per spec, instead of only checking `slice_qp_delta > 51`.
 
 ## 0.8.0 - 2025-01-28
 
