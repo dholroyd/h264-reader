@@ -275,6 +275,214 @@ impl Level {
             Level::Unknown(level_idc) => level_idc,
         }
     }
+
+    /// Returns the level limits from Table A-1 of the spec,
+    /// or `None` for unknown levels.
+    pub const fn limits(&self) -> Option<LevelLimit> {
+        match self {
+            Level::L1 => Some(LevelLimit {
+                max_mbps: 1485,
+                max_fs: 99,
+                max_dpb_mbs: 396,
+                max_br: 64,
+                max_cpb: 175,
+                max_vmv_r: 64,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            }),
+            Level::L1_b => Some(LevelLimit {
+                max_mbps: 1485,
+                max_fs: 99,
+                max_dpb_mbs: 396,
+                max_br: 128,
+                max_cpb: 350,
+                max_vmv_r: 64,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            }),
+            Level::L1_1 => Some(LevelLimit {
+                max_mbps: 3000,
+                max_fs: 396,
+                max_dpb_mbs: 900,
+                max_br: 192,
+                max_cpb: 500,
+                max_vmv_r: 128,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            }),
+            Level::L1_2 => Some(LevelLimit {
+                max_mbps: 6000,
+                max_fs: 396,
+                max_dpb_mbs: 2376,
+                max_br: 384,
+                max_cpb: 1000,
+                max_vmv_r: 128,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            }),
+            Level::L1_3 => Some(LevelLimit {
+                max_mbps: 11880,
+                max_fs: 396,
+                max_dpb_mbs: 2376,
+                max_br: 768,
+                max_cpb: 2000,
+                max_vmv_r: 128,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            }),
+            Level::L2 => Some(LevelLimit {
+                max_mbps: 11880,
+                max_fs: 396,
+                max_dpb_mbs: 2376,
+                max_br: 2000,
+                max_cpb: 2000,
+                max_vmv_r: 128,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            }),
+            Level::L2_1 => Some(LevelLimit {
+                max_mbps: 19800,
+                max_fs: 792,
+                max_dpb_mbs: 4752,
+                max_br: 4000,
+                max_cpb: 4000,
+                max_vmv_r: 256,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            }),
+            Level::L2_2 => Some(LevelLimit {
+                max_mbps: 20250,
+                max_fs: 1620,
+                max_dpb_mbs: 8100,
+                max_br: 4000,
+                max_cpb: 4000,
+                max_vmv_r: 256,
+                min_cr: 2,
+                max_mvs_per2mb: None,
+            }),
+            Level::L3 => Some(LevelLimit {
+                max_mbps: 40500,
+                max_fs: 1620,
+                max_dpb_mbs: 8100,
+                max_br: 10000,
+                max_cpb: 10000,
+                max_vmv_r: 256,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(32),
+            }),
+            Level::L3_1 => Some(LevelLimit {
+                max_mbps: 108000,
+                max_fs: 3600,
+                max_dpb_mbs: 18000,
+                max_br: 14000,
+                max_cpb: 14000,
+                max_vmv_r: 512,
+                min_cr: 4,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::L3_2 => Some(LevelLimit {
+                max_mbps: 216000,
+                max_fs: 5120,
+                max_dpb_mbs: 20480,
+                max_br: 20000,
+                max_cpb: 20000,
+                max_vmv_r: 512,
+                min_cr: 4,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::L4 => Some(LevelLimit {
+                max_mbps: 245760,
+                max_fs: 8192,
+                max_dpb_mbs: 32768,
+                max_br: 20000,
+                max_cpb: 25000,
+                max_vmv_r: 512,
+                min_cr: 4,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::L4_1 => Some(LevelLimit {
+                max_mbps: 245760,
+                max_fs: 8192,
+                max_dpb_mbs: 32768,
+                max_br: 50000,
+                max_cpb: 62500,
+                max_vmv_r: 512,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::L4_2 => Some(LevelLimit {
+                max_mbps: 522240,
+                max_fs: 8704,
+                max_dpb_mbs: 34816,
+                max_br: 50000,
+                max_cpb: 62500,
+                max_vmv_r: 512,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::L5 => Some(LevelLimit {
+                max_mbps: 589824,
+                max_fs: 22080,
+                max_dpb_mbs: 110400,
+                max_br: 135000,
+                max_cpb: 135000,
+                max_vmv_r: 512,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::L5_1 => Some(LevelLimit {
+                max_mbps: 983040,
+                max_fs: 36864,
+                max_dpb_mbs: 184320,
+                max_br: 240000,
+                max_cpb: 240000,
+                max_vmv_r: 512,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::L5_2 => Some(LevelLimit {
+                max_mbps: 2073600,
+                max_fs: 36864,
+                max_dpb_mbs: 184320,
+                max_br: 240000,
+                max_cpb: 240000,
+                max_vmv_r: 512,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::L6 => Some(LevelLimit {
+                max_mbps: 4177920,
+                max_fs: 139264,
+                max_dpb_mbs: 696320,
+                max_br: 240000,
+                max_cpb: 240000,
+                max_vmv_r: 8192,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::L6_1 => Some(LevelLimit {
+                max_mbps: 8355840,
+                max_fs: 139264,
+                max_dpb_mbs: 696320,
+                max_br: 480000,
+                max_cpb: 480000,
+                max_vmv_r: 8192,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::L6_2 => Some(LevelLimit {
+                max_mbps: 16711680,
+                max_fs: 139264,
+                max_dpb_mbs: 696320,
+                max_br: 800000,
+                max_cpb: 800000,
+                max_vmv_r: 8192,
+                min_cr: 2,
+                max_mvs_per2mb: NonZeroU8::new(16),
+            }),
+            Level::Unknown(_) => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -994,13 +1202,14 @@ impl BitstreamRestrictions {
                     value: max_dec_frame_buffering,
                 });
             }
-            /*let max = max_val_for_max_dec_frame_buffering(sps);
-            if max_dec_frame_buffering > max {
-                return Err(SpsError::FieldValueTooLarge {
-                    name: "max_dec_frame_buffering",
-                    value: max_dec_frame_buffering,
-                });
-            }*/
+            if let Some(max) = max_val_for_max_dec_frame_buffering(sps) {
+                if max_dec_frame_buffering > max {
+                    return Err(SpsError::FieldValueTooLarge {
+                        name: "max_dec_frame_buffering",
+                        value: max_dec_frame_buffering,
+                    });
+                }
+            }
             Some(BitstreamRestrictions {
                 motion_vectors_over_pic_boundaries_flag,
                 max_bytes_per_pic_denom,
@@ -1016,54 +1225,60 @@ impl BitstreamRestrictions {
     }
 }
 
-// calculates the maximum allowed value for the max_dec_frame_buffering field
-/*fn max_val_for_max_dec_frame_buffering(sps: &SeqParameterSet) -> u32 {
-    let level = Level::from_constraint_flags_and_level_idc(
-        ConstraintFlags::from(sps.constraint_flags),
-        sps.level_idc,
-    );
-    let profile = Profile::from_profile_idc(sps.profile_idc, sps.constraint_flags);
-    let pic_width_in_mbs = sps.pic_width_in_mbs_minus1 + 1;
-    let pic_height_in_map_units = sps.pic_height_in_map_units_minus1 + 1;
-    let frame_height_in_mbs = if let FrameMbsFlags::Frames = sps.frame_mbs_flags {
-        1
-    } else {
-        2
-    } * pic_height_in_map_units;
-    let max_dpb_mbs = LEVEL_LIMITS.get(&level).unwrap().max_dpb_mbs;
+/// Calculates the maximum allowed value for the `max_dec_frame_buffering` field,
+/// returning `None` for profiles/levels where the check cannot be performed.
+fn max_val_for_max_dec_frame_buffering(sps: &SeqParameterSet) -> Option<u32> {
+    let level = sps.level();
+    let profile = sps.profile();
+    let pic_width_in_mbs = sps.pic_width_in_mbs();
+    let frame_height_in_mbs = match sps.frame_mbs_flags {
+        FrameMbsFlags::Frames => sps.pic_height_in_map_units(),
+        FrameMbsFlags::Fields { .. } => 2 * sps.pic_height_in_map_units(),
+    };
+    let max_dpb_mbs = level.limits()?.max_dpb_mbs;
+
     match profile {
-        // "A.3.1 - Level limits common to the Baseline, Constrained Baseline, Main, and Extended
-        // profiles"
-        Profile::Baseline | Profile::Main | Profile::Extended => {
-            std::cmp::min(max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs), 16)
+        // A.3.1 - Baseline, Constrained Baseline, Main, Extended
+        Profile::Baseline | Profile::ConstrainedBaseline | Profile::Main | Profile::Extended => {
+            Some(std::cmp::min(
+                max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs),
+                16,
+            ))
         }
-        // "A.3.2 - Level limits common to the High, Progressive High, Constrained High, High 10,
-        // Progressive High 10, High 4:2:2, High 4:4:4 Predictive, High 10 Intra, High 4:2:2 Intra,
-        // High 4:4:4 Intra, and CAVLC 4:4:4 Intra profiles"
-        Profile::High | Profile::High422 | Profile::High10 | Profile::High444 => {
-            std::cmp::min(max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs), 16)
+        // A.3.2 - High, Progressive High, Constrained High, High 10, High 10 Intra,
+        // High 4:2:2, High 4:2:2 Intra, High 4:4:4 Predictive, High 4:4:4 Intra,
+        // CAVLC 4:4:4 Intra
+        Profile::High
+        | Profile::ProgressiveHigh
+        | Profile::ConstrainedHigh
+        | Profile::High10
+        | Profile::High10Intra
+        | Profile::High422
+        | Profile::High422Intra
+        | Profile::High444
+        | Profile::High444Intra
+        | Profile::CavlcIntra444 => Some(std::cmp::min(
+            max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs),
+            16,
+        )),
+        // G.10.2.1 - Scalable profiles
+        Profile::ScalableBase
+        | Profile::ScalableConstrainedBaseline
+        | Profile::ScalableHigh
+        | Profile::ScalableConstrainedHigh
+        | Profile::ScalableHighIntra => Some(std::cmp::min(
+            max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs),
+            16,
+        )),
+        // H.10.2.1 - Multiview/Stereo/MFC profiles require NumViews from MVC extension data
+        Profile::MultiviewHigh | Profile::StereoHigh | Profile::MFCHigh | Profile::MFCDepthHigh => {
+            None
         }
-
-        // "G.10.2.1 - Level limits common to Scalable Baseline, Scalable Constrained Baseline,
-        // Scalable High, Scalable Constrained High, and Scalable High Intra profiles"
-        Profile::ScalableBase | Profile::ScalableHigh => {
-            // Min( MaxDpbMbs / ( PicWidthInMbs * FrameHeightInMbs ), 16 )
-            std::cmp::min(max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs), 16)
-        }
-
-        // "H.10.2.1 - Level limits common to Multiview High, Stereo High, and MFC High profiles"
-        //Profile::MultiviewHigh | Profile::StereoHigh | Profile::MFCDepthHigh => {
-        //    // Min( mvcScaleFactor * MaxDpbMbs / ( PicWidthInMbs * FrameHeightInMbs ), Max( 1, Ceil( log2( NumViews ) ) ) * 16 )
-        //}
-
-        // "I.10.2.1 - Level limits common to Multiview Depth High profiles"
-        //Profile::MultiviewDepthHigh | Profile::EnhancedMultiviewDepthHigh => {
-        //    let mvcd_scale_factor = 2.5;
-        //    std::cmp::min( mvcd_scale_factor * max_dpb_mbs / ( TotalPicSizeInMbs / NumViews ) ), std::cmp::max(1, Ceil( log2( NumViews ) ) ) * 16 )
-        //}
-        _ => unimplemented!("{:?}", profile),
+        // I.10.2.1 - Multiview Depth profiles require NumViews from MVC extension data
+        Profile::MultiviewDepthHigh | Profile::EnhancedMultiviewDepthHigh => None,
+        Profile::Unknown(_) => None,
     }
-}*/
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VuiParameters {
@@ -1301,284 +1516,27 @@ impl SeqParameterSet {
     }
 }
 
-/*struct LevelLimit {
-    max_mbps: u32,
-    max_fs: u32,
-    max_dpb_mbs: u32,
-    max_br: u32,
-    max_cpb: u32,
-    max_vmv_r: u32,
-    min_cr: u8,
-    max_mvs_per2mb: Option<NonZeroU8>,
+/// Level limits from Table A-1 of the spec.
+#[derive(Debug)]
+pub struct LevelLimit {
+    /// Maximum macroblock processing rate (macroblocks per second)
+    pub max_mbps: u32,
+    /// Maximum frame size (in macroblocks)
+    pub max_fs: u32,
+    /// Maximum decoded picture buffer size (in macroblocks)
+    pub max_dpb_mbs: u32,
+    /// Maximum video bitrate (in units of 1000 bits/s or 1200 bits/s depending on profile)
+    pub max_br: u32,
+    /// Maximum CPB size (in units of 1000 bits or 1200 bits depending on profile)
+    pub max_cpb: u32,
+    /// Maximum vertical MV component range
+    pub max_vmv_r: u32,
+    /// Minimum compression ratio
+    pub min_cr: u8,
+    /// Maximum number of motion vectors per two consecutive MBs.
+    /// `None` means no limit (applies to levels below 3.0).
+    pub max_mvs_per2mb: Option<NonZeroU8>,
 }
-
-lazy_static! {
-    // "Table A-1 – Level limits" from the spec
-    static ref LEVEL_LIMITS: std::collections::HashMap<Level, LevelLimit> = {
-        let mut m = std::collections::HashMap::new();
-        m.insert(
-            Level::L1,
-            LevelLimit {
-                max_mbps: 1485,
-                max_fs: 99,
-                max_dpb_mbs: 396,
-                max_br: 64,
-                max_cpb: 175,
-                max_vmv_r: 64,
-                min_cr: 2,
-                max_mvs_per2mb: None,
-            },
-        );
-        m.insert(
-            Level::L1_b,
-            LevelLimit {
-                max_mbps: 1485,
-                max_fs: 99,
-                max_dpb_mbs: 396,
-                max_br: 128,
-                max_cpb: 350,
-                max_vmv_r: 64,
-                min_cr: 2,
-                max_mvs_per2mb: None,
-            },
-        );
-        m.insert(
-            Level::L1_1,
-            LevelLimit {
-                max_mbps: 3000,
-                max_fs: 396,
-                max_dpb_mbs: 900,
-                max_br: 192,
-                max_cpb: 500,
-                max_vmv_r: 128,
-                min_cr: 2,
-                max_mvs_per2mb: None,
-            },
-        );
-        m.insert(
-            Level::L1_2,
-            LevelLimit {
-                max_mbps: 6000,
-                max_fs: 396,
-                max_dpb_mbs: 2376,
-                max_br: 384,
-                max_cpb: 1000,
-                max_vmv_r: 128,
-                min_cr: 2,
-                max_mvs_per2mb: None,
-            },
-        );
-        m.insert(
-            Level::L1_3,
-            LevelLimit {
-                max_mbps: 11880,
-                max_fs: 396,
-                max_dpb_mbs: 2376,
-                max_br: 768,
-                max_cpb: 2000,
-                max_vmv_r: 128,
-                min_cr: 2,
-                max_mvs_per2mb: None,
-            },
-        );
-        m.insert(
-            Level::L2,
-            LevelLimit {
-                max_mbps: 11880,
-                max_fs: 396,
-                max_dpb_mbs: 2376,
-                max_br: 2000,
-                max_cpb: 2000,
-                max_vmv_r: 128,
-                min_cr: 2,
-                max_mvs_per2mb: None,
-            },
-        );
-        m.insert(
-            Level::L2_1,
-            LevelLimit {
-                max_mbps: 19800,
-                max_fs: 792,
-                max_dpb_mbs: 4752,
-                max_br: 4000,
-                max_cpb: 4000,
-                max_vmv_r: 256,
-                min_cr: 2,
-                max_mvs_per2mb: None,
-            },
-        );
-        m.insert(
-            Level::L2_2,
-            LevelLimit {
-                max_mbps: 20250,
-                max_fs: 1620,
-                max_dpb_mbs: 8100,
-                max_br: 4000,
-                max_cpb: 4000,
-                max_vmv_r: 256,
-                min_cr: 2,
-                max_mvs_per2mb: None,
-            },
-        );
-        m.insert(
-            Level::L3,
-            LevelLimit {
-                max_mbps: 40500,
-                max_fs: 1620,
-                max_dpb_mbs: 8100,
-                max_br: 10000,
-                max_cpb: 10000,
-                max_vmv_r: 256,
-                min_cr: 2,
-                max_mvs_per2mb: NonZeroU8::new(32),
-            },
-        );
-        m.insert(
-            Level::L3_1,
-            LevelLimit {
-                max_mbps: 108000,
-                max_fs: 3600,
-                max_dpb_mbs: 18000,
-                max_br: 14000,
-                max_cpb: 14000,
-                max_vmv_r: 512,
-                min_cr: 4,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m.insert(
-            Level::L3_2,
-            LevelLimit {
-                max_mbps: 216000,
-                max_fs: 5120,
-                max_dpb_mbs: 20480,
-                max_br: 20000,
-                max_cpb: 20000,
-                max_vmv_r: 512,
-                min_cr: 4,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m.insert(
-            Level::L4,
-            LevelLimit {
-                max_mbps: 245760,
-                max_fs: 8192,
-                max_dpb_mbs: 32768,
-                max_br: 20000,
-                max_cpb: 25000,
-                max_vmv_r: 512,
-                min_cr: 4,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m.insert(
-            Level::L4_1,
-            LevelLimit {
-                max_mbps: 245760,
-                max_fs: 8192,
-                max_dpb_mbs: 32768,
-                max_br: 50000,
-                max_cpb: 62500,
-                max_vmv_r: 512,
-                min_cr: 2,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m.insert(
-            Level::L4_2,
-            LevelLimit {
-                max_mbps: 522240,
-                max_fs: 8704,
-                max_dpb_mbs: 34816,
-                max_br: 50000,
-                max_cpb: 62500,
-                max_vmv_r: 512,
-                min_cr: 2,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m.insert(
-            Level::L5,
-            LevelLimit {
-                max_mbps: 589824,
-                max_fs: 22080,
-                max_dpb_mbs: 110400,
-                max_br: 135000,
-                max_cpb: 135000,
-                max_vmv_r: 512,
-                min_cr: 2,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m.insert(
-            Level::L5_1,
-            LevelLimit {
-                max_mbps: 983040,
-                max_fs: 36864,
-                max_dpb_mbs: 184320,
-                max_br: 240000,
-                max_cpb: 240000,
-                max_vmv_r: 512,
-                min_cr: 2,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m.insert(
-            Level::L5_2,
-            LevelLimit {
-                max_mbps: 2073600,
-                max_fs: 36864,
-                max_dpb_mbs: 184320,
-                max_br: 240000,
-                max_cpb: 240000,
-                max_vmv_r: 512,
-                min_cr: 2,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m.insert(
-            Level::L6,
-            LevelLimit {
-                max_mbps: 4177920,
-                max_fs: 139264,
-                max_dpb_mbs: 696320,
-                max_br: 240000,
-                max_cpb: 240000,
-                max_vmv_r: 8192,
-                min_cr: 2,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m.insert(
-            Level::L6_1,
-            LevelLimit {
-                max_mbps: 8355840,
-                max_fs: 139264,
-                max_dpb_mbs: 696320,
-                max_br: 480000,
-                max_cpb: 480000,
-                max_vmv_r: 8192,
-                min_cr: 2,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m.insert(
-            Level::L6_2,
-            LevelLimit {
-                max_mbps: 16711680,
-                max_fs: 139264,
-                max_dpb_mbs: 696320,
-                max_br: 800000,
-                max_cpb: 800000,
-                max_vmv_r: 8192,
-                min_cr: 2,
-                max_mvs_per2mb: NonZeroU8::new(16),
-            },
-        );
-        m
-    };
-}*/
 
 #[cfg(test)]
 mod test {
@@ -2308,5 +2266,34 @@ mod test {
         assert_eq!(width, width2);
         assert_eq!(height, height2);
         assert_eq!(fps, sps2.fps().unwrap());
+    }
+
+    #[test]
+    fn all_known_levels_have_limits() {
+        let levels = [
+            Level::L1,
+            Level::L1_b,
+            Level::L1_1,
+            Level::L1_2,
+            Level::L1_3,
+            Level::L2,
+            Level::L2_1,
+            Level::L2_2,
+            Level::L3,
+            Level::L3_1,
+            Level::L3_2,
+            Level::L4,
+            Level::L4_1,
+            Level::L4_2,
+            Level::L5,
+            Level::L5_1,
+            Level::L5_2,
+            Level::L6,
+            Level::L6_1,
+            Level::L6_2,
+        ];
+        for level in &levels {
+            assert!(level.limits().is_some(), "Expected limits for {:?}", level);
+        }
     }
 }
