@@ -476,6 +476,7 @@ pub struct SliceHeader {
     pub sp_for_switch_flag: Option<bool>,
     pub slice_qs: Option<u32>,
     pub disable_deblocking_filter_idc: u8,
+    pub slice_group_change_cycle: Option<u32>,
 }
 impl SliceHeader {
     pub fn from_bits<'a, R: BitRead>(
@@ -672,6 +673,20 @@ impl SliceHeader {
                 let _slice_beta_offset_div2 = r.read_se("slice_beta_offset_div2")?;
             }
         }
+        let slice_group_change_cycle =
+            if let Some(pps::SliceGroup::Changing {
+                slice_group_change_rate_minus1,
+                ..
+            }) = &pps.slice_groups
+            {
+                let pic_size = sps.pic_size_in_map_units();
+                let change_rate = slice_group_change_rate_minus1 + 1;
+                let bits =
+                    (f64::from(pic_size) / f64::from(change_rate) + 1.0).log2().ceil() as u32;
+                Some(r.read::<u32>(bits, "slice_group_change_cycle")?)
+            } else {
+                None
+            };
         if !r.has_more_rbsp_data("slice_header")? {
             return Err(SliceHeaderError::RbspError(BitReaderError::ReaderErrorFor(
                 "slice_header",
@@ -700,6 +715,7 @@ impl SliceHeader {
             sp_for_switch_flag,
             slice_qs,
             disable_deblocking_filter_idc,
+            slice_group_change_cycle,
         };
         Ok((header, sps, pps))
     }
