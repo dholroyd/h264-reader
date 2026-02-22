@@ -23,9 +23,8 @@ pub struct SeqParameterSetExtension {
 
 impl SeqParameterSetExtension {
     pub fn from_bits<R: BitRead>(mut r: R) -> Result<SeqParameterSetExtension, SpsError> {
-        let seq_parameter_set_id =
-            SeqParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)
-                .map_err(SpsError::BadSeqParamSetId)?;
+        let seq_parameter_set_id = SeqParamSetId::from_u32(r.read_ue("seq_parameter_set_id")?)
+            .map_err(SpsError::BadSeqParamSetId)?;
         let aux_format_idc = r.read_ue("aux_format_idc")?;
         let aux_format_info = if aux_format_idc != 0 {
             let bit_depth_aux_minus8 = r.read_ue("bit_depth_aux_minus8")?;
@@ -71,7 +70,10 @@ mod test {
         // bits: 1 1 0 1 0000 = 0xD0
         let data = [0xD0u8];
         let ext = SeqParameterSetExtension::from_bits(BitReader::new(&data[..])).unwrap();
-        assert_eq!(ext.seq_parameter_set_id, SeqParamSetId::from_u32(0).unwrap());
+        assert_eq!(
+            ext.seq_parameter_set_id,
+            SeqParamSetId::from_u32(0).unwrap()
+        );
         assert_eq!(ext.aux_format_idc, 0);
         assert!(ext.aux_format_info.is_none());
         assert!(!ext.additional_extension_flag);
@@ -95,7 +97,10 @@ mod test {
         //       byte 3:  0100_0000 = 0x40
         let data = [0xABu8, 0xFE, 0x00, 0x40];
         let ext = SeqParameterSetExtension::from_bits(BitReader::new(&data[..])).unwrap();
-        assert_eq!(ext.seq_parameter_set_id, SeqParamSetId::from_u32(0).unwrap());
+        assert_eq!(
+            ext.seq_parameter_set_id,
+            SeqParamSetId::from_u32(0).unwrap()
+        );
         assert_eq!(ext.aux_format_idc, 1);
         let info = ext.aux_format_info.as_ref().unwrap();
         assert_eq!(info.bit_depth_aux_minus8, 0);

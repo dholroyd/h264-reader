@@ -88,17 +88,12 @@ pub enum Profile {
 }
 
 impl Profile {
-    pub fn from_profile_idc(
-        profile_idc: ProfileIdc,
-        constraint_flags: ConstraintFlags,
-    ) -> Profile {
+    pub fn from_profile_idc(profile_idc: ProfileIdc, constraint_flags: ConstraintFlags) -> Profile {
         match profile_idc.0 {
             66 if constraint_flags.flag1() => Profile::ConstrainedBaseline,
             66 => Profile::Baseline,
             77 => Profile::Main,
-            100 if constraint_flags.flag4() && constraint_flags.flag5() => {
-                Profile::ConstrainedHigh
-            }
+            100 if constraint_flags.flag4() && constraint_flags.flag5() => Profile::ConstrainedHigh,
             100 if constraint_flags.flag4() => Profile::ProgressiveHigh,
             100 => Profile::High,
             110 if constraint_flags.flag3() => Profile::High10Intra,
@@ -133,7 +128,8 @@ impl Profile {
             Profile::High444 | Profile::High444Intra => 244,
             Profile::Extended => 88,
             Profile::ScalableBase | Profile::ScalableConstrainedBaseline => 83,
-            Profile::ScalableHigh | Profile::ScalableConstrainedHigh
+            Profile::ScalableHigh
+            | Profile::ScalableConstrainedHigh
             | Profile::ScalableHighIntra => 86,
             Profile::MultiviewHigh => 118,
             Profile::StereoHigh => 128,

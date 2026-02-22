@@ -83,11 +83,7 @@ pub struct SubsetSps {
 }
 
 /// Read a ue value and validate it fits in u16 with given max.
-fn read_ue_bounded<R: BitRead>(
-    r: &mut R,
-    name: &'static str,
-    max: u32,
-) -> Result<u16, SpsError> {
+fn read_ue_bounded<R: BitRead>(r: &mut R, name: &'static str, max: u32) -> Result<u16, SpsError> {
     let val = r.read_ue(name)?;
     if val > max {
         return Err(SpsError::FieldValueTooLarge { name, value: val });
@@ -167,7 +163,11 @@ fn read_svc_extension<R: BitRead>(
         r.read(2, "chroma_phase_y_plus1")?
     } else {
         // Default: 0 for Monochrome, 1 for YUV422/444
-        if chroma_array_type == 0 { 0 } else { 1 }
+        if chroma_array_type == 0 {
+            0
+        } else {
+            1
+        }
     };
 
     let (
@@ -186,7 +186,11 @@ fn read_svc_extension<R: BitRead>(
         let ref_phase_y = if chroma_array_type == 1 {
             r.read(2, "seq_ref_layer_chroma_phase_y_plus1")?
         } else {
-            if chroma_array_type == 0 { 0 } else { 1 }
+            if chroma_array_type == 0 {
+                0
+            } else {
+                1
+            }
         };
         (
             ref_phase_x,
@@ -197,19 +201,24 @@ fn read_svc_extension<R: BitRead>(
             r.read_se("seq_scaled_ref_layer_bottom_offset")?,
         )
     } else {
-        (false, if chroma_array_type == 0 { 0 } else { 1 }, 0, 0, 0, 0)
+        (
+            false,
+            if chroma_array_type == 0 { 0 } else { 1 },
+            0,
+            0,
+            0,
+            0,
+        )
     };
 
-    let seq_tcoeff_level_prediction_flag =
-        r.read_bool("seq_tcoeff_level_prediction_flag")?;
+    let seq_tcoeff_level_prediction_flag = r.read_bool("seq_tcoeff_level_prediction_flag")?;
     let adaptive_tcoeff_level_prediction_flag = if seq_tcoeff_level_prediction_flag {
         r.read_bool("adaptive_tcoeff_level_prediction_flag")?
     } else {
         false
     };
     let slice_header_restriction_flag = r.read_bool("slice_header_restriction_flag")?;
-    let svc_vui_parameters_present_flag =
-        r.read_bool("svc_vui_parameters_present_flag")?;
+    let svc_vui_parameters_present_flag = r.read_bool("svc_vui_parameters_present_flag")?;
 
     Ok(SvcSpsExtension {
         inter_layer_deblocking_filter_control_present_flag,
@@ -315,8 +324,7 @@ fn read_mvc_extension<R: BitRead>(r: &mut R) -> Result<MvcSpsExtension, SpsError
         });
     }
 
-    let mut level_values =
-        Vec::with_capacity(num_level_values_signalled_minus1 as usize + 1);
+    let mut level_values = Vec::with_capacity(num_level_values_signalled_minus1 as usize + 1);
     for _ in 0..=num_level_values_signalled_minus1 {
         let level_idc: u8 = r.read(8, "level_idc")?;
         let num_applicable_ops_minus1 = r.read_ue("num_applicable_ops_minus1")?;
@@ -326,20 +334,16 @@ fn read_mvc_extension<R: BitRead>(r: &mut R) -> Result<MvcSpsExtension, SpsError
                 value: num_applicable_ops_minus1,
             });
         }
-        let mut applicable_ops =
-            Vec::with_capacity(num_applicable_ops_minus1 as usize + 1);
+        let mut applicable_ops = Vec::with_capacity(num_applicable_ops_minus1 as usize + 1);
         for _ in 0..=num_applicable_ops_minus1 {
             let temporal_id: u8 = r.read(3, "applicable_op_temporal_id")?;
             let num_target_views_minus1 =
                 read_ue_bounded(r, "applicable_op_num_target_views_minus1", 1023)?;
-            let mut target_view_ids =
-                Vec::with_capacity(num_target_views_minus1 as usize + 1);
+            let mut target_view_ids = Vec::with_capacity(num_target_views_minus1 as usize + 1);
             for _ in 0..=num_target_views_minus1 {
-                target_view_ids
-                    .push(read_ue_bounded(r, "applicable_op_target_view_id", 1023)?);
+                target_view_ids.push(read_ue_bounded(r, "applicable_op_target_view_id", 1023)?);
             }
-            let num_views_minus1 =
-                read_ue_bounded(r, "applicable_op_num_views_minus1", 1023)?;
+            let num_views_minus1 = read_ue_bounded(r, "applicable_op_num_views_minus1", 1023)?;
             applicable_ops.push(MvcApplicableOp {
                 temporal_id,
                 num_target_views_minus1,
