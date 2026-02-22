@@ -4,6 +4,7 @@
 //! [`RbspDecoder`](../rbsp/struct.RbspDecoder.html)), where it has been encoded with
 //! 'emulation prevention bytes'.
 
+pub mod aud;
 pub mod pps;
 pub mod sei;
 pub mod slice;

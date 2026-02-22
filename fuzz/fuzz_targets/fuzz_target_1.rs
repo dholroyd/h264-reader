@@ -2,7 +2,7 @@
 use libfuzzer_sys::fuzz_target;
 use h264_reader::annexb::AnnexBReader;
 use h264_reader::Context;
-use h264_reader::nal::{Nal, RefNal, UnitType, pps, slice, sei, sps, sps_extension, subset_sps};
+use h264_reader::nal::{Nal, RefNal, UnitType, aud, pps, slice, sei, sps, sps_extension, subset_sps};
 use h264_reader::push::NalInterest;
 
 fuzz_target!(|data: &[u8]| {
@@ -44,6 +44,9 @@ fuzz_target!(|data: &[u8]| {
             },
             UnitType::SliceLayerWithoutPartitioningIdr | UnitType::SliceLayerWithoutPartitioningNonIdr => {
                 let _ = slice::SliceHeader::from_bits(&ctx, &mut nal.rbsp_bits(), hdr);
+            },
+            UnitType::AccessUnitDelimiter => {
+                let _ = aud::AccessUnitDelimiter::from_bits(nal.rbsp_bits());
             },
             UnitType::SeqParameterSetExtension => {
                 let _ = sps_extension::SeqParameterSetExtension::from_bits(nal.rbsp_bits());

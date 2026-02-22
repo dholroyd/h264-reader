@@ -1,4 +1,5 @@
 use h264_reader::annexb::AnnexBReader;
+use h264_reader::nal::aud::AccessUnitDelimiter;
 use h264_reader::nal::pps::PicParameterSet;
 use h264_reader::nal::sei::buffering_period::BufferingPeriod;
 use h264_reader::nal::sei::pic_timing::PicTiming;
@@ -126,6 +127,12 @@ fn main() {
                             println!("{:?}", e);
                         }
                     }
+                }
+            }
+            UnitType::AccessUnitDelimiter => {
+                match AccessUnitDelimiter::from_bits(nal.rbsp_bits()) {
+                    Ok(aud) => println!("{:#?}", aud),
+                    Err(e) => println!("AUD error: {:?}", e),
                 }
             }
             UnitType::SeqParameterSetExtension => {

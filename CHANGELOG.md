@@ -13,6 +13,7 @@
 *   Add `Profile::CavlcIntra444` (profile_idc 44) and `Profile::MFCHigh` (profile_idc 134) enum variants.
 *   Parse AvcC extension fields (`chroma_format`, `bit_depth_luma_minus8`, `bit_depth_chroma_minus8`, SPS extension NAL units) for High profile and above.
 *   Add `slice_group_change_cycle`, `slice_alpha_c0_offset_div2` and `slice_beta_offset_div2 to `SliceHeader`
+*   Parse `access_unit_delimiter_rbsp()` (NAL type 9) via new `aud::AccessUnitDelimiter`.
 *   Parse `seq_parameter_set_extension_rbsp()` (NAL type 13) via new `sps_extension::SeqParameterSetExtension`.
 *   Parse `subset_seq_parameter_set_rbsp()` (NAL type 15) via new `subset_sps::SubsetSps`, including SVC extension (profiles 83/86) and MVC extension (profiles 118/128/134).
 *   Add `Context::put_subset_seq_param_set()`, `Context::subset_sps_by_id()`, and `Context::subset_sps()` for managing subset SPS state.
