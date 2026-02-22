@@ -18,6 +18,7 @@
 *   Parse `subset_seq_parameter_set_rbsp()` (NAL type 15) via new `subset_sps::SubsetSps`, including SVC extension (profiles 83/86) and MVC extension (profiles 118/128/134).
 *   Add `Context::put_subset_seq_param_set()`, `Context::subset_sps_by_id()`, and `Context::subset_sps()` for managing subset SPS state.
 *   Add `ChromaInfo::chroma_array_type()` helper.
+*   Added support for `user_data_unregistered()` SEI syntax
 
 ### Fixed
 

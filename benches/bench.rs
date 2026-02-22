@@ -93,7 +93,9 @@ fn h264_reader(c: &mut Criterion) {
                 while let Some(msg) = r.next().unwrap() {
                     match msg.payload_type {
                         h264_reader::nal::sei::HeaderType::BufferingPeriod => {} // todo
-                        h264_reader::nal::sei::HeaderType::UserDataUnregistered => {} // todo
+                        h264_reader::nal::sei::HeaderType::UserDataUnregistered => {
+                            let _ = h264_reader::nal::sei::user_data_unregistered::UserDataUnregistered::read(&msg);
+                        }
                         _ => panic!("unknown SEI payload type {:?}", msg.payload_type),
                     }
                 }

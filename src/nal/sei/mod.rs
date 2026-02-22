@@ -1,6 +1,7 @@
 pub mod buffering_period;
 pub mod pic_timing;
 pub mod user_data_registered_itu_t_t35;
+pub mod user_data_unregistered;
 
 use crate::rbsp::BitReaderError;
 use hex_slice::AsHex;

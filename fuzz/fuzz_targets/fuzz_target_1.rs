@@ -38,6 +38,9 @@ fuzz_target!(|data: &[u8]| {
                             };
                             let _ = sei::pic_timing::PicTiming::read(sps, &msg);
                         },
+                        sei::HeaderType::UserDataUnregistered => {
+                            let _ = sei::user_data_unregistered::UserDataUnregistered::read(&msg);
+                        },
                         _ => {},
                     }
                 }

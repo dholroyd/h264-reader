@@ -29,7 +29,7 @@ The following list shows the current state of support per H264 syntax element:
      * [ ] `pan_scan_rect()`
      * [ ] `filler_payload()`
      * [x] `user_data_registered_itu_t_t35()`
-     * [ ] `user_data_unregistered()`
+     * [x] `user_data_unregistered()`
      * [ ] `recovery_point()`
      * [ ] `dec_ref_pic_marking_repetition()`
      * [ ] `spare_pic()`

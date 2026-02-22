@@ -4,6 +4,7 @@ use h264_reader::nal::pps::PicParameterSet;
 use h264_reader::nal::sei::buffering_period::BufferingPeriod;
 use h264_reader::nal::sei::pic_timing::PicTiming;
 use h264_reader::nal::sei::user_data_registered_itu_t_t35::ItuTT35;
+use h264_reader::nal::sei::user_data_unregistered::UserDataUnregistered;
 use h264_reader::nal::sei::HeaderType;
 use h264_reader::nal::slice::SliceHeader;
 use h264_reader::nal::sps::SeqParameterSet;
@@ -111,6 +112,20 @@ fn main() {
                                                     println!("{:#?}", ud);
                                                 }
                                             }
+                                        }
+                                        Err(e) => {
+                                            println!("{:?}", e);
+                                        }
+                                    }
+                                }
+                                HeaderType::UserDataUnregistered => {
+                                    match UserDataUnregistered::read(&sei) {
+                                        Ok(ud) => {
+                                            println!(
+                                                "UserDataUnregistered {{ uuid: {:02x?}, payload: ({} bytes) }}",
+                                                ud.uuid(),
+                                                ud.payload().len(),
+                                            );
                                         }
                                         Err(e) => {
                                             println!("{:?}", e);
