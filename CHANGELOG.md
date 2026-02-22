@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+*   BREAKING CHANGE: `Profile::from_profile_idc()` now accepts `ConstraintFlags` to distinguish constrained/intra profile variants. Add `Profile` enum variants: `ConstrainedBaseline`, `ProgressiveHigh`, `ConstrainedHigh`, `High10Intra`, `High422Intra`, `High444Intra`, `ScalableConstrainedBaseline`, `ScalableConstrainedHigh`, `ScalableHighIntra`.
+
 ### Added
 
 *   Added support for `luma_weights_l1` and `chroma_weights_l1` to `PredWeightTable`.

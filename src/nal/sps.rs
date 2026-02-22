@@ -61,14 +61,23 @@ impl From<BitReaderError> for SpsError {
 pub enum Profile {
     Unknown(u8),
     Baseline,
+    ConstrainedBaseline,
     Main,
     High,
+    ProgressiveHigh,
+    ConstrainedHigh,
     High422,
+    High422Intra,
     High10,
+    High10Intra,
     High444,
+    High444Intra,
     Extended,
     ScalableBase,
+    ScalableConstrainedBaseline,
     ScalableHigh,
+    ScalableConstrainedHigh,
+    ScalableHighIntra,
     MultiviewHigh,
     StereoHigh,
     CavlcIntra444,
@@ -79,17 +88,30 @@ pub enum Profile {
 }
 
 impl Profile {
-    pub fn from_profile_idc(profile_idc: ProfileIdc) -> Profile {
-        // TODO: accept constraint_flags too, as Level does?
+    pub fn from_profile_idc(
+        profile_idc: ProfileIdc,
+        constraint_flags: ConstraintFlags,
+    ) -> Profile {
         match profile_idc.0 {
+            66 if constraint_flags.flag1() => Profile::ConstrainedBaseline,
             66 => Profile::Baseline,
             77 => Profile::Main,
+            100 if constraint_flags.flag4() && constraint_flags.flag5() => {
+                Profile::ConstrainedHigh
+            }
+            100 if constraint_flags.flag4() => Profile::ProgressiveHigh,
             100 => Profile::High,
-            122 => Profile::High422,
+            110 if constraint_flags.flag3() => Profile::High10Intra,
             110 => Profile::High10,
+            122 if constraint_flags.flag3() => Profile::High422Intra,
+            122 => Profile::High422,
+            244 if constraint_flags.flag3() => Profile::High444Intra,
             244 => Profile::High444,
             88 => Profile::Extended,
+            83 if constraint_flags.flag5() => Profile::ScalableConstrainedBaseline,
             83 => Profile::ScalableBase,
+            86 if constraint_flags.flag3() => Profile::ScalableHighIntra,
+            86 if constraint_flags.flag5() => Profile::ScalableConstrainedHigh,
             86 => Profile::ScalableHigh,
             118 => Profile::MultiviewHigh,
             128 => Profile::StereoHigh,
@@ -103,15 +125,16 @@ impl Profile {
     }
     pub fn profile_idc(&self) -> u8 {
         match *self {
-            Profile::Baseline => 66,
+            Profile::Baseline | Profile::ConstrainedBaseline => 66,
             Profile::Main => 77,
-            Profile::High => 100,
-            Profile::High422 => 122,
-            Profile::High10 => 110,
-            Profile::High444 => 244,
+            Profile::High | Profile::ProgressiveHigh | Profile::ConstrainedHigh => 100,
+            Profile::High422 | Profile::High422Intra => 122,
+            Profile::High10 | Profile::High10Intra => 110,
+            Profile::High444 | Profile::High444Intra => 244,
             Profile::Extended => 88,
-            Profile::ScalableBase => 83,
-            Profile::ScalableHigh => 86,
+            Profile::ScalableBase | Profile::ScalableConstrainedBaseline => 83,
+            Profile::ScalableHigh | Profile::ScalableConstrainedHigh
+            | Profile::ScalableHighIntra => 86,
             Profile::MultiviewHigh => 118,
             Profile::StereoHigh => 128,
             Profile::CavlcIntra444 => 44,
@@ -993,7 +1016,7 @@ impl BitstreamRestrictions {
         ConstraintFlags::from(sps.constraint_flags),
         sps.level_idc,
     );
-    let profile = Profile::from_profile_idc(sps.profile_idc);
+    let profile = Profile::from_profile_idc(sps.profile_idc, sps.constraint_flags);
     let pic_width_in_mbs = sps.pic_width_in_mbs_minus1 + 1;
     let pic_height_in_map_units = sps.pic_height_in_map_units_minus1 + 1;
     let frame_height_in_mbs = if let FrameMbsFlags::Frames = sps.frame_mbs_flags {
@@ -1144,7 +1167,7 @@ impl SeqParameterSet {
     }
 
     pub fn profile(&self) -> Profile {
-        Profile::from_profile_idc(self.profile_idc)
+        Profile::from_profile_idc(self.profile_idc, self.constraint_flags)
     }
 
     pub fn level(&self) -> Level {
@@ -1620,14 +1643,97 @@ mod test {
 
     #[test]
     fn profile_idc_roundtrip() {
+        let no_flags = ConstraintFlags::from(0);
         for idc in 0..=255 {
-            let profile = Profile::from_profile_idc(ProfileIdc(idc));
+            let profile = Profile::from_profile_idc(ProfileIdc(idc), no_flags);
             assert_eq!(
                 idc,
                 profile.profile_idc(),
                 "round-trip failed for idc {idc}"
             );
         }
+    }
+
+    #[test]
+    fn profile_constraint_flags() {
+        // Constrained Baseline: profile_idc=66, constraint_set1_flag=1
+        let flags = ConstraintFlags::from(0b0100_0000);
+        assert!(matches!(
+            Profile::from_profile_idc(ProfileIdc(66), flags),
+            Profile::ConstrainedBaseline
+        ));
+        // Plain Baseline without constraint_set1_flag
+        let flags = ConstraintFlags::from(0b1000_0000);
+        assert!(matches!(
+            Profile::from_profile_idc(ProfileIdc(66), flags),
+            Profile::Baseline
+        ));
+
+        // Progressive High: profile_idc=100, constraint_set4_flag=1
+        let flags = ConstraintFlags::from(0b0000_1000);
+        assert!(matches!(
+            Profile::from_profile_idc(ProfileIdc(100), flags),
+            Profile::ProgressiveHigh
+        ));
+        // Constrained High: profile_idc=100, constraint_set4_flag=1 + constraint_set5_flag=1
+        let flags = ConstraintFlags::from(0b0000_1100);
+        assert!(matches!(
+            Profile::from_profile_idc(ProfileIdc(100), flags),
+            Profile::ConstrainedHigh
+        ));
+
+        // High 10 Intra: profile_idc=110, constraint_set3_flag=1
+        let flags = ConstraintFlags::from(0b0001_0000);
+        assert!(matches!(
+            Profile::from_profile_idc(ProfileIdc(110), flags),
+            Profile::High10Intra
+        ));
+
+        // High 4:2:2 Intra: profile_idc=122, constraint_set3_flag=1
+        let flags = ConstraintFlags::from(0b0001_0000);
+        assert!(matches!(
+            Profile::from_profile_idc(ProfileIdc(122), flags),
+            Profile::High422Intra
+        ));
+
+        // High 4:4:4 Intra: profile_idc=244, constraint_set3_flag=1
+        let flags = ConstraintFlags::from(0b0001_0000);
+        assert!(matches!(
+            Profile::from_profile_idc(ProfileIdc(244), flags),
+            Profile::High444Intra
+        ));
+
+        // Scalable Constrained Baseline: profile_idc=83, constraint_set5_flag=1
+        let flags = ConstraintFlags::from(0b0000_0100);
+        assert!(matches!(
+            Profile::from_profile_idc(ProfileIdc(83), flags),
+            Profile::ScalableConstrainedBaseline
+        ));
+
+        // Scalable Constrained High: profile_idc=86, constraint_set5_flag=1
+        let flags = ConstraintFlags::from(0b0000_0100);
+        assert!(matches!(
+            Profile::from_profile_idc(ProfileIdc(86), flags),
+            Profile::ScalableConstrainedHigh
+        ));
+
+        // Scalable High Intra: profile_idc=86, constraint_set3_flag=1
+        let flags = ConstraintFlags::from(0b0001_0000);
+        assert!(matches!(
+            Profile::from_profile_idc(ProfileIdc(86), flags),
+            Profile::ScalableHighIntra
+        ));
+
+        // Constrained variants still roundtrip through profile_idc
+        assert_eq!(Profile::ConstrainedBaseline.profile_idc(), 66);
+        assert_eq!(Profile::ProgressiveHigh.profile_idc(), 100);
+        assert_eq!(Profile::ConstrainedHigh.profile_idc(), 100);
+        assert_eq!(Profile::High10Intra.profile_idc(), 110);
+        assert_eq!(Profile::High422Intra.profile_idc(), 122);
+        assert_eq!(Profile::High444Intra.profile_idc(), 244);
+        assert_eq!(Profile::ScalableConstrainedBaseline.profile_idc(), 83);
+        assert_eq!(Profile::ScalableConstrainedHigh.profile_idc(), 86);
+        assert_eq!(Profile::ScalableHighIntra.profile_idc(), 86);
     }
 
     #[test_case(
