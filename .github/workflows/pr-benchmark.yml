@@ -26,10 +26,10 @@ jobs:
             jq '.packages[] | select(.name == "iai-callgrind").version' |\
             tr -d '"'
           )
-          cargo binstall --no-confirm iai-callgrind-runner --version $version
+          cargo binstall --no-confirm iai-callgrind-runner --version $version --root $PWD/iai/
 
       - run: |
-          IAI_CALLGRIND_COLOR=never cargo bench --bench ci_bench > benchmark_results.txt
+          IAI_CALLGRIND_COLOR=never IAI_CALLGRIND_RUNNER=$PWD/iai/bin/iai-callgrind-runner cargo bench --bench ci_bench > benchmark_results.txt
       - name: Upload Benchmark Results
         uses: actions/upload-artifact@v4
         with:
