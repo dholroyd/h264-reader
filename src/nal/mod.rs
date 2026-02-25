@@ -610,8 +610,8 @@ mod test {
         // temporal_id = 0b101 = 5
         // anchor_pic_flag=1, inter_view_flag=0, reserved_one_bit=1
         let bytes: [u8; 3] = [
-            0b0100_0011,   // svc=0, non_idr=1, priority_id=3
-            0b01100000,     // view_id high 8 bits = 0x60
+            0b0100_0011, // svc=0, non_idr=1, priority_id=3
+            0b01100000,  // view_id high 8 bits = 0x60
             0b1010_1101, // view_id low 2 = 0b10, temporal=5, anchor=1, inter_view=0, reserved=1
         ];
         let ext = NalHeaderExtension::from_bytes(bytes);
@@ -668,8 +668,8 @@ mod test {
         // temporal_id=0b010 = 2, use_ref_base_pic_flag=1, discardable_flag=0, output_flag=1
         // reserved_three_2bits=0b11
         let bytes: [u8; 3] = [
-            0b1010_1010,   // svc=1, idr=0, priority_id=42
-            0b1110_0011,   // no_inter_layer=1, dep_id=6, quality_id=3
+            0b1010_1010, // svc=1, idr=0, priority_id=42
+            0b1110_0011, // no_inter_layer=1, dep_id=6, quality_id=3
             0b0101_0111, // temporal=2, use_ref=1, discard=0, output=1, reserved=3
         ];
         let ext = NalHeaderExtension::from_bytes(bytes);
@@ -716,9 +716,9 @@ mod test {
         // Header byte: 0b0_11_01110 = 0x6E
         // Extension: MVC with view_id=1, all other fields 0 except reserved
         let nal_bytes: &[u8] = &[
-            0x6E,           // NAL header: ref_idc=3, type=14
-            0x00,           // svc=0, non_idr=0, priority_id=0
-            0x00,           // view_id high 8 = 0
+            0x6E,        // NAL header: ref_idc=3, type=14
+            0x00,        // svc=0, non_idr=0, priority_id=0
+            0x00,        // view_id high 8 = 0
             0b0100_0001, // view_id low 2 = 01, temporal=0, anchor=0, inter_view=0, reserved=1
             0xAA,
             0xBB, // body bytes

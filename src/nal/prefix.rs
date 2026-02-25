@@ -156,9 +156,9 @@ mod test {
         //   anchor=0, inter_view=1, reserved=1
         // No RBSP body since nal_ref_idc=0
         let data: &[u8] = &[
-            0x0E,           // NAL header: ref_idc=0, type=14
-            0b0100_0000,   // svc=0, non_idr=1, priority_id=0
-            0x00,           // view_id high 8 = 0
+            0x0E,        // NAL header: ref_idc=0, type=14
+            0b0100_0000, // svc=0, non_idr=1, priority_id=0
+            0x00,        // view_id high 8 = 0
             0b0100_0011, // view_id low 2 = 01 (view_id=1), temporal=0, anchor=0, inter_view=1, reserved=1
         ];
         let nal = RefNal::new(data, &[], true);
@@ -181,9 +181,9 @@ mod test {
         // MVC extension: svc=0, all zeros, view_id=0, reserved=1
         // MVC prefix NALs have no RBSP body, so ref_base_pic should be None.
         let data: &[u8] = &[
-            0x6E,           // NAL header: ref_idc=3, type=14
-            0x00,           // svc=0, non_idr=0, priority_id=0
-            0x00,           // view_id high 8 = 0
+            0x6E,        // NAL header: ref_idc=3, type=14
+            0x00,        // svc=0, non_idr=0, priority_id=0
+            0x00,        // view_id high 8 = 0
             0b0000_0001, // view_id=0, temporal=0, anchor=0, inter_view=0, reserved=1
         ];
         let nal = RefNal::new(data, &[], true);
