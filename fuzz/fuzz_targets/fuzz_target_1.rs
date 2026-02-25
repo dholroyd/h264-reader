@@ -46,7 +46,7 @@ fuzz_target!(|data: &[u8]| {
                 }
             },
             UnitType::SliceLayerWithoutPartitioningIdr | UnitType::SliceLayerWithoutPartitioningNonIdr => {
-                let _ = slice::SliceHeader::from_bits(&ctx, &mut nal.rbsp_bits(), hdr);
+                let _ = slice::SliceHeader::from_bits(&ctx, &mut nal.rbsp_bits(), hdr, None);
             },
             UnitType::AccessUnitDelimiter => {
                 let _ = aud::AccessUnitDelimiter::from_bits(nal.rbsp_bits());

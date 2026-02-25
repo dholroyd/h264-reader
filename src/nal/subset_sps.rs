@@ -4,10 +4,11 @@
 //! - SVC extension (profiles 83/86, spec Annex F)
 //! - MVC extension (profiles 118/128/134, spec Annex G)
 //!
-//! VUI parameter extensions are detected but not parsed; when present, `finish_rbsp()`
+//! SVC VUI parameter extensions are detected but not parsed; when present, `finish_rbsp()`
 //! validation is skipped and `additional_extension2_flag` defaults to `false`.
+//! MVC VUI parameters (spec G.14.1) are fully parsed.
 
-use crate::nal::sps::{SeqParameterSet, SpsError};
+use crate::nal::sps::{HrdParameters, SeqParameterSet, SpsError, TimingInfo};
 use crate::rbsp::BitRead;
 
 /// Profile-dependent extension data within a subset SPS.
@@ -16,7 +17,7 @@ pub enum SubsetSpsExtension {
     Svc(SvcSpsExtension),
     Mvc {
         ext: MvcSpsExtension,
-        mvc_vui_parameters_present_flag: bool,
+        mvc_vui_parameters: Option<MvcVuiParametersExtension>,
     },
     /// MVCD extension (profiles 135/138/139). Parsing not implemented - fields not read.
     Mvcd,
@@ -74,6 +75,24 @@ pub struct MvcSpsExtension {
     pub level_values: Vec<MvcLevelValue>,
 }
 
+/// A single operation in the MVC VUI parameters extension (spec G.14.1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MvcVuiOp {
+    pub temporal_id: u8,
+    pub target_output_view_ids: Vec<u16>,
+    pub timing_info: Option<TimingInfo>,
+    pub nal_hrd_parameters: Option<HrdParameters>,
+    pub vcl_hrd_parameters: Option<HrdParameters>,
+    pub low_delay_hrd_flag: Option<bool>,
+    pub pic_struct_present_flag: bool,
+}
+
+/// MVC VUI parameters extension (spec G.14.1, `mvc_vui_parameters_extension`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MvcVuiParametersExtension {
+    pub ops: Vec<MvcVuiOp>,
+}
+
 /// Parsed `subset_seq_parameter_set_rbsp()` (NAL unit type 15).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubsetSps {
@@ -110,12 +129,17 @@ impl SubsetSps {
                 let ext = read_mvc_extension(&mut r)?;
                 let mvc_vui_parameters_present_flag =
                     r.read_bool("mvc_vui_parameters_present_flag")?;
+                let mvc_vui_parameters = if mvc_vui_parameters_present_flag {
+                    Some(read_mvc_vui_parameters_extension(&mut r)?)
+                } else {
+                    None
+                };
                 (
                     Some(SubsetSpsExtension::Mvc {
                         ext,
-                        mvc_vui_parameters_present_flag,
+                        mvc_vui_parameters,
                     }),
-                    mvc_vui_parameters_present_flag,
+                    false,
                 )
             }
             135 | 138 | 139 => {
@@ -361,6 +385,55 @@ fn read_mvc_extension<R: BitRead>(r: &mut R) -> Result<MvcSpsExtension, SpsError
         views,
         level_values,
     })
+}
+
+fn read_mvc_vui_parameters_extension<R: BitRead>(
+    r: &mut R,
+) -> Result<MvcVuiParametersExtension, SpsError> {
+    let vui_mvc_num_ops_minus1 = r.read_ue("vui_mvc_num_ops_minus1")?;
+    if vui_mvc_num_ops_minus1 > 1023 {
+        return Err(SpsError::FieldValueTooLarge {
+            name: "vui_mvc_num_ops_minus1",
+            value: vui_mvc_num_ops_minus1,
+        });
+    }
+    let mut ops = Vec::with_capacity(vui_mvc_num_ops_minus1 as usize + 1);
+    for _ in 0..=vui_mvc_num_ops_minus1 {
+        let temporal_id: u8 = r.read(3, "vui_mvc_temporal_id")?;
+        let vui_mvc_num_target_output_views_minus1 =
+            r.read_ue("vui_mvc_num_target_output_views_minus1")?;
+        if vui_mvc_num_target_output_views_minus1 > 1023 {
+            return Err(SpsError::FieldValueTooLarge {
+                name: "vui_mvc_num_target_output_views_minus1",
+                value: vui_mvc_num_target_output_views_minus1,
+            });
+        }
+        let mut target_output_view_ids =
+            Vec::with_capacity(vui_mvc_num_target_output_views_minus1 as usize + 1);
+        for _ in 0..=vui_mvc_num_target_output_views_minus1 {
+            target_output_view_ids.push(read_ue_bounded(r, "vui_mvc_view_id", 1023)?);
+        }
+        let timing_info = TimingInfo::read(r)?;
+        let mut hrd_parameters_present = false;
+        let nal_hrd_parameters = HrdParameters::read(r, &mut hrd_parameters_present)?;
+        let vcl_hrd_parameters = HrdParameters::read(r, &mut hrd_parameters_present)?;
+        let low_delay_hrd_flag = if hrd_parameters_present {
+            Some(r.read_bool("vui_mvc_low_delay_hrd_flag")?)
+        } else {
+            None
+        };
+        let pic_struct_present_flag = r.read_bool("vui_mvc_pic_struct_present_flag")?;
+        ops.push(MvcVuiOp {
+            temporal_id,
+            target_output_view_ids,
+            timing_info,
+            nal_hrd_parameters,
+            vcl_hrd_parameters,
+            low_delay_hrd_flag,
+            pic_struct_present_flag,
+        });
+    }
+    Ok(MvcVuiParametersExtension { ops })
 }
 
 #[cfg(test)]

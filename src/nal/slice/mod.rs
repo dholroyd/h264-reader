@@ -2,7 +2,7 @@ use crate::nal::pps;
 use crate::nal::pps::{PicParamSetId, PicParameterSet};
 use crate::nal::sps;
 use crate::nal::sps::SeqParameterSet;
-use crate::nal::NalHeader;
+use crate::nal::{NalHeader, NalHeaderExtension};
 use crate::rbsp::BitRead;
 use crate::rbsp::BitReaderError;
 use crate::Context;
@@ -196,6 +196,10 @@ pub enum ModificationOfPicNums {
     Subtract(u32),
     Add(u32),
     LongTermRef(u32),
+    /// MVC: `modification_of_pic_nums_idc` value `4`, reads `abs_diff_view_idx_minus1`
+    SubtractViewIdx(u32),
+    /// MVC: `modification_of_pic_nums_idc` value `5`, reads `abs_diff_view_idx_minus1`
+    AddViewIdx(u32),
 }
 #[derive(Debug)]
 pub enum RefPicListModifications {
@@ -212,20 +216,24 @@ impl RefPicListModifications {
     fn read<R: BitRead>(
         slice_family: &SliceFamily,
         r: &mut R,
+        mvc: bool,
     ) -> Result<RefPicListModifications, SliceHeaderError> {
         Ok(match slice_family {
             SliceFamily::I | SliceFamily::SI => RefPicListModifications::I,
             SliceFamily::B => RefPicListModifications::B {
-                ref_pic_list_modification_l0: Self::read_list(r)?,
-                ref_pic_list_modification_l1: Self::read_list(r)?,
+                ref_pic_list_modification_l0: Self::read_list(r, mvc)?,
+                ref_pic_list_modification_l1: Self::read_list(r, mvc)?,
             },
             SliceFamily::P | SliceFamily::SP => RefPicListModifications::P {
-                ref_pic_list_modification_l0: Self::read_list(r)?,
+                ref_pic_list_modification_l0: Self::read_list(r, mvc)?,
             },
         })
     }
 
-    fn read_list<R: BitRead>(r: &mut R) -> Result<Vec<ModificationOfPicNums>, SliceHeaderError> {
+    fn read_list<R: BitRead>(
+        r: &mut R,
+        mvc: bool,
+    ) -> Result<Vec<ModificationOfPicNums>, SliceHeaderError> {
         let mut result = vec![];
         // either ref_pic_list_modification_flag_l0 or ref_pic_list_modification_flag_l1 depending
         // on call-site,
@@ -244,6 +252,12 @@ impl RefPicListModifications {
                     r.read_ue("long_term_pic_num")?,
                 )),
                 3 => break,
+                4 if mvc => result.push(ModificationOfPicNums::SubtractViewIdx(
+                    r.read_ue("abs_diff_view_idx_minus1")?,
+                )),
+                5 if mvc => result.push(ModificationOfPicNums::AddViewIdx(
+                    r.read_ue("abs_diff_view_idx_minus1")?,
+                )),
                 v => return Err(SliceHeaderError::InvalidModificationOfPicNumIdc(v)),
             }
         }
@@ -274,8 +288,8 @@ impl PredWeightTable {
         num_ref_active: &Option<NumRefIdxActive>,
     ) -> Result<PredWeightTable, SliceHeaderError> {
         let chroma_array_type = if sps.chroma_info.separate_colour_plane_flag {
-            // TODO: "Otherwise (separate_colour_plane_flag is equal to 1), ChromaArrayType is
-            //       set equal to 0."  ...does this mean ChromaFormat::Monochrome then?
+            // Per spec section 6.2: when separate_colour_plane_flag is 1,
+            // ChromaArrayType is set to 0 (i.e. Monochrome).
             sps::ChromaFormat::Monochrome
         } else {
             sps.chroma_info.chroma_format
@@ -391,68 +405,64 @@ pub enum DecRefPicMarking {
 impl DecRefPicMarking {
     fn read<R: BitRead>(
         r: &mut R,
-        header: NalHeader,
+        idr_pic_flag: bool,
     ) -> Result<DecRefPicMarking, SliceHeaderError> {
-        Ok(
-            if header.nal_unit_type() == crate::nal::UnitType::SliceLayerWithoutPartitioningIdr {
-                DecRefPicMarking::Idr {
-                    no_output_of_prior_pics_flag: r.read_bool("no_output_of_prior_pics_flag")?,
-                    long_term_reference_flag: r.read_bool("long_term_reference_flag")?,
-                }
-            } else if r.read_bool("adaptive_ref_pic_marking_mode_flag")? {
-                let mut ctl = vec![];
-                loop {
-                    let op = match r.read_ue("memory_management_control_operation")? {
-                        0 => break,
-                        1 => {
-                            let difference_of_pic_nums_minus1 =
-                                r.read_ue("difference_of_pic_nums_minus1")?;
-                            MemoryManagementControlOperation::ShortTermUnusedForRef {
-                                difference_of_pic_nums_minus1,
-                            }
+        Ok(if idr_pic_flag {
+            DecRefPicMarking::Idr {
+                no_output_of_prior_pics_flag: r.read_bool("no_output_of_prior_pics_flag")?,
+                long_term_reference_flag: r.read_bool("long_term_reference_flag")?,
+            }
+        } else if r.read_bool("adaptive_ref_pic_marking_mode_flag")? {
+            let mut ctl = vec![];
+            loop {
+                let op = match r.read_ue("memory_management_control_operation")? {
+                    0 => break,
+                    1 => {
+                        let difference_of_pic_nums_minus1 =
+                            r.read_ue("difference_of_pic_nums_minus1")?;
+                        MemoryManagementControlOperation::ShortTermUnusedForRef {
+                            difference_of_pic_nums_minus1,
                         }
-                        2 => {
-                            let long_term_pic_num = r.read_ue("long_term_pic_num")?;
-                            MemoryManagementControlOperation::LongTermUnusedForRef {
-                                long_term_pic_num,
-                            }
+                    }
+                    2 => {
+                        let long_term_pic_num = r.read_ue("long_term_pic_num")?;
+                        MemoryManagementControlOperation::LongTermUnusedForRef { long_term_pic_num }
+                    }
+                    3 => {
+                        let difference_of_pic_nums_minus1 =
+                            r.read_ue("difference_of_pic_nums_minus1")?;
+                        let long_term_frame_idx = r.read_ue("long_term_frame_idx")?;
+                        MemoryManagementControlOperation::ShortTermUsedForLongTerm {
+                            difference_of_pic_nums_minus1,
+                            long_term_frame_idx,
                         }
-                        3 => {
-                            let difference_of_pic_nums_minus1 =
-                                r.read_ue("difference_of_pic_nums_minus1")?;
-                            let long_term_frame_idx = r.read_ue("long_term_frame_idx")?;
-                            MemoryManagementControlOperation::ShortTermUsedForLongTerm {
-                                difference_of_pic_nums_minus1,
-                                long_term_frame_idx,
-                            }
+                    }
+                    4 => {
+                        let max_long_term_frame_idx_plus1 =
+                            r.read_ue("max_long_term_frame_idx_plus1")?;
+                        MemoryManagementControlOperation::MaxUsedLongTermFrameRef {
+                            max_long_term_frame_idx_plus1,
                         }
-                        4 => {
-                            let max_long_term_frame_idx_plus1 =
-                                r.read_ue("max_long_term_frame_idx_plus1")?;
-                            MemoryManagementControlOperation::MaxUsedLongTermFrameRef {
-                                max_long_term_frame_idx_plus1,
-                            }
+                    }
+                    5 => MemoryManagementControlOperation::AllRefPicturesUnused,
+                    6 => {
+                        let long_term_frame_idx = r.read_ue("long_term_frame_idx")?;
+                        MemoryManagementControlOperation::CurrentUsedForLongTerm {
+                            long_term_frame_idx,
                         }
-                        5 => MemoryManagementControlOperation::AllRefPicturesUnused,
-                        6 => {
-                            let long_term_frame_idx = r.read_ue("long_term_frame_idx")?;
-                            MemoryManagementControlOperation::CurrentUsedForLongTerm {
-                                long_term_frame_idx,
-                            }
-                        }
-                        other => {
-                            return Err(SliceHeaderError::InvalidMemoryManagementControlOperation(
-                                other,
-                            ))
-                        }
-                    };
-                    ctl.push(op);
-                }
-                DecRefPicMarking::Adaptive(ctl)
-            } else {
-                DecRefPicMarking::SlidingWindow
-            },
-        )
+                    }
+                    other => {
+                        return Err(SliceHeaderError::InvalidMemoryManagementControlOperation(
+                            other,
+                        ))
+                    }
+                };
+                ctl.push(op);
+            }
+            DecRefPicMarking::Adaptive(ctl)
+        } else {
+            DecRefPicMarking::SlidingWindow
+        })
     }
 }
 
@@ -468,7 +478,7 @@ pub struct SliceHeader {
     pub redundant_pic_cnt: Option<u32>,
     pub direct_spatial_mv_pred_flag: Option<bool>,
     pub num_ref_idx_active: Option<NumRefIdxActive>,
-    pub ref_pic_list_modification: Option<RefPicListModifications>, // may become an enum rather than Option in future (for ref_pic_list_mvc_modification)
+    pub ref_pic_list_modification: Option<RefPicListModifications>,
     pub pred_weight_table: Option<PredWeightTable>,
     pub dec_ref_pic_marking: Option<DecRefPicMarking>,
     pub cabac_init_idc: Option<u32>,
@@ -485,6 +495,7 @@ impl SliceHeader {
         ctx: &'a Context,
         r: &mut R,
         header: NalHeader,
+        header_extension: Option<&NalHeaderExtension>,
     ) -> Result<(SliceHeader, &'a SeqParameterSet, &'a PicParameterSet), SliceHeaderError> {
         let first_mb_in_slice = r.read_ue("first_mb_in_slice")?;
         let slice_type = SliceType::from_id(r.read_ue("slice_type")?)?;
@@ -516,12 +527,22 @@ impl SliceHeader {
         } else {
             FieldPic::Frame
         };
-        let idr_pic_id =
-            if header.nal_unit_type() == crate::nal::UnitType::SliceLayerWithoutPartitioningIdr {
-                Some(r.read_ue("idr_pic_id")?)
-            } else {
-                None
-            };
+        let idr_pic_flag = match header.nal_unit_type() {
+            crate::nal::UnitType::SliceLayerWithoutPartitioningIdr => true,
+            crate::nal::UnitType::SliceExtension
+            | crate::nal::UnitType::SliceExtensionViewComponent => {
+                matches!(
+                    header_extension,
+                    Some(NalHeaderExtension::Mvc(ext)) if !ext.non_idr_flag()
+                )
+            }
+            _ => false,
+        };
+        let idr_pic_id = if idr_pic_flag {
+            Some(r.read_ue("idr_pic_id")?)
+        } else {
+            None
+        };
         let pic_order_cnt_lsb = match sps.pic_order_cnt {
             sps::PicOrderCntType::TypeZero {
                 log2_max_pic_order_cnt_lsb_minus4,
@@ -565,7 +586,7 @@ impl SliceHeader {
             sps::PicOrderCntType::TypeTwo => None,
         };
         let redundant_pic_cnt = if pps.redundant_pic_cnt_present_flag {
-            Some(r.read_ue("redundant_pic_cnt ")?)
+            Some(r.read_ue("redundant_pic_cnt")?)
         } else {
             None
         };
@@ -599,15 +620,19 @@ impl SliceHeader {
         } else {
             None
         };
-        let ref_pic_list_modification = if header.nal_unit_type()
-            == crate::nal::UnitType::SliceExtension
-            || header.nal_unit_type() == crate::nal::UnitType::SliceExtensionViewComponent
-        {
-            return Err(SliceHeaderError::UnsupportedSyntax(
-                "NALU types 20 and 21 not yet supported",
-            ));
-        } else {
-            RefPicListModifications::read(&slice_type.family, r)?
+        let ref_pic_list_modification = match header.nal_unit_type() {
+            crate::nal::UnitType::SliceExtension
+            | crate::nal::UnitType::SliceExtensionViewComponent => match header_extension {
+                Some(NalHeaderExtension::Mvc(_)) => {
+                    RefPicListModifications::read(&slice_type.family, r, true)?
+                }
+                _ => {
+                    return Err(SliceHeaderError::UnsupportedSyntax(
+                        "SVC slice_header not supported",
+                    ));
+                }
+            },
+            _ => RefPicListModifications::read(&slice_type.family, r, false)?,
         };
         let pred_weight_table = if (pps.weighted_pred_flag
             && (slice_type.family == SliceFamily::P || slice_type.family == SliceFamily::SP))
@@ -626,7 +651,7 @@ impl SliceHeader {
         let dec_ref_pic_marking = if header.nal_ref_idc() == 0 {
             None
         } else {
-            Some(DecRefPicMarking::read(r, header)?)
+            Some(DecRefPicMarking::read(r, idr_pic_flag)?)
         };
         let cabac_init_idc = if pps.entropy_coding_mode_flag
             && slice_type.family != SliceFamily::I
@@ -756,7 +781,7 @@ mod test {
         let pps = PicParameterSet::from_bits(&ctx, pps.rbsp_bits()).unwrap();
         ctx.put_pic_param_set(pps);
         let nal = RefNal::new(&hex!("41 26 25 03 00")[..], &[], true);
-        let r = SliceHeader::from_bits(&ctx, &mut nal.rbsp_bits(), nal.header().unwrap());
+        let r = SliceHeader::from_bits(&ctx, &mut nal.rbsp_bits(), nal.header().unwrap(), None);
         assert!(
             matches!(r, Err(SliceHeaderError::InvalidNumRefIdx(_, _))),
             "r={:#?}",

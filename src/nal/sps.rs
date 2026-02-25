@@ -851,7 +851,7 @@ pub struct TimingInfo {
     pub fixed_frame_rate_flag: bool,
 }
 impl TimingInfo {
-    fn read<R: BitRead>(r: &mut R) -> Result<Option<TimingInfo>, BitReaderError> {
+    pub(crate) fn read<R: BitRead>(r: &mut R) -> Result<Option<TimingInfo>, BitReaderError> {
         let timing_info_present_flag = r.read_bool("timing_info_present_flag")?;
         Ok(if timing_info_present_flag {
             Some(TimingInfo {
@@ -892,7 +892,7 @@ pub struct HrdParameters {
     pub time_offset_length: u8,
 }
 impl HrdParameters {
-    fn read<R: BitRead>(
+    pub(crate) fn read<R: BitRead>(
         r: &mut R,
         hrd_parameters_present: &mut bool,
     ) -> Result<Option<HrdParameters>, SpsError> {

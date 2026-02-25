@@ -6,6 +6,7 @@
 
 pub mod aud;
 pub mod pps;
+pub mod prefix;
 pub mod sei;
 pub mod slice;
 pub mod sps;
@@ -15,6 +16,8 @@ pub mod subset_sps;
 use crate::rbsp;
 use hex_slice::AsHex;
 use std::fmt;
+use std::io::Read;
+use std::num::NonZeroUsize;
 
 #[derive(PartialEq, Hash, Debug, Copy, Clone)]
 pub enum UnitType {
@@ -149,6 +152,156 @@ impl fmt::Debug for NalHeader {
             .field("nal_unit_type", &self.nal_unit_type())
             .finish()
     }
+}
+
+/// MVC NAL unit header extension (spec G.7.3.1.1).
+///
+/// Wraps the 3 raw extension bytes with accessor methods, following the same
+/// pattern as [`NalHeader`]. All fields are at fixed bit positions:
+///
+/// ```text
+/// Byte 0: svc_extension_flag(1) | non_idr_flag(1) | priority_id(6)
+/// Byte 1: view_id[9:2] (high 8 bits of 10-bit view_id)
+/// Byte 2: view_id[1:0](2) | temporal_id(3) | anchor_pic_flag(1) | inter_view_flag(1) | reserved_one_bit(1)
+/// ```
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub struct NalHeaderMvcExtension([u8; 3]);
+
+impl NalHeaderMvcExtension {
+    pub fn non_idr_flag(&self) -> bool {
+        self.0[0] & 0x40 != 0
+    }
+    pub fn priority_id(&self) -> u8 {
+        self.0[0] & 0x3F
+    }
+    pub fn view_id(&self) -> u16 {
+        ((self.0[1] as u16) << 2) | ((self.0[2] as u16) >> 6)
+    }
+    pub fn temporal_id(&self) -> u8 {
+        (self.0[2] >> 3) & 0x07
+    }
+    pub fn anchor_pic_flag(&self) -> bool {
+        self.0[2] & 0x04 != 0
+    }
+    pub fn inter_view_flag(&self) -> bool {
+        self.0[2] & 0x02 != 0
+    }
+}
+impl fmt::Debug for NalHeaderMvcExtension {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NalHeaderMvcExtension")
+            .field("non_idr_flag", &self.non_idr_flag())
+            .field("priority_id", &self.priority_id())
+            .field("view_id", &self.view_id())
+            .field("temporal_id", &self.temporal_id())
+            .field("anchor_pic_flag", &self.anchor_pic_flag())
+            .field("inter_view_flag", &self.inter_view_flag())
+            .finish()
+    }
+}
+
+/// SVC NAL unit header extension (spec F.7.3.1.1).
+///
+/// Wraps the 3 raw extension bytes with accessor methods:
+///
+/// ```text
+/// Byte 0: svc_extension_flag(1) | idr_flag(1) | priority_id(6)
+/// Byte 1: no_inter_layer_pred_flag(1) | dependency_id(3) | quality_id(4)
+/// Byte 2: temporal_id(3) | use_ref_base_pic_flag(1) | discardable_flag(1) | output_flag(1) | reserved_three_2bits(2)
+/// ```
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub struct NalHeaderSvcExtension([u8; 3]);
+
+impl NalHeaderSvcExtension {
+    pub fn idr_flag(&self) -> bool {
+        self.0[0] & 0x40 != 0
+    }
+    pub fn priority_id(&self) -> u8 {
+        self.0[0] & 0x3F
+    }
+    pub fn no_inter_layer_pred_flag(&self) -> bool {
+        self.0[1] & 0x80 != 0
+    }
+    pub fn dependency_id(&self) -> u8 {
+        (self.0[1] >> 4) & 0x07
+    }
+    pub fn quality_id(&self) -> u8 {
+        self.0[1] & 0x0F
+    }
+    pub fn temporal_id(&self) -> u8 {
+        (self.0[2] >> 5) & 0x07
+    }
+    pub fn use_ref_base_pic_flag(&self) -> bool {
+        self.0[2] & 0x10 != 0
+    }
+    pub fn discardable_flag(&self) -> bool {
+        self.0[2] & 0x08 != 0
+    }
+    pub fn output_flag(&self) -> bool {
+        self.0[2] & 0x04 != 0
+    }
+}
+impl fmt::Debug for NalHeaderSvcExtension {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NalHeaderSvcExtension")
+            .field("idr_flag", &self.idr_flag())
+            .field("priority_id", &self.priority_id())
+            .field("no_inter_layer_pred_flag", &self.no_inter_layer_pred_flag())
+            .field("dependency_id", &self.dependency_id())
+            .field("quality_id", &self.quality_id())
+            .field("temporal_id", &self.temporal_id())
+            .field("use_ref_base_pic_flag", &self.use_ref_base_pic_flag())
+            .field("discardable_flag", &self.discardable_flag())
+            .field("output_flag", &self.output_flag())
+            .finish()
+    }
+}
+
+/// Extended NAL unit header data for `nal_unit_type` 14 and 20 (spec 7.3.1).
+///
+/// The first bit of the 3-byte extension is `svc_extension_flag`:
+/// - `1` → SVC extension ([`NalHeaderSvcExtension`])
+/// - `0` → MVC extension ([`NalHeaderMvcExtension`])
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum NalHeaderExtension {
+    Mvc(NalHeaderMvcExtension),
+    Svc(NalHeaderSvcExtension),
+}
+
+impl NalHeaderExtension {
+    /// Parse a 3-byte NAL header extension. The first bit is `svc_extension_flag`.
+    pub fn from_bytes(bytes: [u8; 3]) -> Self {
+        if bytes[0] & 0x80 != 0 {
+            NalHeaderExtension::Svc(NalHeaderSvcExtension(bytes))
+        } else {
+            NalHeaderExtension::Mvc(NalHeaderMvcExtension(bytes))
+        }
+    }
+}
+
+/// Read the 3-byte header extension from a NAL with extended header (types 14, 20).
+///
+/// Returns the parsed extension and a [`rbsp::ByteReader`] positioned after the 4-byte
+/// extended header (1-byte NAL header + 3-byte extension), ready for RBSP processing
+/// of the NAL body. The extension bytes are not subject to emulation prevention.
+pub fn parse_nal_header_extension<N: Nal>(
+    nal: &N,
+) -> Result<(NalHeaderExtension, rbsp::ByteReader<N::BufRead>), std::io::Error> {
+    let mut reader = nal.reader();
+    let mut buf = [0u8; 4];
+    reader.read_exact(&mut buf)?;
+    let ext = NalHeaderExtension::from_bytes([buf[1], buf[2], buf[3]]);
+    let rbsp = rbsp::ByteReader::without_skip(reader);
+    Ok((ext, rbsp))
+}
+
+/// Read the 3-byte header extension and return an RBSP byte reader that skips the
+/// full 4-byte extended header. Unlike [`parse_nal_header_extension`], this creates
+/// the reader from a fresh `nal.reader()` call, so nothing is consumed.
+pub fn extended_rbsp_bytes<N: Nal>(nal: &N) -> rbsp::ByteReader<N::BufRead> {
+    // Safety: 4 is non-zero
+    let skip = NonZeroUsize::new(4).unwrap();
+    rbsp::ByteReader::skipping_bytes(nal.reader(), skip)
 }
 
 /// A partially- or completely-buffered encoded NAL.
@@ -448,6 +601,137 @@ mod test {
         assert_eq!(r.fill_buf().unwrap(), &[1, 2, 3, 4]);
         r.consume(4);
         assert!(r.fill_buf().unwrap().is_empty());
+    }
+
+    #[test]
+    fn mvc_header_extension() {
+        // svc_extension_flag=0, non_idr_flag=1, priority_id=0b00_0011 = 3
+        // view_id = 0b01_1000_0010 = 386
+        // temporal_id = 0b101 = 5
+        // anchor_pic_flag=1, inter_view_flag=0, reserved_one_bit=1
+        let bytes: [u8; 3] = [
+            0b0100_0011,   // svc=0, non_idr=1, priority_id=3
+            0b01100000,     // view_id high 8 bits = 0x60
+            0b1010_1101, // view_id low 2 = 0b10, temporal=5, anchor=1, inter_view=0, reserved=1
+        ];
+        let ext = NalHeaderExtension::from_bytes(bytes);
+        match ext {
+            NalHeaderExtension::Mvc(mvc) => {
+                assert!(mvc.non_idr_flag());
+                assert_eq!(mvc.priority_id(), 3);
+                // view_id = (0x60 << 2) | (0b10) = 0x180 | 0x02 = 386
+                assert_eq!(mvc.view_id(), 386);
+                assert_eq!(mvc.temporal_id(), 5);
+                assert!(mvc.anchor_pic_flag());
+                assert!(!mvc.inter_view_flag());
+            }
+            _ => panic!("expected MVC extension"),
+        }
+    }
+
+    #[test]
+    fn mvc_header_extension_view_id_zero() {
+        // Minimal: all zeros except svc_extension_flag=0, reserved_one_bit=1
+        let bytes: [u8; 3] = [0x00, 0x00, 0x01];
+        let ext = NalHeaderExtension::from_bytes(bytes);
+        match ext {
+            NalHeaderExtension::Mvc(mvc) => {
+                assert!(!mvc.non_idr_flag());
+                assert_eq!(mvc.priority_id(), 0);
+                assert_eq!(mvc.view_id(), 0);
+                assert_eq!(mvc.temporal_id(), 0);
+                assert!(!mvc.anchor_pic_flag());
+                assert!(!mvc.inter_view_flag());
+            }
+            _ => panic!("expected MVC extension"),
+        }
+    }
+
+    #[test]
+    fn mvc_header_extension_max_view_id() {
+        // view_id = 1023 (max 10-bit value) = 0b11_1111_1111
+        // byte1 = 0xFF (high 8 bits), byte2 high 2 bits = 0b11
+        let bytes: [u8; 3] = [0x00, 0xFF, 0b1100_0001];
+        let ext = NalHeaderExtension::from_bytes(bytes);
+        match ext {
+            NalHeaderExtension::Mvc(mvc) => {
+                assert_eq!(mvc.view_id(), 1023);
+            }
+            _ => panic!("expected MVC extension"),
+        }
+    }
+
+    #[test]
+    fn svc_header_extension() {
+        // svc_extension_flag=1, idr_flag=0, priority_id=0b10_1010 = 42
+        // no_inter_layer_pred_flag=1, dependency_id=0b110 = 6, quality_id=0b0011 = 3
+        // temporal_id=0b010 = 2, use_ref_base_pic_flag=1, discardable_flag=0, output_flag=1
+        // reserved_three_2bits=0b11
+        let bytes: [u8; 3] = [
+            0b1010_1010,   // svc=1, idr=0, priority_id=42
+            0b1110_0011,   // no_inter_layer=1, dep_id=6, quality_id=3
+            0b0101_0111, // temporal=2, use_ref=1, discard=0, output=1, reserved=3
+        ];
+        let ext = NalHeaderExtension::from_bytes(bytes);
+        match ext {
+            NalHeaderExtension::Svc(svc) => {
+                assert!(!svc.idr_flag());
+                assert_eq!(svc.priority_id(), 42);
+                assert!(svc.no_inter_layer_pred_flag());
+                assert_eq!(svc.dependency_id(), 6);
+                assert_eq!(svc.quality_id(), 3);
+                assert_eq!(svc.temporal_id(), 2);
+                assert!(svc.use_ref_base_pic_flag());
+                assert!(!svc.discardable_flag());
+                assert!(svc.output_flag());
+            }
+            _ => panic!("expected SVC extension"),
+        }
+    }
+
+    #[test]
+    fn svc_header_extension_idr() {
+        // svc_extension_flag=1, idr_flag=1, all other fields zero except reserved
+        let bytes: [u8; 3] = [0b1100_0000, 0b0000_0000, 0b0000_0011];
+        let ext = NalHeaderExtension::from_bytes(bytes);
+        match ext {
+            NalHeaderExtension::Svc(svc) => {
+                assert!(svc.idr_flag());
+                assert_eq!(svc.priority_id(), 0);
+                assert!(!svc.no_inter_layer_pred_flag());
+                assert_eq!(svc.dependency_id(), 0);
+                assert_eq!(svc.quality_id(), 0);
+                assert_eq!(svc.temporal_id(), 0);
+                assert!(!svc.use_ref_base_pic_flag());
+                assert!(!svc.discardable_flag());
+                assert!(!svc.output_flag());
+            }
+            _ => panic!("expected SVC extension"),
+        }
+    }
+
+    #[test]
+    fn parse_nal_header_extension_from_refnal() {
+        // NAL type 14 (PrefixNALUnit), nal_ref_idc=3
+        // Header byte: 0b0_11_01110 = 0x6E
+        // Extension: MVC with view_id=1, all other fields 0 except reserved
+        let nal_bytes: &[u8] = &[
+            0x6E,           // NAL header: ref_idc=3, type=14
+            0x00,           // svc=0, non_idr=0, priority_id=0
+            0x00,           // view_id high 8 = 0
+            0b0100_0001, // view_id low 2 = 01, temporal=0, anchor=0, inter_view=0, reserved=1
+            0xAA,
+            0xBB, // body bytes
+        ];
+        let nal = RefNal::new(nal_bytes, &[], true);
+        let (ext, _rbsp) = parse_nal_header_extension(&nal).unwrap();
+        match ext {
+            NalHeaderExtension::Mvc(mvc) => {
+                assert_eq!(mvc.view_id(), 1);
+                assert!(!mvc.non_idr_flag());
+            }
+            _ => panic!("expected MVC extension"),
+        }
     }
 
     #[test]

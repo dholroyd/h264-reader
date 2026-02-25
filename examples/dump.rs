@@ -1,6 +1,7 @@
 use h264_reader::annexb::AnnexBReader;
 use h264_reader::nal::aud::AccessUnitDelimiter;
 use h264_reader::nal::pps::PicParameterSet;
+use h264_reader::nal::prefix::PrefixNalUnit;
 use h264_reader::nal::sei::buffering_period::BufferingPeriod;
 use h264_reader::nal::sei::pic_timing::PicTiming;
 use h264_reader::nal::sei::user_data_registered_itu_t_t35::ItuTT35;
@@ -10,7 +11,7 @@ use h264_reader::nal::slice::SliceHeader;
 use h264_reader::nal::sps::SeqParameterSet;
 use h264_reader::nal::sps_extension::SeqParameterSetExtension;
 use h264_reader::nal::subset_sps::SubsetSps;
-use h264_reader::nal::{sei, Nal, RefNal, UnitType};
+use h264_reader::nal::{self, sei, Nal, RefNal, UnitType};
 use h264_reader::push::NalInterest;
 use h264_reader::Context;
 use hex_slice::AsHex;
@@ -78,10 +79,22 @@ fn main() {
                 ) = SliceHeader::from_bits(
                     &ctx,
                     &mut bits, // takes a mutable borrow so the body parser can continue from where this ended
-                    nal_header,
+                    nal_header, None,
                 )
                 .unwrap();
                 println!("{:#?}", header);
+            }
+            UnitType::SliceExtension | UnitType::SliceExtensionViewComponent => {
+                match nal::parse_nal_header_extension(&nal) {
+                    Ok((ext, rbsp_reader)) => {
+                        let mut bits = h264_reader::rbsp::BitReader::new(rbsp_reader);
+                        match SliceHeader::from_bits(&ctx, &mut bits, nal_header, Some(&ext)) {
+                            Ok((header, _, _)) => println!("{:#?}", header),
+                            Err(e) => println!("MVC slice header error: {:?}", e),
+                        }
+                    }
+                    Err(e) => println!("NAL header extension error: {:?}", e),
+                }
             }
             UnitType::SEI => {
                 let mut scratch = vec![];
@@ -157,6 +170,10 @@ fn main() {
                     Err(e) => println!("SPS extension error: {:?}", e),
                 }
             }
+            UnitType::PrefixNALUnit => match PrefixNalUnit::from_nal(&nal) {
+                Ok(prefix) => println!("{:#?}", prefix),
+                Err(e) => println!("Prefix NAL error: {:?}", e),
+            },
             UnitType::SubsetSeqParameterSet => {
                 hex_dump(&nal);
                 match SubsetSps::from_bits(nal.rbsp_bits()) {

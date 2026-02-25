@@ -50,7 +50,7 @@ fn reader(buf: Vec<u8>) {
             | UnitType::SliceLayerWithoutPartitioningNonIdr => {
                 let mut bits = nal.rbsp_bits();
                 let (header, _seq_params, _pic_params) =
-                    SliceHeader::from_bits(&ctx, &mut bits, nal_header).unwrap();
+                    SliceHeader::from_bits(&ctx, &mut bits, nal_header, None).unwrap();
                 let _ = black_box(header);
             }
             UnitType::SEI => {
