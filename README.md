@@ -18,11 +18,10 @@ The following list shows the current state of support per H264 syntax element:
    * [x] _Annex B_ format (e.g. in MPEG-TS)
    * [x] _AVCC_ format (e.g. in MP4)
  * Network Abstraction Layer Units (NAL Units)
-   * [ ] `slice_layer_without_partitioning_rbsp()`
+   * [x] `slice_layer_without_partitioning_rbsp()` — `slice_header()` only, not `slice_data()`
    * [ ] `slice_data_partition_a_layer_rbsp()`
    * [ ] `slice_data_partition_b_layer_rbsp()`
    * [ ] `slice_data_partition_c_layer_rbsp()`
-   * [ ] `slice_layer_without_partitioning_rbsp()`
    * [ ] `sei_rbsp()` _Supplementary Enhancement Information_ headers - the following payloads are supported:
      * [x] `buffering_period()`
      * [x] `pic_timing()`
@@ -64,12 +63,10 @@ The following list shows the current state of support per H264 syntax element:
    * [ ] `end_of_stream_rbsp()`
    * [ ] `filler_data_rbsp()`
    * [x] `seq_parameter_set_extension_rbsp()`
-   * [ ] `prefix_nal_unit_rbsp()`
+   * [x] `prefix_nal_unit_rbsp()` — MVC (empty body) and SVC (`prefix_nal_unit_svc()`)
    * [x] `subset_seq_parameter_set_rbsp()`
    * [ ] `depth_parameter_set_rbsp()`
-   * [ ] `slice_layer_without_partitioning_rbsp()`
-   * [ ] `slice_layer_extension_rbsp()`
-   * [ ] `slice_layer_extension_rbsp()`
+   * [x] `slice_layer_extension_rbsp()` — MVC `slice_header()` only (including `ref_pic_list_mvc_modification()`), not `slice_data()`
 
 ## Design goals
 
