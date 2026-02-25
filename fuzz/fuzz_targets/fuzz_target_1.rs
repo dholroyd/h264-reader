@@ -41,6 +41,9 @@ fuzz_target!(|data: &[u8]| {
                         sei::HeaderType::UserDataUnregistered => {
                             let _ = sei::user_data_unregistered::UserDataUnregistered::read(&msg);
                         },
+                        sei::HeaderType::RecoveryPoint => {
+                            let _ = sei::recovery_point::RecoveryPoint::read(&msg);
+                        },
                         _ => {},
                     }
                 }

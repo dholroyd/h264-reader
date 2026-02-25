@@ -4,6 +4,7 @@ use h264_reader::nal::pps::PicParameterSet;
 use h264_reader::nal::prefix::PrefixNalUnit;
 use h264_reader::nal::sei::buffering_period::BufferingPeriod;
 use h264_reader::nal::sei::pic_timing::PicTiming;
+use h264_reader::nal::sei::recovery_point::RecoveryPoint;
 use h264_reader::nal::sei::user_data_registered_itu_t_t35::ItuTT35;
 use h264_reader::nal::sei::user_data_unregistered::UserDataUnregistered;
 use h264_reader::nal::sei::HeaderType;
@@ -131,6 +132,10 @@ fn main() {
                                         }
                                     }
                                 }
+                                HeaderType::RecoveryPoint => match RecoveryPoint::read(&sei) {
+                                    Ok(rp) => println!("{:#?}", rp),
+                                    Err(e) => println!("{:?}", e),
+                                },
                                 HeaderType::UserDataUnregistered => {
                                     match UserDataUnregistered::read(&sei) {
                                         Ok(ud) => {
