@@ -5,8 +5,6 @@
 
 use std::fmt::Debug;
 
-pub use bitstream_io;
-
 pub mod annexb;
 pub mod avcc;
 pub mod nal;

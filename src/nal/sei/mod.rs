@@ -180,7 +180,7 @@ impl<'a, R: BufRead + Clone> SeiReader<'a, R> {
             let buf = self
                 .reader
                 .fill_buf()
-                .map_err(|e| BitReaderError::ReaderErrorFor("payload_type", e))?;
+                .map_err(|e| BitReaderError::ReaderError("payload_type", e))?;
             if buf.is_empty() {
                 return Ok(None);
             }
@@ -195,7 +195,7 @@ impl<'a, R: BufRead + Clone> SeiReader<'a, R> {
         self.scratch.resize(payload_len, 0);
         self.reader
             .read_exact(&mut self.scratch)
-            .map_err(|e| BitReaderError::ReaderErrorFor("payload", e))?;
+            .map_err(|e| BitReaderError::ReaderError("payload", e))?;
 
         self.payloads_seen += 1;
         self.done = false;
@@ -228,10 +228,10 @@ fn read_u32<R: BufRead>(reader: &mut R, name: &'static str) -> Result<u32, BitRe
         let mut buf = [0];
         reader
             .read_exact(&mut buf[..])
-            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))?;
+            .map_err(|e| BitReaderError::ReaderError(name, e))?;
         let byte = buf[0];
         acc = acc.checked_add(u32::from(byte)).ok_or_else(|| {
-            BitReaderError::ReaderErrorFor(
+            BitReaderError::ReaderError(
                 name,
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "overflowed u32"),
             )

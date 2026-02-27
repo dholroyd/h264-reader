@@ -411,7 +411,7 @@ impl SeqScalingMatrix {
         let mut scaling_list8x8 = Vec::with_capacity(count - 6);
 
         for i in 0..count {
-            let seq_scaling_list_present_flag = r.read_bool("seq_scaling_list_present_flag")?;
+            let seq_scaling_list_present_flag = r.read_bit("seq_scaling_list_present_flag")?;
             if i < 6 {
                 scaling_list4x4.push(ScalingList::<16>::read(r, seq_scaling_list_present_flag)?);
             } else {
@@ -452,14 +452,14 @@ impl ChromaInfo {
             Ok(ChromaInfo {
                 chroma_format: ChromaFormat::from_chroma_format_idc(chroma_format_idc),
                 separate_colour_plane_flag: if chroma_format_idc == 3 {
-                    r.read_bool("separate_colour_plane_flag")?
+                    r.read_bit("separate_colour_plane_flag")?
                 } else {
                     false
                 },
                 bit_depth_luma_minus8: Self::read_bit_depth_minus8(r)?,
                 bit_depth_chroma_minus8: Self::read_bit_depth_minus8(r)?,
                 qpprime_y_zero_transform_bypass_flag: r
-                    .read_bool("qpprime_y_zero_transform_bypass_flag")?,
+                    .read_bit("qpprime_y_zero_transform_bypass_flag")?,
                 scaling_matrix: Self::read_scaling_matrix(r, chroma_format_idc)?,
             })
         } else {
@@ -478,7 +478,7 @@ impl ChromaInfo {
         r: &mut R,
         chroma_format_idc: u32,
     ) -> Result<Option<SeqScalingMatrix>, SpsError> {
-        let scaling_matrix_present_flag = r.read_bool("scaling_matrix_present_flag")?;
+        let scaling_matrix_present_flag = r.read_bit("scaling_matrix_present_flag")?;
         if scaling_matrix_present_flag {
             Ok(Some(
                 SeqScalingMatrix::read(r, chroma_format_idc).map_err(SpsError::ScalingMatrix)?,
@@ -526,8 +526,7 @@ impl PicOrderCntType {
                 log2_max_pic_order_cnt_lsb_minus4: Self::read_log2_max_pic_order_cnt_lsb_minus4(r)?,
             }),
             1 => Ok(PicOrderCntType::TypeOne {
-                delta_pic_order_always_zero_flag: r
-                    .read_bool("delta_pic_order_always_zero_flag")?,
+                delta_pic_order_always_zero_flag: r.read_bit("delta_pic_order_always_zero_flag")?,
                 offset_for_non_ref_pic: r.read_se("offset_for_non_ref_pic")?,
                 offset_for_top_to_bottom_field: r.read_se("offset_for_top_to_bottom_field")?,
                 offsets_for_ref_frame: Self::read_offsets_for_ref_frame(r)?,
@@ -573,12 +572,12 @@ pub enum FrameMbsFlags {
 }
 impl FrameMbsFlags {
     fn read<R: BitRead>(r: &mut R) -> Result<FrameMbsFlags, BitReaderError> {
-        let frame_mbs_only_flag = r.read_bool("frame_mbs_only_flag")?;
+        let frame_mbs_only_flag = r.read_bit("frame_mbs_only_flag")?;
         if frame_mbs_only_flag {
             Ok(FrameMbsFlags::Frames)
         } else {
             Ok(FrameMbsFlags::Fields {
-                mb_adaptive_frame_field_flag: r.read_bool("mb_adaptive_frame_field_flag")?,
+                mb_adaptive_frame_field_flag: r.read_bit("mb_adaptive_frame_field_flag")?,
             })
         }
     }
@@ -593,7 +592,7 @@ pub struct FrameCropping {
 }
 impl FrameCropping {
     fn read<R: BitRead>(r: &mut R) -> Result<Option<FrameCropping>, BitReaderError> {
-        let frame_cropping_flag = r.read_bool("frame_cropping_flag")?;
+        let frame_cropping_flag = r.read_bit("frame_cropping_flag")?;
         Ok(if frame_cropping_flag {
             Some(FrameCropping {
                 left_offset: r.read_ue("left_offset")?,
@@ -632,9 +631,9 @@ pub enum AspectRatioInfo {
 }
 impl AspectRatioInfo {
     fn read<R: BitRead>(r: &mut R) -> Result<Option<AspectRatioInfo>, BitReaderError> {
-        let aspect_ratio_info_present_flag = r.read_bool("aspect_ratio_info_present_flag")?;
+        let aspect_ratio_info_present_flag = r.read_bit("aspect_ratio_info_present_flag")?;
         Ok(if aspect_ratio_info_present_flag {
-            let aspect_ratio_idc = r.read(8, "aspect_ratio_idc")?;
+            let aspect_ratio_idc = r.read::<8, _>("aspect_ratio_idc")?;
             Some(match aspect_ratio_idc {
                 0 => AspectRatioInfo::Unspecified,
                 1 => AspectRatioInfo::Ratio1_1,
@@ -653,9 +652,10 @@ impl AspectRatioInfo {
                 14 => AspectRatioInfo::Ratio4_3,
                 15 => AspectRatioInfo::Ratio3_2,
                 16 => AspectRatioInfo::Ratio2_1,
-                255 => {
-                    AspectRatioInfo::Extended(r.read(16, "sar_width")?, r.read(16, "sar_height")?)
-                }
+                255 => AspectRatioInfo::Extended(
+                    r.read::<16, _>("sar_width")?,
+                    r.read::<16, _>("sar_height")?,
+                ),
                 _ => AspectRatioInfo::Reserved(aspect_ratio_idc),
             })
         } else {
@@ -731,9 +731,9 @@ pub enum OverscanAppropriate {
 }
 impl OverscanAppropriate {
     fn read<R: BitRead>(r: &mut R) -> Result<OverscanAppropriate, BitReaderError> {
-        let overscan_info_present_flag = r.read_bool("overscan_info_present_flag")?;
+        let overscan_info_present_flag = r.read_bit("overscan_info_present_flag")?;
         Ok(if overscan_info_present_flag {
-            let overscan_appropriate_flag = r.read_bool("overscan_appropriate_flag")?;
+            let overscan_appropriate_flag = r.read_bit("overscan_appropriate_flag")?;
             if overscan_appropriate_flag {
                 OverscanAppropriate::Appropriate
             } else {
@@ -790,12 +790,12 @@ pub struct ColourDescription {
 }
 impl ColourDescription {
     fn read<R: BitRead>(r: &mut R) -> Result<Option<ColourDescription>, BitReaderError> {
-        let colour_description_present_flag = r.read_bool("colour_description_present_flag")?;
+        let colour_description_present_flag = r.read_bit("colour_description_present_flag")?;
         Ok(if colour_description_present_flag {
             Some(ColourDescription {
-                colour_primaries: r.read(8, "colour_primaries")?,
-                transfer_characteristics: r.read(8, "transfer_characteristics")?,
-                matrix_coefficients: r.read(8, "matrix_coefficients")?,
+                colour_primaries: r.read::<8, _>("colour_primaries")?,
+                transfer_characteristics: r.read::<8, _>("transfer_characteristics")?,
+                matrix_coefficients: r.read::<8, _>("matrix_coefficients")?,
             })
         } else {
             None
@@ -811,11 +811,11 @@ pub struct VideoSignalType {
 }
 impl VideoSignalType {
     fn read<R: BitRead>(r: &mut R) -> Result<Option<VideoSignalType>, BitReaderError> {
-        let video_signal_type_present_flag = r.read_bool("video_signal_type_present_flag")?;
+        let video_signal_type_present_flag = r.read_bit("video_signal_type_present_flag")?;
         Ok(if video_signal_type_present_flag {
             Some(VideoSignalType {
-                video_format: VideoFormat::from(r.read(3, "video_format")?),
-                video_full_range_flag: r.read_bool("video_full_range_flag")?,
+                video_format: VideoFormat::from(r.read::<3, _>("video_format")?),
+                video_full_range_flag: r.read_bit("video_full_range_flag")?,
                 colour_description: ColourDescription::read(r)?,
             })
         } else {
@@ -831,7 +831,7 @@ pub struct ChromaLocInfo {
 }
 impl ChromaLocInfo {
     fn read<R: BitRead>(r: &mut R) -> Result<Option<ChromaLocInfo>, BitReaderError> {
-        let chroma_loc_info_present_flag = r.read_bool("chroma_loc_info_present_flag")?;
+        let chroma_loc_info_present_flag = r.read_bit("chroma_loc_info_present_flag")?;
         Ok(if chroma_loc_info_present_flag {
             Some(ChromaLocInfo {
                 chroma_sample_loc_type_top_field: r.read_ue("chroma_sample_loc_type_top_field")?,
@@ -852,12 +852,12 @@ pub struct TimingInfo {
 }
 impl TimingInfo {
     pub(crate) fn read<R: BitRead>(r: &mut R) -> Result<Option<TimingInfo>, BitReaderError> {
-        let timing_info_present_flag = r.read_bool("timing_info_present_flag")?;
+        let timing_info_present_flag = r.read_bit("timing_info_present_flag")?;
         Ok(if timing_info_present_flag {
             Some(TimingInfo {
-                num_units_in_tick: r.read(32, "num_units_in_tick")?,
-                time_scale: r.read(32, "time_scale")?,
-                fixed_frame_rate_flag: r.read_bool("fixed_frame_rate_flag")?,
+                num_units_in_tick: r.read::<32, _>("num_units_in_tick")?,
+                time_scale: r.read::<32, _>("time_scale")?,
+                fixed_frame_rate_flag: r.read_bit("fixed_frame_rate_flag")?,
             })
         } else {
             None
@@ -876,7 +876,7 @@ impl CpbSpec {
         Ok(CpbSpec {
             bit_rate_value_minus1: r.read_ue("bit_rate_value_minus1")?,
             cpb_size_value_minus1: r.read_ue("cpb_size_value_minus1")?,
-            cbr_flag: r.read_bool("cbr_flag")?,
+            cbr_flag: r.read_bit("cbr_flag")?,
         })
     }
 }
@@ -896,7 +896,7 @@ impl HrdParameters {
         r: &mut R,
         hrd_parameters_present: &mut bool,
     ) -> Result<Option<HrdParameters>, SpsError> {
-        let hrd_parameters_present_flag = r.read_bool("hrd_parameters_present_flag")?;
+        let hrd_parameters_present_flag = r.read_bit("hrd_parameters_present_flag")?;
         *hrd_parameters_present |= hrd_parameters_present_flag;
         Ok(if hrd_parameters_present_flag {
             let cpb_cnt_minus1 = r.read_ue("cpb_cnt_minus1")?;
@@ -905,14 +905,15 @@ impl HrdParameters {
             }
             let cpb_cnt = cpb_cnt_minus1 + 1;
             Some(HrdParameters {
-                bit_rate_scale: r.read(4, "bit_rate_scale")?,
-                cpb_size_scale: r.read(4, "cpb_size_scale")?,
+                bit_rate_scale: r.read::<4, _>("bit_rate_scale")?,
+                cpb_size_scale: r.read::<4, _>("cpb_size_scale")?,
                 cpb_specs: Self::read_cpb_specs(r, cpb_cnt)?,
                 initial_cpb_removal_delay_length_minus1: r
-                    .read(5, "initial_cpb_removal_delay_length_minus1")?,
-                cpb_removal_delay_length_minus1: r.read(5, "cpb_removal_delay_length_minus1")?,
-                dpb_output_delay_length_minus1: r.read(5, "dpb_output_delay_length_minus1")?,
-                time_offset_length: r.read(5, "time_offset_length")?,
+                    .read::<5, _>("initial_cpb_removal_delay_length_minus1")?,
+                cpb_removal_delay_length_minus1: r
+                    .read::<5, _>("cpb_removal_delay_length_minus1")?,
+                dpb_output_delay_length_minus1: r.read::<5, _>("dpb_output_delay_length_minus1")?,
+                time_offset_length: r.read::<5, _>("time_offset_length")?,
             })
         } else {
             None
@@ -942,10 +943,10 @@ impl BitstreamRestrictions {
         r: &mut R,
         sps: &SeqParameterSet,
     ) -> Result<Option<BitstreamRestrictions>, SpsError> {
-        let bitstream_restriction_flag = r.read_bool("bitstream_restriction_flag")?;
+        let bitstream_restriction_flag = r.read_bit("bitstream_restriction_flag")?;
         Ok(if bitstream_restriction_flag {
             let motion_vectors_over_pic_boundaries_flag =
-                r.read_bool("motion_vectors_over_pic_boundaries_flag")?;
+                r.read_bit("motion_vectors_over_pic_boundaries_flag")?;
             let max_bytes_per_pic_denom = r.read_ue("max_bytes_per_pic_denom")?;
             if max_bytes_per_pic_denom > 16 {
                 return Err(SpsError::FieldValueTooLarge {
@@ -1083,7 +1084,7 @@ impl VuiParameters {
         r: &mut R,
         sps: &SeqParameterSet,
     ) -> Result<Option<VuiParameters>, SpsError> {
-        let vui_parameters_present_flag = r.read_bool("vui_parameters_present_flag")?;
+        let vui_parameters_present_flag = r.read_bit("vui_parameters_present_flag")?;
         Ok(if vui_parameters_present_flag {
             let mut hrd_parameters_present = false;
             Some(VuiParameters {
@@ -1095,11 +1096,11 @@ impl VuiParameters {
                 nal_hrd_parameters: HrdParameters::read(r, &mut hrd_parameters_present)?,
                 vcl_hrd_parameters: HrdParameters::read(r, &mut hrd_parameters_present)?,
                 low_delay_hrd_flag: if hrd_parameters_present {
-                    Some(r.read_bool("low_delay_hrd_flag")?)
+                    Some(r.read_bit("low_delay_hrd_flag")?)
                 } else {
                     None
                 },
-                pic_struct_present_flag: r.read_bool("pic_struct_present_flag")?,
+                pic_struct_present_flag: r.read_bit("pic_struct_present_flag")?,
                 bitstream_restrictions: BitstreamRestrictions::read(r, sps)?,
             })
         } else {
@@ -1132,9 +1133,9 @@ impl SeqParameterSet {
     pub(crate) fn read_seq_parameter_set_data<R: BitRead>(
         r: &mut R,
     ) -> Result<SeqParameterSet, SpsError> {
-        let profile_idc = r.read::<u8>(8, "profile_idc")?.into();
-        let constraint_flags = r.read::<u8>(8, "constraint_flags")?.into();
-        let level_idc = r.read::<u8>(8, "level_idc")?;
+        let profile_idc = r.read::<8, u8>("profile_idc")?.into();
+        let constraint_flags = r.read::<8, u8>("constraint_flags")?.into();
+        let level_idc = r.read::<8, u8>("level_idc")?;
         let mut sps = SeqParameterSet {
             profile_idc,
             constraint_flags,
@@ -1146,11 +1147,11 @@ impl SeqParameterSet {
             pic_order_cnt: PicOrderCntType::read(r).map_err(SpsError::PicOrderCnt)?,
             max_num_ref_frames: r.read_ue("max_num_ref_frames")?,
             gaps_in_frame_num_value_allowed_flag: r
-                .read_bool("gaps_in_frame_num_value_allowed_flag")?,
+                .read_bit("gaps_in_frame_num_value_allowed_flag")?,
             pic_width_in_mbs_minus1: r.read_ue("pic_width_in_mbs_minus1")?,
             pic_height_in_map_units_minus1: r.read_ue("pic_height_in_map_units_minus1")?,
             frame_mbs_flags: FrameMbsFlags::read(r)?,
-            direct_8x8_inference_flag: r.read_bool("direct_8x8_inference_flag")?,
+            direct_8x8_inference_flag: r.read_bit("direct_8x8_inference_flag")?,
             frame_cropping: FrameCropping::read(r)?,
             // read the basic SPS data without reading VUI parameters yet, since checks of the
             // bitstream restriction fields within the VUI parameters will need access to the

@@ -118,17 +118,17 @@ impl SubsetSps {
         let (extension, has_unparsed_vui) = match profile_idc {
             83 | 86 => {
                 // bit_equal_to_one f(1) per spec F.7.3.2.1.3
-                let _bit_equal_to_one = r.read_bool("bit_equal_to_one")?;
+                let _bit_equal_to_one = r.read_bit("bit_equal_to_one")?;
                 let ext = read_svc_extension(&mut r, &sps)?;
                 let has_vui = ext.svc_vui_parameters_present_flag;
                 (Some(SubsetSpsExtension::Svc(ext)), has_vui)
             }
             118 | 128 | 134 => {
                 // bit_equal_to_one f(1) per spec G.7.3.2.1.3
-                let _bit_equal_to_one = r.read_bool("bit_equal_to_one")?;
+                let _bit_equal_to_one = r.read_bit("bit_equal_to_one")?;
                 let ext = read_mvc_extension(&mut r)?;
                 let mvc_vui_parameters_present_flag =
-                    r.read_bool("mvc_vui_parameters_present_flag")?;
+                    r.read_bit("mvc_vui_parameters_present_flag")?;
                 let mvc_vui_parameters = if mvc_vui_parameters_present_flag {
                     Some(read_mvc_vui_parameters_extension(&mut r)?)
                 } else {
@@ -144,7 +144,7 @@ impl SubsetSps {
             }
             135 | 138 | 139 => {
                 // bit_equal_to_one f(1) per spec I.7.3.2.1.3
-                let _bit_equal_to_one = r.read_bool("bit_equal_to_one")?;
+                let _bit_equal_to_one = r.read_bit("bit_equal_to_one")?;
                 // MVCD extension -- parsing deferred, skip remaining data.
                 (Some(SubsetSpsExtension::Mvcd), true)
             }
@@ -155,7 +155,7 @@ impl SubsetSps {
             // VUI extension data follows but is not parsed; skip finish_rbsp() validation.
             false
         } else {
-            let flag = r.read_bool("additional_extension2_flag")?;
+            let flag = r.read_bit("additional_extension2_flag")?;
             r.finish_rbsp()?;
             flag
         };
@@ -173,18 +173,19 @@ fn read_svc_extension<R: BitRead>(
     sps: &SeqParameterSet,
 ) -> Result<SvcSpsExtension, SpsError> {
     let inter_layer_deblocking_filter_control_present_flag =
-        r.read_bool("inter_layer_deblocking_filter_control_present_flag")?;
-    let extended_spatial_scalability_idc: u8 = r.read(2, "extended_spatial_scalability_idc")?;
+        r.read_bit("inter_layer_deblocking_filter_control_present_flag")?;
+    let extended_spatial_scalability_idc: u8 =
+        r.read::<2, _>("extended_spatial_scalability_idc")?;
 
     let chroma_array_type = sps.chroma_info.chroma_array_type();
 
     let chroma_phase_x_plus1_flag = if chroma_array_type == 1 || chroma_array_type == 2 {
-        r.read_bool("chroma_phase_x_plus1_flag")?
+        r.read_bit("chroma_phase_x_plus1_flag")?
     } else {
         false
     };
     let chroma_phase_y_plus1 = if chroma_array_type == 1 {
-        r.read(2, "chroma_phase_y_plus1")?
+        r.read::<2, _>("chroma_phase_y_plus1")?
     } else {
         // Default: 0 for Monochrome, 1 for YUV422/444
         if chroma_array_type == 0 {
@@ -203,12 +204,12 @@ fn read_svc_extension<R: BitRead>(
         seq_scaled_ref_layer_bottom_offset,
     ) = if extended_spatial_scalability_idc == 1 {
         let ref_phase_x = if chroma_array_type == 1 || chroma_array_type == 2 {
-            r.read_bool("seq_ref_layer_chroma_phase_x_plus1_flag")?
+            r.read_bit("seq_ref_layer_chroma_phase_x_plus1_flag")?
         } else {
             false
         };
         let ref_phase_y = if chroma_array_type == 1 {
-            r.read(2, "seq_ref_layer_chroma_phase_y_plus1")?
+            r.read::<2, _>("seq_ref_layer_chroma_phase_y_plus1")?
         } else {
             if chroma_array_type == 0 {
                 0
@@ -235,14 +236,14 @@ fn read_svc_extension<R: BitRead>(
         )
     };
 
-    let seq_tcoeff_level_prediction_flag = r.read_bool("seq_tcoeff_level_prediction_flag")?;
+    let seq_tcoeff_level_prediction_flag = r.read_bit("seq_tcoeff_level_prediction_flag")?;
     let adaptive_tcoeff_level_prediction_flag = if seq_tcoeff_level_prediction_flag {
-        r.read_bool("adaptive_tcoeff_level_prediction_flag")?
+        r.read_bit("adaptive_tcoeff_level_prediction_flag")?
     } else {
         false
     };
-    let slice_header_restriction_flag = r.read_bool("slice_header_restriction_flag")?;
-    let svc_vui_parameters_present_flag = r.read_bool("svc_vui_parameters_present_flag")?;
+    let slice_header_restriction_flag = r.read_bit("slice_header_restriction_flag")?;
+    let svc_vui_parameters_present_flag = r.read_bit("svc_vui_parameters_present_flag")?;
 
     Ok(SvcSpsExtension {
         inter_layer_deblocking_filter_control_present_flag,
@@ -350,7 +351,7 @@ fn read_mvc_extension<R: BitRead>(r: &mut R) -> Result<MvcSpsExtension, SpsError
 
     let mut level_values = Vec::with_capacity(num_level_values_signalled_minus1 as usize + 1);
     for _ in 0..=num_level_values_signalled_minus1 {
-        let level_idc: u8 = r.read(8, "level_idc")?;
+        let level_idc: u8 = r.read::<8, _>("level_idc")?;
         let num_applicable_ops_minus1 = r.read_ue("num_applicable_ops_minus1")?;
         if num_applicable_ops_minus1 > 1023 {
             return Err(SpsError::FieldValueTooLarge {
@@ -360,7 +361,7 @@ fn read_mvc_extension<R: BitRead>(r: &mut R) -> Result<MvcSpsExtension, SpsError
         }
         let mut applicable_ops = Vec::with_capacity(num_applicable_ops_minus1 as usize + 1);
         for _ in 0..=num_applicable_ops_minus1 {
-            let temporal_id: u8 = r.read(3, "applicable_op_temporal_id")?;
+            let temporal_id: u8 = r.read::<3, _>("applicable_op_temporal_id")?;
             let num_target_views_minus1 =
                 read_ue_bounded(r, "applicable_op_num_target_views_minus1", 1023)?;
             let mut target_view_ids = Vec::with_capacity(num_target_views_minus1 as usize + 1);
@@ -399,7 +400,7 @@ fn read_mvc_vui_parameters_extension<R: BitRead>(
     }
     let mut ops = Vec::with_capacity(vui_mvc_num_ops_minus1 as usize + 1);
     for _ in 0..=vui_mvc_num_ops_minus1 {
-        let temporal_id: u8 = r.read(3, "vui_mvc_temporal_id")?;
+        let temporal_id: u8 = r.read::<3, _>("vui_mvc_temporal_id")?;
         let vui_mvc_num_target_output_views_minus1 =
             r.read_ue("vui_mvc_num_target_output_views_minus1")?;
         if vui_mvc_num_target_output_views_minus1 > 1023 {
@@ -418,11 +419,11 @@ fn read_mvc_vui_parameters_extension<R: BitRead>(
         let nal_hrd_parameters = HrdParameters::read(r, &mut hrd_parameters_present)?;
         let vcl_hrd_parameters = HrdParameters::read(r, &mut hrd_parameters_present)?;
         let low_delay_hrd_flag = if hrd_parameters_present {
-            Some(r.read_bool("vui_mvc_low_delay_hrd_flag")?)
+            Some(r.read_bit("vui_mvc_low_delay_hrd_flag")?)
         } else {
             None
         };
-        let pic_struct_present_flag = r.read_bool("vui_mvc_pic_struct_present_flag")?;
+        let pic_struct_present_flag = r.read_bit("vui_mvc_pic_struct_present_flag")?;
         ops.push(MvcVuiOp {
             temporal_id,
             target_output_view_ids,

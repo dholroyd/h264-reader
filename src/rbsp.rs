@@ -255,19 +255,23 @@ pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Result<Cow<'a, [u8]>, std::io::Erro
 
 #[derive(Debug)]
 pub enum BitReaderError {
-    ReaderErrorFor(&'static str, std::io::Error),
+    /// An I/O error occurred reading the given field.
+    ReaderError(&'static str, std::io::Error),
 
     /// An Exp-Golomb-coded syntax elements value has more than 32 bits.
     ExpGolombTooLarge(&'static str),
 
     /// The stream was positioned before the final one bit on [BitRead::finish_rbsp].
     RemainingData,
-
-    Unaligned,
 }
 
-pub use bitstream_io::{Numeric, Primitive};
+pub trait Integer: bitstream_io::Integer + std::fmt::Debug {}
+impl<I: bitstream_io::Integer + std::fmt::Debug> Integer for I {}
 
+pub trait Primitive: bitstream_io::Primitive + std::fmt::Debug {}
+impl<P: bitstream_io::Primitive + std::fmt::Debug> Primitive for P {}
+
+/// Reads H.26x bitstream elements as specified in H.264 section 7.2.
 pub trait BitRead {
     /// Reads an unsigned Exp-Golomb-coded value, as defined in the H.264 spec.
     fn read_ue(&mut self, name: &'static str) -> Result<u32, BitReaderError>;
@@ -275,13 +279,25 @@ pub trait BitRead {
     /// Reads a signed Exp-Golomb-coded value, as defined in the H.264 spec.
     fn read_se(&mut self, name: &'static str) -> Result<i32, BitReaderError>;
 
-    /// Reads a single bit, as in [`crate::bitstream_io::read::BitRead::read_bool`].
-    fn read_bool(&mut self, name: &'static str) -> Result<bool, BitReaderError>;
+    /// Reads a single bit, as in [`crate::bitstream_io::read::BitRead::read_bit`].
+    fn read_bit(&mut self, name: &'static str) -> Result<bool, BitReaderError>;
 
-    /// Reads an unsigned value from the bitstream with the given number of bytes, as in
-    /// [`crate::bitstream_io::read::BitRead::read`].
-    fn read<U: Numeric>(&mut self, bit_count: u32, name: &'static str)
-        -> Result<U, BitReaderError>;
+    /// Reads a value from the bitstream with a statically-known number of bits, as in
+    /// [`crate::bitstream_io::read::BitRead::read`]. This matches the `u(BITS)`
+    /// and `i(BITS)` syntax elements.
+    fn read<const BITS: u32, I: Integer>(
+        &mut self,
+        name: &'static str,
+    ) -> Result<I, BitReaderError>;
+
+    /// Reads a value from the bitstream with a runtime-determined number of bits, as in
+    /// [`crate::bitstream_io::read::BitRead::read_var`]. This matches the
+    /// `u(bit_count)` and `i(bit_count)` syntax elements.
+    fn read_var<I: Integer>(
+        &mut self,
+        bit_count: u32,
+        name: &'static str,
+    ) -> Result<I, BitReaderError>;
 
     /// Reads a whole value from the bitstream whose size is equal to its byte size, as in
     /// [`crate::bitstream_io::read::BitRead::read_to`].
@@ -309,6 +325,9 @@ pub trait BitRead {
 
 /// Reads H.264 bitstream syntax elements from an RBSP representation (no NAL
 /// header byte or emulation prevention three bytes).
+///
+/// Use `BitReader::new(ByteReader::skipping_h264_header(nal))` to read the bit stream
+/// from a complete NAL representation, including header and emulation prevention three bytes.
 pub struct BitReader<R: std::io::BufRead + Clone> {
     reader: bitstream_io::read::BitReader<R, bitstream_io::BigEndian>,
 }
@@ -338,12 +357,12 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
     fn read_ue(&mut self, name: &'static str) -> Result<u32, BitReaderError> {
         let count = self
             .reader
-            .read_unary1()
-            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))?;
+            .read_unary::<1>()
+            .map_err(|e| BitReaderError::ReaderError(name, e))?;
         if count > 31 {
             return Err(BitReaderError::ExpGolombTooLarge(name));
         } else if count > 0 {
-            let val: u32 = self.read(count, name)?;
+            let val: u32 = self.read_var(count, name)?;
             Ok((1 << count) - 1 + val)
         } else {
             Ok(0)
@@ -354,44 +373,53 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
         Ok(golomb_to_signed(self.read_ue(name)?))
     }
 
-    fn read_bool(&mut self, name: &'static str) -> Result<bool, BitReaderError> {
+    fn read_bit(&mut self, name: &'static str) -> Result<bool, BitReaderError> {
         self.reader
             .read_bit()
-            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
+            .map_err(|e| BitReaderError::ReaderError(name, e))
     }
 
-    fn read<U: Numeric>(
+    fn read<const BITS: u32, I: Integer>(
+        &mut self,
+        name: &'static str,
+    ) -> Result<I, BitReaderError> {
+        self.reader
+            .read::<BITS, I>()
+            .map_err(|e| BitReaderError::ReaderError(name, e))
+    }
+
+    fn read_var<I: Integer>(
         &mut self,
         bit_count: u32,
         name: &'static str,
-    ) -> Result<U, BitReaderError> {
+    ) -> Result<I, BitReaderError> {
         self.reader
-            .read(bit_count)
-            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
+            .read_var(bit_count)
+            .map_err(|e| BitReaderError::ReaderError(name, e))
     }
 
     fn read_to<V: Primitive>(&mut self, name: &'static str) -> Result<V, BitReaderError> {
         self.reader
             .read_to()
-            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
+            .map_err(|e| BitReaderError::ReaderError(name, e))
     }
 
     fn skip(&mut self, bit_count: u32, name: &'static str) -> Result<(), BitReaderError> {
         self.reader
             .skip(bit_count)
-            .map_err(|e| BitReaderError::ReaderErrorFor(name, e))
+            .map_err(|e| BitReaderError::ReaderError(name, e))
     }
 
     fn has_more_rbsp_data(&mut self, name: &'static str) -> Result<bool, BitReaderError> {
         let mut throwaway = self.reader.clone();
         let r = (move || {
             throwaway.skip(1)?;
-            throwaway.read_unary1()?;
+            throwaway.read_unary::<1>()?;
             Ok::<_, std::io::Error>(())
         })();
         match r {
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
-            Err(e) => Err(BitReaderError::ReaderErrorFor(name, e)),
+            Err(e) => Err(BitReaderError::ReaderError(name, e)),
             Ok(_) => Ok(true),
         }
     }
@@ -401,18 +429,18 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
         if !self
             .reader
             .read_bit()
-            .map_err(|e| BitReaderError::ReaderErrorFor("finish", e))?
+            .map_err(|e| BitReaderError::ReaderError("finish", e))?
         {
             // It was a zero! Determine if we're past the end or haven't reached it yet.
-            match self.reader.read_unary1() {
-                Err(e) => return Err(BitReaderError::ReaderErrorFor("finish", e)),
+            match self.reader.read_unary::<1>() {
+                Err(e) => return Err(BitReaderError::ReaderError("finish", e)),
                 Ok(_) => return Err(BitReaderError::RemainingData),
             }
         }
         // All remaining bits in the stream must then be zeros.
-        match self.reader.read_unary1() {
+        match self.reader.read_unary::<1>() {
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(()),
-            Err(e) => Err(BitReaderError::ReaderErrorFor("finish", e)),
+            Err(e) => Err(BitReaderError::ReaderError("finish", e)),
             Ok(_) => Err(BitReaderError::RemainingData),
         }
     }
@@ -420,13 +448,13 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
     fn finish_sei_payload(mut self) -> Result<(), BitReaderError> {
         match self.reader.read_bit() {
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
-            Err(e) => return Err(BitReaderError::ReaderErrorFor("finish", e)),
+            Err(e) => return Err(BitReaderError::ReaderError("finish", e)),
             Ok(false) => return Err(BitReaderError::RemainingData),
             Ok(true) => {}
         }
-        match self.reader.read_unary1() {
+        match self.reader.read_unary::<1>() {
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(()),
-            Err(e) => Err(BitReaderError::ReaderErrorFor("finish", e)),
+            Err(e) => Err(BitReaderError::ReaderError("finish", e)),
             Ok(_) => Err(BitReaderError::RemainingData),
         }
     }
@@ -473,13 +501,13 @@ mod tests {
         // Should work when the end bit is byte-aligned.
         let mut reader = BitReader::new(&[0x12, 0x80][..]);
         assert!(reader.has_more_rbsp_data("call 1").unwrap());
-        assert_eq!(reader.read::<u8>(8, "u8 1").unwrap(), 0x12);
+        assert_eq!(reader.read::<8, u8>("u8 1").unwrap(), 0x12);
         assert!(!reader.has_more_rbsp_data("call 2").unwrap());
 
         // and when it's not.
         let mut reader = BitReader::new(&[0x18][..]);
         assert!(reader.has_more_rbsp_data("call 3").unwrap());
-        assert_eq!(reader.read::<u8>(4, "u8 2").unwrap(), 0x1);
+        assert_eq!(reader.read::<4, u8>("u8 2").unwrap(), 0x1);
         assert!(!reader.has_more_rbsp_data("call 4").unwrap());
 
         // should also work when there are cabac-zero-words.

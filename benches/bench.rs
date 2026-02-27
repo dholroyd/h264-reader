@@ -108,7 +108,7 @@ fn h264_reader(c: &mut Criterion) {
                     nal.header().unwrap(),
                     None,
                 ) {
-                    Err(SliceHeaderError::RbspError(BitReaderError::ReaderErrorFor(_, e))) => {
+                    Err(SliceHeaderError::RbspError(BitReaderError::ReaderError(_, e))) => {
                         assert_eq!(e.kind(), ErrorKind::WouldBlock);
                     }
                     Err(e) => panic!("{:?}", e),

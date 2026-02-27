@@ -83,14 +83,14 @@ impl PrefixNalUnit {
             NalHeaderExtension::Svc(_) => {
                 // SVC prefix NAL: parse prefix_nal_unit_svc() per F.7.3.2.12.1
                 if header.nal_ref_idc() != 0 {
-                    let store_ref_base_pic_flag = r.read_bool("store_ref_base_pic_flag")?;
+                    let store_ref_base_pic_flag = r.read_bit("store_ref_base_pic_flag")?;
                     let dec_ref_base_pic_marking = if store_ref_base_pic_flag {
                         Some(read_dec_ref_base_pic_marking(&mut r)?)
                     } else {
                         None
                     };
                     let additional_prefix_nal_unit_extension_flag =
-                        r.read_bool("additional_prefix_nal_unit_extension_flag")?;
+                        r.read_bit("additional_prefix_nal_unit_extension_flag")?;
                     Some(PrefixNalUnitRef {
                         store_ref_base_pic_flag,
                         dec_ref_base_pic_marking,
