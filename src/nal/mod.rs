@@ -523,6 +523,32 @@ impl<'a> std::fmt::Debug for RefNalReader<'a> {
     }
 }
 
+pub trait WritableNal {
+    /// Writes the NAL unit's RBSP to the given bit writer, including the RBSP trailing bits.
+    fn write_bits<W: crate::rbsp::BitWrite>(&self, w: &mut W) -> std::io::Result<()>;
+
+    /// Writes the full NAL (including header and emulation prevention three bytes) to the given writer.
+    /// Does not flush; that's the caller's responsibility.
+    fn write_with_header<W: std::io::Write>(
+        &self,
+        hdr: NalHeader,
+        w: &mut W,
+    ) -> std::io::Result<()> {
+        w.write_all(&[hdr.into()])?;
+        let mut w = crate::rbsp::BitWriter::new(crate::rbsp::ByteWriter::new(w));
+        self.write_bits(&mut w)?;
+        Ok(())
+    }
+
+    /// Returns the full NAL (including header and emulation prevention three bytes) as a `Vec<u8>`.
+    fn to_vec_with_header(&self, hdr: NalHeader) -> Vec<u8> {
+        let mut v = Vec::new();
+        self.write_with_header(hdr, &mut v)
+            .expect("writing to Vec<u8> should not fail");
+        v
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::io::{BufRead, Read};

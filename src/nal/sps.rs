@@ -1,4 +1,4 @@
-use crate::rbsp::{BitRead, BitReaderError};
+use crate::rbsp::{BitRead, BitReaderError, BitWrite};
 use std::{
     fmt::{self, Debug},
     num::NonZeroU8,
@@ -379,6 +379,36 @@ impl<const S: usize> ScalingList<S> {
             Ok(ScalingList::List(scaling_list))
         }
     }
+
+    fn write<W: BitWrite>(&self, w: &mut W) -> std::io::Result<()> {
+        match self {
+            ScalingList::NotPresent => w.write_bit(false),
+            ScalingList::UseDefault => {
+                w.write_bit(true)?;
+                // delta_scale = -8 at j=0 → next_scale = (8 + (-8) + 256) % 256 = 0
+                // which causes use_default_scaling_matrix_flag = true.
+                w.write_se(-8)
+            }
+            ScalingList::List(values) => {
+                w.write_bit(true)?;
+                let mut last_scale = 8u8;
+                for &v in values.iter() {
+                    let raw_delta = v.get() as i32 - last_scale as i32;
+                    // Bring into -128..=127 range by adjusting by ±256.
+                    let delta = if raw_delta < -128 {
+                        raw_delta + 256
+                    } else if raw_delta > 127 {
+                        raw_delta - 256
+                    } else {
+                        raw_delta
+                    };
+                    w.write_se(delta)?;
+                    last_scale = v.get();
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -423,6 +453,24 @@ impl SeqScalingMatrix {
             scaling_list4x4,
             scaling_list8x8,
         })
+    }
+
+    fn write<W: BitWrite>(&self, w: &mut W, chroma_format_idc: u32) -> std::io::Result<()> {
+        let count = if chroma_format_idc == 3 { 12 } else { 8 };
+        for i in 0..count {
+            if i < 6 {
+                if let Some(sl) = self.scaling_list4x4.get(i) {
+                    sl.write(w)?;
+                } else {
+                    w.write_bit(false)?;
+                }
+            } else if let Some(sl) = self.scaling_list8x8.get(i - 6) {
+                sl.write(w)?;
+            } else {
+                w.write_bit(false)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -486,6 +534,27 @@ impl ChromaInfo {
         } else {
             Ok(None)
         }
+    }
+
+    fn write<W: BitWrite>(&self, w: &mut W, profile_idc: ProfileIdc) -> std::io::Result<()> {
+        if profile_idc.has_chroma_info() {
+            let chroma_format_idc = self.chroma_format.to_u32();
+            w.write_ue(chroma_format_idc)?;
+            if chroma_format_idc == 3 {
+                w.write_bit(self.separate_colour_plane_flag)?;
+            }
+            w.write_ue(self.bit_depth_luma_minus8 as u32)?;
+            w.write_ue(self.bit_depth_chroma_minus8 as u32)?;
+            w.write_bit(self.qpprime_y_zero_transform_bypass_flag)?;
+            match &self.scaling_matrix {
+                None => w.write_bit(false)?,
+                Some(matrix) => {
+                    w.write_bit(true)?;
+                    matrix.write(w, chroma_format_idc)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -563,6 +632,36 @@ impl PicOrderCntType {
         }
         Ok(offsets)
     }
+
+    fn write<W: BitWrite>(&self, w: &mut W) -> std::io::Result<()> {
+        match self {
+            PicOrderCntType::TypeZero {
+                log2_max_pic_order_cnt_lsb_minus4,
+            } => {
+                w.write_ue(0)?;
+                w.write_ue(*log2_max_pic_order_cnt_lsb_minus4 as u32)?;
+            }
+            PicOrderCntType::TypeOne {
+                delta_pic_order_always_zero_flag,
+                offset_for_non_ref_pic,
+                offset_for_top_to_bottom_field,
+                offsets_for_ref_frame,
+            } => {
+                w.write_ue(1)?;
+                w.write_bit(*delta_pic_order_always_zero_flag)?;
+                w.write_se(*offset_for_non_ref_pic)?;
+                w.write_se(*offset_for_top_to_bottom_field)?;
+                w.write_ue(offsets_for_ref_frame.len() as u32)?;
+                for &offset in offsets_for_ref_frame {
+                    w.write_se(offset)?;
+                }
+            }
+            PicOrderCntType::TypeTwo => {
+                w.write_ue(2)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -579,6 +678,18 @@ impl FrameMbsFlags {
             Ok(FrameMbsFlags::Fields {
                 mb_adaptive_frame_field_flag: r.read_bit("mb_adaptive_frame_field_flag")?,
             })
+        }
+    }
+
+    fn write<W: BitWrite>(&self, w: &mut W) -> std::io::Result<()> {
+        match self {
+            FrameMbsFlags::Frames => w.write_bit(true),
+            FrameMbsFlags::Fields {
+                mb_adaptive_frame_field_flag,
+            } => {
+                w.write_bit(false)?;
+                w.write_bit(*mb_adaptive_frame_field_flag)
+            }
         }
     }
 }
@@ -603,6 +714,19 @@ impl FrameCropping {
         } else {
             None
         })
+    }
+
+    fn write<W: BitWrite>(this: Option<&Self>, w: &mut W) -> std::io::Result<()> {
+        match this {
+            None => w.write_bit(false),
+            Some(crop) => {
+                w.write_bit(true)?;
+                w.write_ue(crop.left_offset)?;
+                w.write_ue(crop.right_offset)?;
+                w.write_ue(crop.top_offset)?;
+                w.write_ue(crop.bottom_offset)
+            }
+        }
     }
 }
 
@@ -720,6 +844,21 @@ impl AspectRatioInfo {
             AspectRatioInfo::Extended(..) => 255,
         }
     }
+
+    fn write<W: BitWrite>(this: Option<&Self>, w: &mut W) -> std::io::Result<()> {
+        match this {
+            None => w.write_bit(false),
+            Some(ari) => {
+                w.write_bit(true)?;
+                w.write::<8, u8>(ari.to_u8())?;
+                if let AspectRatioInfo::Extended(width, height) = ari {
+                    w.write::<16, u16>(*width)?;
+                    w.write::<16, u16>(*height)?;
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -742,6 +881,20 @@ impl OverscanAppropriate {
         } else {
             OverscanAppropriate::Unspecified
         })
+    }
+
+    fn write<W: BitWrite>(&self, w: &mut W) -> std::io::Result<()> {
+        match self {
+            OverscanAppropriate::Unspecified => w.write_bit(false),
+            OverscanAppropriate::Appropriate => {
+                w.write_bit(true)?;
+                w.write_bit(true)
+            }
+            OverscanAppropriate::Inappropriate => {
+                w.write_bit(true)?;
+                w.write_bit(false)
+            }
+        }
     }
 }
 
@@ -801,6 +954,18 @@ impl ColourDescription {
             None
         })
     }
+
+    fn write<W: BitWrite>(this: Option<&Self>, w: &mut W) -> std::io::Result<()> {
+        match this {
+            None => w.write_bit(false),
+            Some(cd) => {
+                w.write_bit(true)?;
+                w.write::<8, u8>(cd.colour_primaries)?;
+                w.write::<8, u8>(cd.transfer_characteristics)?;
+                w.write::<8, u8>(cd.matrix_coefficients)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -822,6 +987,18 @@ impl VideoSignalType {
             None
         })
     }
+
+    fn write<W: BitWrite>(this: Option<&Self>, w: &mut W) -> std::io::Result<()> {
+        match this {
+            None => w.write_bit(false),
+            Some(vst) => {
+                w.write_bit(true)?;
+                w.write::<3, u8>(vst.video_format.to_u8())?;
+                w.write_bit(vst.video_full_range_flag)?;
+                ColourDescription::write(vst.colour_description.as_ref(), w)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -841,6 +1018,17 @@ impl ChromaLocInfo {
         } else {
             None
         })
+    }
+
+    fn write<W: BitWrite>(this: Option<&Self>, w: &mut W) -> std::io::Result<()> {
+        match this {
+            None => w.write_bit(false),
+            Some(cli) => {
+                w.write_bit(true)?;
+                w.write_ue(cli.chroma_sample_loc_type_top_field)?;
+                w.write_ue(cli.chroma_sample_loc_type_bottom_field)
+            }
+        }
     }
 }
 
@@ -862,6 +1050,18 @@ impl TimingInfo {
         } else {
             None
         })
+    }
+
+    fn write<W: BitWrite>(this: Option<&Self>, w: &mut W) -> std::io::Result<()> {
+        match this {
+            None => w.write_bit(false),
+            Some(ti) => {
+                w.write_bit(true)?;
+                w.write::<32, u32>(ti.num_units_in_tick)?;
+                w.write::<32, u32>(ti.time_scale)?;
+                w.write_bit(ti.fixed_frame_rate_flag)
+            }
+        }
     }
 }
 
@@ -925,6 +1125,27 @@ impl HrdParameters {
             cpb_specs.push(CpbSpec::read(r)?);
         }
         Ok(cpb_specs)
+    }
+
+    fn write<W: BitWrite>(this: Option<&Self>, w: &mut W) -> std::io::Result<()> {
+        match this {
+            None => w.write_bit(false),
+            Some(hrd) => {
+                w.write_bit(true)?;
+                w.write_ue(hrd.cpb_specs.len() as u32 - 1)?;
+                w.write::<4, u8>(hrd.bit_rate_scale)?;
+                w.write::<4, u8>(hrd.cpb_size_scale)?;
+                for spec in &hrd.cpb_specs {
+                    w.write_ue(spec.bit_rate_value_minus1)?;
+                    w.write_ue(spec.cpb_size_value_minus1)?;
+                    w.write_bit(spec.cbr_flag)?;
+                }
+                w.write::<5, u8>(hrd.initial_cpb_removal_delay_length_minus1)?;
+                w.write::<5, u8>(hrd.cpb_removal_delay_length_minus1)?;
+                w.write::<5, u8>(hrd.dpb_output_delay_length_minus1)?;
+                w.write::<5, u8>(hrd.time_offset_length)
+            }
+        }
     }
 }
 
@@ -1014,6 +1235,22 @@ impl BitstreamRestrictions {
         } else {
             None
         })
+    }
+
+    fn write<W: BitWrite>(this: Option<&Self>, w: &mut W) -> std::io::Result<()> {
+        match this {
+            None => w.write_bit(false),
+            Some(br) => {
+                w.write_bit(true)?;
+                w.write_bit(br.motion_vectors_over_pic_boundaries_flag)?;
+                w.write_ue(br.max_bytes_per_pic_denom)?;
+                w.write_ue(br.max_bits_per_mb_denom)?;
+                w.write_ue(br.log2_max_mv_length_horizontal)?;
+                w.write_ue(br.log2_max_mv_length_vertical)?;
+                w.write_ue(br.max_num_reorder_frames)?;
+                w.write_ue(br.max_dec_frame_buffering)
+            }
+        }
     }
 }
 
@@ -1106,6 +1343,29 @@ impl VuiParameters {
         } else {
             None
         })
+    }
+
+    fn write<W: BitWrite>(this: Option<&Self>, w: &mut W) -> std::io::Result<()> {
+        match this {
+            None => w.write_bit(false),
+            Some(vui) => {
+                w.write_bit(true)?;
+                AspectRatioInfo::write(vui.aspect_ratio_info.as_ref(), w)?;
+                vui.overscan_appropriate.write(w)?;
+                VideoSignalType::write(vui.video_signal_type.as_ref(), w)?;
+                ChromaLocInfo::write(vui.chroma_loc_info.as_ref(), w)?;
+                TimingInfo::write(vui.timing_info.as_ref(), w)?;
+                HrdParameters::write(vui.nal_hrd_parameters.as_ref(), w)?;
+                HrdParameters::write(vui.vcl_hrd_parameters.as_ref(), w)?;
+                let has_hrd =
+                    vui.nal_hrd_parameters.is_some() || vui.vcl_hrd_parameters.is_some();
+                if has_hrd {
+                    w.write_bit(vui.low_delay_hrd_flag.unwrap_or(false))?;
+                }
+                w.write_bit(vui.pic_struct_present_flag)?;
+                BitstreamRestrictions::write(vui.bitstream_restrictions.as_ref(), w)
+            }
+        }
     }
 }
 
@@ -1299,6 +1559,27 @@ impl SeqParameterSet {
     /// From the spec: `PicSizeInMapUnits = PicWidthInMbs * PicHeightInMapUnits`
     pub fn pic_size_in_map_units(&self) -> u32 {
         self.pic_width_in_mbs() * self.pic_height_in_map_units()
+    }
+}
+
+impl crate::nal::WritableNal for SeqParameterSet {
+    fn write_bits<W: BitWrite>(&self, w: &mut W) -> std::io::Result<()> {
+        w.write::<8, u8>(self.profile_idc.0)?;
+        w.write::<8, u8>(self.constraint_flags.0)?;
+        w.write::<8, u8>(self.level_idc)?;
+        w.write_ue(self.seq_parameter_set_id.0 as u32)?;
+        self.chroma_info.write(w, self.profile_idc)?;
+        w.write_ue(self.log2_max_frame_num_minus4 as u32)?;
+        self.pic_order_cnt.write(w)?;
+        w.write_ue(self.max_num_ref_frames)?;
+        w.write_bit(self.gaps_in_frame_num_value_allowed_flag)?;
+        w.write_ue(self.pic_width_in_mbs_minus1)?;
+        w.write_ue(self.pic_height_in_map_units_minus1)?;
+        self.frame_mbs_flags.write(w)?;
+        w.write_bit(self.direct_8x8_inference_flag)?;
+        FrameCropping::write(self.frame_cropping.as_ref(), w)?;
+        VuiParameters::write(self.vui_parameters.as_ref(), w)?;
+        w.write_rbsp_trailing_bits()
     }
 }
 
@@ -2309,5 +2590,70 @@ mod test {
         assert_eq!(width, width2);
         assert_eq!(height, height2);
         assert_eq!(fps, sps2.fps().unwrap());
+    }
+
+    /// Encodes and decodes an SPS from raw NAL bytes, asserting structural and byte-level
+    /// round-trip equivalence.
+    fn check_round_trip(byts: &[u8]) {
+        use crate::nal::WritableNal;
+        use crate::rbsp::BitWriter;
+
+        let sps_rbsp = decode_nal(byts).unwrap();
+        let sps = SeqParameterSet::from_bits(BitReader::new(&*sps_rbsp)).unwrap();
+
+        // Write RBSP using WritableNal::write_bits into a plain Vec (no emulation prevention).
+        let mut written_rbsp = Vec::new();
+        let mut bw = BitWriter::new(&mut written_rbsp);
+        sps.write_bits(&mut bw).unwrap();
+
+        // Re-decode and check structural equality.
+        let sps2 = SeqParameterSet::from_bits(BitReader::new(&*written_rbsp)).unwrap();
+        assert_eq!(sps, sps2, "structural round-trip mismatch");
+
+        // Byte-level: encode(decode(sps_rbsp)) == sps_rbsp.
+        assert_eq!(&*written_rbsp, &*sps_rbsp, "byte-level round-trip mismatch");
+
+        // Also exercise write_with_header / the full NAL path.
+        let hdr = crate::nal::NalHeader::new(byts[0]).unwrap();
+        let nal_bytes = sps.to_vec_with_header(hdr);
+        let nal_rbsp = decode_nal(&nal_bytes).unwrap();
+        let sps3 = SeqParameterSet::from_bits(BitReader::new(&*nal_rbsp)).unwrap();
+        assert_eq!(sps, sps3, "NAL round-trip mismatch");
+    }
+
+    #[test_case(&[
+        0x67, 0x64, 0x00, 0x0c, 0xac, 0x3b, 0x50, 0xb0,
+        0x4b, 0x42, 0x00, 0x00, 0x03, 0x00, 0x02, 0x00,
+        0x00, 0x03, 0x00, 0x3d, 0x08,
+    ]; "352x288")]
+    #[test_case(&[
+        0x67, 0x64, 0x00, 0x1f, 0xac, 0xd9, 0x40, 0x50,
+        0x05, 0xbb, 0x01, 0x6c, 0x80, 0x00, 0x00, 0x03,
+        0x00, 0x80, 0x00, 0x00, 0x1e, 0x07, 0x8c, 0x18,
+        0xcb,
+    ]; "1280x720")]
+    #[test_case(&[
+        0x67, 0x64, 0x00, 0x16, 0xac, 0x1b, 0x1a, 0x80,
+        0xb0, 0x3d, 0xff, 0xff, 0x00, 0x28, 0x00, 0x21,
+        0x6e, 0x0c, 0x0c, 0x0c, 0x80, 0x00, 0x01, 0xf4,
+        0x00, 0x00, 0x27, 0x10, 0x74, 0x30, 0x07, 0xd0,
+        0x00, 0x07, 0xa1, 0x25, 0xde, 0x5c, 0x68, 0x60,
+        0x0f, 0xa0, 0x00, 0x0f, 0x42, 0x4b, 0xbc, 0xb8,
+        0x50,
+    ]; "dahua_anamorphic")]
+    fn test_sps_round_trip(byts: &[u8]) {
+        check_round_trip(byts);
+    }
+
+    /// Round-trips the SPS from each existing test_sps test case.
+    #[test_case(
+        vec![
+            0x67, 0x64, 0x00, 0x0A, 0xAC, 0x72, 0x84, 0x44,
+            0x26, 0x84, 0x00, 0x00, 0x03, 0x00, 0x04, 0x00,
+            0x00, 0x03, 0x00, 0xCA, 0x3C, 0x48, 0x96, 0x11,
+            0x80,
+        ]; "existing_test_sps_0")]
+    fn test_existing_sps_round_trip(byts: Vec<u8>) {
+        check_round_trip(&byts);
     }
 }
