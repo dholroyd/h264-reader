@@ -1,5 +1,5 @@
-use super::sps::{self, ScalingList};
-use crate::nal::sps::SeqParameterSet;
+use super::sps::{self};
+use crate::nal::sps::{ScalingLists4x4, ScalingLists8x8, SeqParameterSet};
 use crate::nal::sps::{SeqParamSetId, SeqParamSetIdError};
 use crate::rbsp::BitRead;
 use crate::{rbsp, Context};
@@ -188,68 +188,40 @@ impl SliceGroup {
 
 #[derive(Debug, Clone)]
 pub struct PicScalingMatrix {
-    /// always has length 6
-    pub scaling_list4x4: Vec<ScalingList<16>>,
+    pub scaling_lists4x4: ScalingLists4x4,
     /// `Some` when `transform_8x8_mode_flag` is `true`, `None` otherwise
-    pub scaling_list8x8: Option<Vec<ScalingList<64>>>,
+    pub scaling_lists8x8: Option<ScalingLists8x8>,
 }
 impl PicScalingMatrix {
     fn read<R: BitRead>(
         r: &mut R,
         sps: &sps::SeqParameterSet,
         transform_8x8_mode_flag: bool,
-    ) -> Result<Option<PicScalingMatrix>, PpsError> {
+    ) -> Result<Option<Box<PicScalingMatrix>>, PpsError> {
         let pic_scaling_matrix_present_flag = r.read_bit("pic_scaling_matrix_present_flag")?;
 
         if !pic_scaling_matrix_present_flag {
             return Ok(None);
         }
 
-        let count = if transform_8x8_mode_flag {
-            if sps.chroma_info.chroma_format == sps::ChromaFormat::YUV444 {
-                6
-            } else {
-                2
-            }
-        } else {
-            0
-        };
-
-        let mut scaling_list4x4 = Vec::with_capacity(6);
-        let mut scaling_list8x8 = Vec::with_capacity(count);
-
-        for i in 0..6 + count {
-            let seq_scaling_list_present_flag = r.read_bit("seq_scaling_list_present_flag")?;
-            if i < 6 {
-                scaling_list4x4.push(
-                    sps::ScalingList::<16>::read(r, seq_scaling_list_present_flag)
-                        .map_err(PpsError::ScalingMatrix)?,
-                );
-            } else {
-                scaling_list8x8.push(
-                    sps::ScalingList::<64>::read(r, seq_scaling_list_present_flag)
-                        .map_err(PpsError::ScalingMatrix)?,
-                );
-            }
-        }
-
-        let scaling_list8x8 = if scaling_list8x8.is_empty() {
-            None
-        } else {
-            Some(scaling_list8x8)
-        };
-
-        Ok(Some(PicScalingMatrix {
-            scaling_list4x4,
-            scaling_list8x8,
-        }))
+        let scaling_lists4x4 = ScalingLists4x4::read(r).map_err(PpsError::ScalingMatrix)?;
+        let scaling_lists8x8 = transform_8x8_mode_flag
+            .then(|| {
+                ScalingLists8x8::read(r, sps.chroma_info.chroma_format)
+                    .map_err(PpsError::ScalingMatrix)
+            })
+            .transpose()?;
+        Ok(Some(Box::new(PicScalingMatrix {
+            scaling_lists4x4,
+            scaling_lists8x8,
+        })))
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct PicParameterSetExtra {
     pub transform_8x8_mode_flag: bool,
-    pub pic_scaling_matrix: Option<PicScalingMatrix>,
+    pub pic_scaling_matrix: Option<Box<PicScalingMatrix>>,
     pub second_chroma_qp_index_offset: i32,
 }
 impl PicParameterSetExtra {
@@ -448,9 +420,9 @@ mod test {
             pps.extension,
             Some(PicParameterSetExtra {
                 transform_8x8_mode_flag: true,
-                pic_scaling_matrix: Some(PicScalingMatrix { scaling_list4x4, scaling_list8x8: Some(scaling_list8x8) }),
+                pic_scaling_matrix: Some(m),
                 ..
-            }) if scaling_list4x4.len() == 6 && scaling_list8x8.len() == 2
+            }) if matches!(m.scaling_lists8x8, Some(ScalingLists8x8::Y(_)))
         ));
     }
 
