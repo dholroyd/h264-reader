@@ -28,6 +28,7 @@
 *   Parse MVC slice headers (NAL types 20/21) including `ref_pic_list_mvc_modification()` with `modification_of_pic_nums_idc` values 4 and 5. Add `ModificationOfPicNums::SubtractViewIdx` and `AddViewIdx` variants.
 *   RBSP writing—`BitWrite` and `BitWriter` to encode RBSP streams, `ByteWriter` to add emulation
     prevention bytes.
+*   Write `SeqParameterSet` to an RBSP stream.
 
 ### Fixed
 

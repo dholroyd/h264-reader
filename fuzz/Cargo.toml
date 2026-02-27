@@ -37,3 +37,9 @@ name = "encode_decode_rbsp"
 path = "fuzz_targets/encode_decode_rbsp.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "sps_round_trip"
+path = "fuzz_targets/sps_round_trip.rs"
+test = false
+doc = false
