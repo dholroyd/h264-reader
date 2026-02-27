@@ -237,7 +237,7 @@ impl RefPicListModifications {
         let mut result = vec![];
         // either ref_pic_list_modification_flag_l0 or ref_pic_list_modification_flag_l1 depending
         // on call-site,
-        if !r.read_bool("ref_pic_list_modification_flag")? {
+        if !r.read_bit("ref_pic_list_modification_flag")? {
             return Ok(result);
         }
         loop {
@@ -307,7 +307,7 @@ impl PredWeightTable {
         let mut luma_weights = Vec::with_capacity((num_ref_idx_l0_active_minus1 + 1) as usize);
         let mut chroma_weights = Vec::with_capacity((num_ref_idx_l0_active_minus1 + 1) as usize);
         for _ in 0..=num_ref_idx_l0_active_minus1 {
-            if r.read_bool("luma_weight_l0_flag")? {
+            if r.read_bit("luma_weight_l0_flag")? {
                 luma_weights.push(Some(PredWeight {
                     weight: r.read_se("luma_weight_l0")?,
                     offset: r.read_se("luma_offset_l0")?,
@@ -317,7 +317,7 @@ impl PredWeightTable {
             }
             if chroma_array_type != sps::ChromaFormat::Monochrome {
                 let mut weights = Vec::with_capacity(2);
-                if r.read_bool("chroma_weight_l0_flag")? {
+                if r.read_bit("chroma_weight_l0_flag")? {
                     for _j in 0..2 {
                         weights.push(PredWeight {
                             weight: r.read_se("chroma_weight_l0")?,
@@ -338,7 +338,7 @@ impl PredWeightTable {
             luma_weights_l1.reserve((num_ref_idx_l1_active_minus1 + 1) as usize);
             chroma_weights_l1.reserve((num_ref_idx_l1_active_minus1 + 1) as usize);
             for _ in 0..=num_ref_idx_l1_active_minus1 {
-                if r.read_bool("luma_weight_l1_flag")? {
+                if r.read_bit("luma_weight_l1_flag")? {
                     luma_weights_l1.push(Some(PredWeight {
                         weight: r.read_se("luma_weight_l1")?,
                         offset: r.read_se("luma_offset_l1")?,
@@ -348,7 +348,7 @@ impl PredWeightTable {
                 }
                 if chroma_array_type != sps::ChromaFormat::Monochrome {
                     let mut weights = Vec::with_capacity(2);
-                    if r.read_bool("chroma_weight_l1_flag")? {
+                    if r.read_bit("chroma_weight_l1_flag")? {
                         for _j in 0..2 {
                             weights.push(PredWeight {
                                 weight: r.read_se("chroma_weight_l1")?,
@@ -409,10 +409,10 @@ impl DecRefPicMarking {
     ) -> Result<DecRefPicMarking, SliceHeaderError> {
         Ok(if idr_pic_flag {
             DecRefPicMarking::Idr {
-                no_output_of_prior_pics_flag: r.read_bool("no_output_of_prior_pics_flag")?,
-                long_term_reference_flag: r.read_bool("long_term_reference_flag")?,
+                no_output_of_prior_pics_flag: r.read_bit("no_output_of_prior_pics_flag")?,
+                long_term_reference_flag: r.read_bit("long_term_reference_flag")?,
             }
-        } else if r.read_bool("adaptive_ref_pic_marking_mode_flag")? {
+        } else if r.read_bit("adaptive_ref_pic_marking_mode_flag")? {
             let mut ctl = vec![];
             loop {
                 let op = match r.read_ue("memory_management_control_operation")? {
@@ -509,14 +509,14 @@ impl SliceHeader {
             SliceHeaderError::UndefinedSeqParamSetId(pps.seq_parameter_set_id),
         )?;
         let colour_plane = if sps.chroma_info.separate_colour_plane_flag {
-            Some(ColourPlane::from_id(r.read(2, "colour_plane_id")?)?)
+            Some(ColourPlane::from_id(r.read::<2, _>("colour_plane_id")?)?)
         } else {
             None
         };
-        let frame_num = r.read(u32::from(sps.log2_max_frame_num()), "frame_num")?;
+        let frame_num = r.read_var(u32::from(sps.log2_max_frame_num()), "frame_num")?;
         let field_pic = if let sps::FrameMbsFlags::Fields { .. } = sps.frame_mbs_flags {
-            if r.read_bool("field_pic_flag")? {
-                if r.read_bool("bottom_field_flag")? {
+            if r.read_bit("field_pic_flag")? {
+                if r.read_bit("bottom_field_flag")? {
                     FieldPic::Field(Field::Bottom)
                 } else {
                     FieldPic::Field(Field::Top)
@@ -547,7 +547,7 @@ impl SliceHeader {
             sps::PicOrderCntType::TypeZero {
                 log2_max_pic_order_cnt_lsb_minus4,
             } => {
-                let pic_order_cnt_lsb = r.read(
+                let pic_order_cnt_lsb = r.read_var(
                     u32::from(log2_max_pic_order_cnt_lsb_minus4) + 4,
                     "pic_order_cnt_lsb",
                 )?;
@@ -591,7 +591,7 @@ impl SliceHeader {
             None
         };
         let direct_spatial_mv_pred_flag = if slice_type.family == SliceFamily::B {
-            Some(r.read_bool("direct_spatial_mv_pred_flag")?)
+            Some(r.read_bit("direct_spatial_mv_pred_flag")?)
         } else {
             None
         };
@@ -599,7 +599,7 @@ impl SliceHeader {
             || slice_type.family == SliceFamily::SP
             || slice_type.family == SliceFamily::B
         {
-            if r.read_bool("num_ref_idx_active_override_flag")? {
+            if r.read_bit("num_ref_idx_active_override_flag")? {
                 let num_ref_idx_l0_active_minus1 =
                     read_num_ref_idx(r, "num_ref_idx_l0_active_minus1")?;
                 Some(if slice_type.family == SliceFamily::B {
@@ -671,7 +671,7 @@ impl SliceHeader {
         let slice_qs =
             if slice_type.family == SliceFamily::SP || slice_type.family == SliceFamily::SI {
                 if slice_type.family == SliceFamily::SP {
-                    sp_for_switch_flag = Some(r.read_bool("sp_for_switch_flag")?);
+                    sp_for_switch_flag = Some(r.read_bit("sp_for_switch_flag")?);
                 }
                 let slice_qs_delta = r.read_se("slice_qs_delta")?;
                 let qs_y = 26 + pps.pic_init_qs_minus26 + slice_qs_delta;
@@ -712,12 +712,12 @@ impl SliceHeader {
             let bits = (f64::from(pic_size) / f64::from(change_rate) + 1.0)
                 .log2()
                 .ceil() as u32;
-            Some(r.read::<u32>(bits, "slice_group_change_cycle")?)
+            Some(r.read_var(bits, "slice_group_change_cycle")?)
         } else {
             None
         };
         if !r.has_more_rbsp_data("slice_header")? {
-            return Err(SliceHeaderError::RbspError(BitReaderError::ReaderErrorFor(
+            return Err(SliceHeaderError::RbspError(BitReaderError::ReaderError(
                 "slice_header",
                 std::io::Error::new(
                     std::io::ErrorKind::UnexpectedEof,

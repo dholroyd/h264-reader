@@ -113,7 +113,7 @@ impl SliceGroup {
             }),
             3 | 4 | 5 => {
                 let slice_group_change_direction_flag =
-                    r.read_bool("slice_group_change_direction_flag")?;
+                    r.read_bit("slice_group_change_direction_flag")?;
                 let slice_group_change_rate_minus1 = r.read_ue("slice_group_change_rate_minus1")?;
                 if slice_group_change_rate_minus1 > sps.pic_size_in_map_units() - 1 {
                     return Err(PpsError::InvalidSliceGroupChangeRateMinus1(
@@ -180,7 +180,7 @@ impl SliceGroup {
         let size = (1f64 + f64::from(num_slice_groups_minus1)).log2().ceil() as u32;
         let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
         for _ in 0..pic_size_in_map_units_minus1 + 1 {
-            run_length_minus1.push(r.read(size, "slice_group_id")?);
+            run_length_minus1.push(r.read_var(size, "slice_group_id")?);
         }
         Ok(run_length_minus1)
     }
@@ -199,7 +199,7 @@ impl PicScalingMatrix {
         sps: &sps::SeqParameterSet,
         transform_8x8_mode_flag: bool,
     ) -> Result<Option<PicScalingMatrix>, PpsError> {
-        let pic_scaling_matrix_present_flag = r.read_bool("pic_scaling_matrix_present_flag")?;
+        let pic_scaling_matrix_present_flag = r.read_bit("pic_scaling_matrix_present_flag")?;
 
         if !pic_scaling_matrix_present_flag {
             return Ok(None);
@@ -219,7 +219,7 @@ impl PicScalingMatrix {
         let mut scaling_list8x8 = Vec::with_capacity(count);
 
         for i in 0..6 + count {
-            let seq_scaling_list_present_flag = r.read_bool("seq_scaling_list_present_flag")?;
+            let seq_scaling_list_present_flag = r.read_bit("seq_scaling_list_present_flag")?;
             if i < 6 {
                 scaling_list4x4.push(
                     sps::ScalingList::<16>::read(r, seq_scaling_list_present_flag)
@@ -258,7 +258,7 @@ impl PicParameterSetExtra {
         sps: &sps::SeqParameterSet,
     ) -> Result<Option<PicParameterSetExtra>, PpsError> {
         Ok(if r.has_more_rbsp_data("transform_8x8_mode_flag")? {
-            let transform_8x8_mode_flag = r.read_bool("transform_8x8_mode_flag")?;
+            let transform_8x8_mode_flag = r.read_bit("transform_8x8_mode_flag")?;
             let extra = PicParameterSetExtra {
                 transform_8x8_mode_flag,
                 pic_scaling_matrix: PicScalingMatrix::read(r, sps, transform_8x8_mode_flag)?,
@@ -328,9 +328,9 @@ impl PicParameterSet {
         let pps = PicParameterSet {
             pic_parameter_set_id,
             seq_parameter_set_id,
-            entropy_coding_mode_flag: r.read_bool("entropy_coding_mode_flag")?,
+            entropy_coding_mode_flag: r.read_bit("entropy_coding_mode_flag")?,
             bottom_field_pic_order_in_frame_present_flag: r
-                .read_bool("bottom_field_pic_order_in_frame_present_flag")?,
+                .read_bit("bottom_field_pic_order_in_frame_present_flag")?,
             slice_groups: Self::read_slice_groups(&mut r, seq_parameter_set)?,
             num_ref_idx_l0_default_active_minus1: read_num_ref_idx(
                 &mut r,
@@ -340,15 +340,15 @@ impl PicParameterSet {
                 &mut r,
                 "num_ref_idx_l1_default_active_minus1",
             )?,
-            weighted_pred_flag: r.read_bool("weighted_pred_flag")?,
-            weighted_bipred_idc: r.read(2, "weighted_bipred_idc")?,
+            weighted_pred_flag: r.read_bit("weighted_pred_flag")?,
+            weighted_bipred_idc: r.read::<2, _>("weighted_bipred_idc")?,
             pic_init_qp_minus26: r.read_se("pic_init_qp_minus26")?,
             pic_init_qs_minus26: r.read_se("pic_init_qs_minus26")?,
             chroma_qp_index_offset: r.read_se("chroma_qp_index_offset")?,
             deblocking_filter_control_present_flag: r
-                .read_bool("deblocking_filter_control_present_flag")?,
-            constrained_intra_pred_flag: r.read_bool("constrained_intra_pred_flag")?,
-            redundant_pic_cnt_present_flag: r.read_bool("redundant_pic_cnt_present_flag")?,
+                .read_bit("deblocking_filter_control_present_flag")?,
+            constrained_intra_pred_flag: r.read_bit("constrained_intra_pred_flag")?,
+            redundant_pic_cnt_present_flag: r.read_bit("redundant_pic_cnt_present_flag")?,
             extension: PicParameterSetExtra::read(&mut r, seq_parameter_set)?,
         };
         let qp_bd_offset_y = 6 * seq_parameter_set.chroma_info.bit_depth_luma_minus8;

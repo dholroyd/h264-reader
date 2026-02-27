@@ -63,7 +63,7 @@ pub struct AccessUnitDelimiter {
 
 impl AccessUnitDelimiter {
     pub fn from_bits<R: BitRead>(mut r: R) -> Result<AccessUnitDelimiter, AudError> {
-        let val: u8 = r.read(3, "primary_pic_type")?;
+        let val: u8 = r.read::<3, _>("primary_pic_type")?;
         let primary_pic_type =
             PrimaryPicType::from_id(val).map_err(AudError::InvalidPrimaryPicType)?;
         r.finish_rbsp()?;

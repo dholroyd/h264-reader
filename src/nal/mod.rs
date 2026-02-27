@@ -350,9 +350,9 @@ pub fn extended_rbsp_bytes<N: Nal>(nal: &N) -> rbsp::ByteReader<N::BufRead> {
 ///
 /// // Reading RBSP as a bit sequence:
 /// let mut r = nal.rbsp_bits();
-/// assert_eq!(r.read::<u8>(4, "first nibble").unwrap(), 0x1);
-/// assert_eq!(r.read::<u8>(4, "second nibble").unwrap(), 0x2);
-/// assert_eq!(r.read::<u32>(23, "23 bits at a time").unwrap(), 0x1a_00_00);
+/// assert_eq!(r.read::<4, u8>("first nibble").unwrap(), 0x1);
+/// assert_eq!(r.read::<4, u8>("second nibble").unwrap(), 0x2);
+/// assert_eq!(r.read::<23, u32>("23 bits at a time").unwrap(), 0x1a_00_00);
 /// assert!(r.has_more_rbsp_data("more left").unwrap());
 /// ```
 pub trait Nal {

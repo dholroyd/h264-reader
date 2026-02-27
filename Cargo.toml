@@ -10,9 +10,10 @@ readme = "README.md"
 repository = "https://github.com/dholroyd/h264-reader"
 edition = "2018"
 exclude = ["/*.h264"]
+rust-version = "1.83"
 
 [dependencies]
-bitstream-io = "2.2"
+bitstream-io = "4.9"
 hex-slice = "0.1.4"
 memchr = "2.1.1"
 rfc6381-codec = "0.2"

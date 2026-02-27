@@ -4,8 +4,11 @@
 
 ### Changed
 
+*   BREAKING CHANGE: Updated `bitstream-io` dependency from 2.2 to 4.9 and altered `rbsp::BitRead` trait to
+    match its conventions.
 *   BREAKING CHANGE: `Profile::from_profile_idc()` now accepts `ConstraintFlags` to distinguish constrained/intra profile variants. Add `Profile` enum variants: `ConstrainedBaseline`, `ProgressiveHigh`, `ConstrainedHigh`, `High10Intra`, `High422Intra`, `High444Intra`, `ScalableConstrainedBaseline`, `ScalableConstrainedHigh`, `ScalableHighIntra`.
 *   BREAKING CHANGE: `SliceHeader::from_bits()` now takes an additional `header_extension: Option<&NalHeaderExtension>` parameter. Pass `None` for standard AVC NAL types (1/5). For MVC NAL types (20/21), pass the parsed extension to enable correct `idr_pic_flag` derivation and MVC ref pic list modification parsing.
+*   Update minimum supported Rust version from 1.81 to 1.83.
 
 ### Added
 

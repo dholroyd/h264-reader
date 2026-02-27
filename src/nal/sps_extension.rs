@@ -32,10 +32,10 @@ impl SeqParameterSetExtension {
                 return Err(SpsError::BitDepthOutOfRange(bit_depth_aux_minus8));
             }
             let bit_depth_aux_minus8 = bit_depth_aux_minus8 as u8;
-            let alpha_incr_flag = r.read_bool("alpha_incr_flag")?;
+            let alpha_incr_flag = r.read_bit("alpha_incr_flag")?;
             let v = bit_depth_aux_minus8 as u32 + 9;
-            let alpha_opaque_value = r.read(v, "alpha_opaque_value")?;
-            let alpha_transparent_value = r.read(v, "alpha_transparent_value")?;
+            let alpha_opaque_value = r.read_var(v, "alpha_opaque_value")?;
+            let alpha_transparent_value = r.read_var(v, "alpha_transparent_value")?;
             Some(AuxFormatInfo {
                 bit_depth_aux_minus8,
                 alpha_incr_flag,
@@ -45,7 +45,7 @@ impl SeqParameterSetExtension {
         } else {
             None
         };
-        let additional_extension_flag = r.read_bool("additional_extension_flag")?;
+        let additional_extension_flag = r.read_bit("additional_extension_flag")?;
         r.finish_rbsp()?;
         Ok(SeqParameterSetExtension {
             seq_parameter_set_id,
