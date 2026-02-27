@@ -4,6 +4,11 @@
 
 ### Changed
 
+*   BREAKING CHANGE: `sps::ScalingMatrix` and `pps::ScalingMatrix` now store `next_scale` intermediate values (`[u8; S]`)
+    instead of final computed scaling values (`[NonZeroU8; S]`). In the new representation, a `0` at
+    position `j` means the list was frozen at that position (all positions from `j` onward are also `0`).
+    This is a more bitstream-faithful representation: it preserves the freeze point, enabling the encoder
+    to reproduce the original `delta_scale` sequence exactly.
 *   BREAKING CHANGE: Updated `bitstream-io` dependency from 2.2 to 4.9 and altered `rbsp::BitRead` trait to
     match its conventions.
 *   BREAKING CHANGE: `Profile::from_profile_idc()` now accepts `ConstraintFlags` to distinguish constrained/intra profile variants. Add `Profile` enum variants: `ConstrainedBaseline`, `ProgressiveHigh`, `ConstrainedHigh`, `High10Intra`, `High422Intra`, `High444Intra`, `ScalableConstrainedBaseline`, `ScalableConstrainedHigh`, `ScalableHighIntra`.
