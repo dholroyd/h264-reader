@@ -23,9 +23,11 @@
 //! the sequence `0x00 0x00 0x03` with `0x00 0x00`).
 
 use bitstream_io::read::BitRead as _;
+use bitstream_io::write::BitWrite as _;
 use std::borrow::Cow;
 use std::io::BufRead;
 use std::io::Read;
+use std::io::Write;
 use std::num::NonZeroUsize;
 
 #[derive(Copy, Clone, Debug)]
@@ -271,6 +273,29 @@ impl<I: bitstream_io::Integer + std::fmt::Debug> Integer for I {}
 pub trait Primitive: bitstream_io::Primitive + std::fmt::Debug {}
 impl<P: bitstream_io::Primitive + std::fmt::Debug> Primitive for P {}
 
+/// Writes H.26x bitstream syntax elements.
+///
+/// This is the write counterpart to [`BitRead`].
+pub trait BitWrite {
+    /// Writes an unsigned Exp-Golomb-coded value, as defined in the H.264 spec.
+    fn write_ue(&mut self, value: u32) -> std::io::Result<()>;
+
+    /// Writes a signed Exp-Golomb-coded value, as defined in the H.264 spec.
+    fn write_se(&mut self, value: i32) -> std::io::Result<()>;
+
+    /// Writes a single bit.
+    fn write_bit(&mut self, bit: bool) -> std::io::Result<()>;
+
+    /// Writes `BITS` bits of `value`.
+    fn write<const BITS: u32, I: Integer>(&mut self, value: I) -> std::io::Result<()>;
+
+    /// Writes `bit_count` bits of `value`.
+    fn write_var<I: Integer>(&mut self, bit_count: u32, value: I) -> std::io::Result<()>;
+
+    /// Writes the RBSP trailing bits: a stop bit (1) and then zero-padding to byte boundary.
+    fn write_rbsp_trailing_bits(&mut self) -> std::io::Result<()>;
+}
+
 /// Reads H.26x bitstream elements as specified in H.264 section 7.2.
 pub trait BitRead {
     /// Reads an unsigned Exp-Golomb-coded value, as defined in the H.264 spec.
@@ -464,6 +489,151 @@ fn golomb_to_signed(val: u32) -> i32 {
     ((val >> 1) as i32 + (val & 0x1) as i32) * sign
 }
 
+/// Writes H.264 bitstream syntax elements to RBSP writer.
+pub struct BitWriter<W: std::io::Write> {
+    inner: bitstream_io::write::BitWriter<W, bitstream_io::BigEndian>,
+}
+
+impl<W: std::io::Write> BitWriter<W> {
+    /// Creates a new `BitWriter` writing to `writer`.
+    pub fn new(writer: W) -> Self {
+        Self {
+            inner: bitstream_io::write::BitWriter::new(writer),
+        }
+    }
+
+    /// Returns a mutable reference to the underlying writer, if the stream is byte-aligned.
+    pub fn writer(&mut self) -> Option<&mut W> {
+        self.inner.writer()
+    }
+
+    /// Returns the underlying writer.
+    ///
+    /// # Warning
+    ///
+    /// Any unwritten partial bits are discarded.
+    pub fn into_writer(self) -> W {
+        self.inner.into_writer()
+    }
+}
+
+impl<W: std::io::Write> BitWrite for BitWriter<W> {
+    fn write_ue(&mut self, value: u32) -> std::io::Result<()> {
+        // Exp-Golomb: write (count) zero bits, then 1 bit, then (count) data bits.
+        // code_num = value, M = floor(log2(value+1)), prefix is (M+1) bits = M zeros + 1 one,
+        // suffix is M bits = value+1 - 2^M.
+        if value == 0 {
+            self.inner.write_bit(true)
+        } else {
+            let code_num = value + 1;
+            let bits = 32 - code_num.leading_zeros(); // = floor(log2(code_num)) + 1
+            let zeros = bits - 1;
+            // write (zeros) zero bits
+            for _ in 0..zeros {
+                self.inner.write_bit(false)?;
+            }
+            // write (bits) bits of code_num
+            self.inner.write_var(bits, code_num)
+        }
+    }
+
+    fn write_se(&mut self, value: i32) -> std::io::Result<()> {
+        // Map signed -> unsigned: 0->0, 1->1, -1->2, 2->3, -2->4, ...
+        let code_num = if value > 0 {
+            (value as u32) * 2 - 1
+        } else {
+            (-value as u32) * 2
+        };
+        self.write_ue(code_num)
+    }
+
+    fn write_bit(&mut self, bit: bool) -> std::io::Result<()> {
+        self.inner.write_bit(bit)
+    }
+
+    fn write<const BITS: u32, I: Integer>(&mut self, value: I) -> std::io::Result<()> {
+        self.inner.write::<BITS, I>(value)
+    }
+
+    fn write_var<I: Integer>(&mut self, bit_count: u32, value: I) -> std::io::Result<()> {
+        self.inner.write_var::<I>(bit_count, value)
+    }
+
+    fn write_rbsp_trailing_bits(&mut self) -> std::io::Result<()> {
+        self.inner.write_bit(true)?; // stop bit
+        self.inner.byte_align()?; // zero-pad to byte boundary
+        Ok(())
+    }
+}
+
+/// [`Write`] adapter which inserts emulation-prevention-three bytes into RBSP.
+///
+/// The caller writes raw RBSP bytes; this inserts `0x03` bytes wherever the
+/// sequence `0x00 0x00` would be followed by `0x00`, `0x01`, `0x02`, or `0x03`.
+///
+/// See also [module docs](self).
+pub struct ByteWriter<W: Write> {
+    inner: W,
+    /// Number of consecutive `0x00` bytes at the tail of what has been written
+    /// so far. Always 0, 1, or 2.
+    zero_count: u8,
+}
+
+impl<W: Write> ByteWriter<W> {
+    /// Creates a new `ByteWriter` wrapping the given [`Write`].
+    pub fn new(inner: W) -> Self {
+        Self {
+            inner,
+            zero_count: 0,
+        }
+    }
+
+    /// Returns the underlying writer.
+    pub fn into_writer(self) -> W {
+        self.inner
+    }
+}
+
+impl<W: Write> Write for ByteWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut i = 0;
+        let mut chunk_start = 0;
+        while i < buf.len() {
+            // When two trailing zeros have been written, the current byte may
+            // require an emulation-prevention byte inserted before it.
+            if self.zero_count == 2 {
+                let b = buf[i];
+                if b <= 3 {
+                    self.inner.write_all(&buf[chunk_start..i])?;
+                    chunk_start = i;
+                    self.inner.write_all(&[0x03])?;
+                }
+                self.zero_count = 0;
+                // Fall through; the memchr scan below processes buf[i].
+            }
+            // zero_count is 0 or 1 here. Use memchr to skip non-zero bytes.
+            match memchr::memchr(0x00, &buf[i..]) {
+                None => {
+                    self.zero_count = 0;
+                    break;
+                }
+                Some(rel) => {
+                    // buf[i..i+rel] are non-zero (any of them resets zero_count),
+                    // buf[i+rel] is 0x00.
+                    self.zero_count = if rel > 0 { 1 } else { self.zero_count + 1 };
+                    i += rel + 1;
+                }
+            }
+        }
+        self.inner.write_all(&buf[chunk_start..])?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -541,5 +711,107 @@ mod tests {
             reader.read_ue("test"),
             Err(BitReaderError::ExpGolombTooLarge("test"))
         ));
+    }
+
+    /// Writes `rbsp` through a `ByteWriter` and returns the emulation-prevention-encoded bytes.
+    fn byte_writer_encode(rbsp: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        ByteWriter::new(&mut out).write_all(rbsp).unwrap();
+        out
+    }
+
+    #[test]
+    fn byte_writer_no_escaping_needed() {
+        // Bytes that never trigger emulation prevention.
+        assert_eq!(byte_writer_encode(b"hello"), b"hello");
+        assert_eq!(
+            byte_writer_encode(&[0xFF, 0xFE, 0x01, 0x02]),
+            &[0xFF, 0xFE, 0x01, 0x02]
+        );
+        // Single zero: no escape.
+        assert_eq!(byte_writer_encode(&[0x00, 0x04]), &[0x00, 0x04]);
+        // Two zeros followed by non-trigger byte: no escape.
+        assert_eq!(byte_writer_encode(&[0x00, 0x00, 0x04]), &[0x00, 0x00, 0x04]);
+    }
+
+    #[test]
+    fn byte_writer_escaping() {
+        // The four trigger bytes after two zeros.
+        assert_eq!(
+            byte_writer_encode(&[0x00, 0x00, 0x00]),
+            &[0x00, 0x00, 0x03, 0x00]
+        );
+        assert_eq!(
+            byte_writer_encode(&[0x00, 0x00, 0x01]),
+            &[0x00, 0x00, 0x03, 0x01]
+        );
+        assert_eq!(
+            byte_writer_encode(&[0x00, 0x00, 0x02]),
+            &[0x00, 0x00, 0x03, 0x02]
+        );
+        assert_eq!(
+            byte_writer_encode(&[0x00, 0x00, 0x03]),
+            &[0x00, 0x00, 0x03, 0x03]
+        );
+    }
+
+    #[test]
+    fn byte_writer_multiple_escapes() {
+        // Five zeros then 0x01: the third zero triggers one escape (leaving one
+        // trailing zero), then the fifth zero makes two trailing zeros again so
+        // 0x01 triggers a second escape.
+        assert_eq!(
+            byte_writer_encode(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x01]),
+            &[0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x01],
+        );
+    }
+
+    #[test]
+    fn byte_writer_split_writes() {
+        // Verify state is maintained across separate write() calls.
+        let mut out = Vec::new();
+        let mut w = ByteWriter::new(&mut out);
+        w.write_all(&[0x00, 0x00]).unwrap();
+        w.write_all(&[0x03]).unwrap(); // should be escaped
+        drop(w);
+        assert_eq!(out, &[0x00, 0x00, 0x03, 0x03]);
+
+        let mut out2 = Vec::new();
+        let mut w2 = ByteWriter::new(&mut out2);
+        w2.write_all(&[0x00]).unwrap();
+        w2.write_all(&[0x00]).unwrap();
+        w2.write_all(&[0x01]).unwrap(); // should be escaped
+        drop(w2);
+        assert_eq!(out2, &[0x00, 0x00, 0x03, 0x01]);
+    }
+
+    /// Builds a complete NAL unit from `hdr` and `rbsp` using `ByteWriter`.
+    fn make_nal(hdr: u8, rbsp: &[u8]) -> Vec<u8> {
+        // Capacity: at most 1 escape per 3 RBSP bytes.
+        let mut out = Vec::with_capacity(1 + rbsp.len() + rbsp.len() / 3);
+        out.push(hdr);
+        ByteWriter::new(&mut out).write_all(rbsp).unwrap();
+        out
+    }
+
+    #[test]
+    fn byte_writer_roundtrip() {
+        // Roundtrip: decode(make_nal(hdr, rbsp)) == rbsp.
+        let rbsp = hex!(
+            "64 00 0A AC 72 84 44 26 84 00 00
+            00 04 00 00 00 CA 3C 48 96 11 80"
+        );
+        let nal = make_nal(0x67, &rbsp);
+        let decoded = decode_nal(&nal).unwrap();
+        assert_eq!(&*decoded, &rbsp[..]);
+    }
+
+    #[test]
+    fn byte_writer_escape_inserted_in_nal() {
+        // RBSP: 12 34 00 00 00 86 -> NAL: 68 12 34 00 00 03 00 86
+        assert_eq!(
+            make_nal(0x68, &hex!("12 34 00 00 00 86")),
+            hex!("68 12 34 00 00 03 00 86"),
+        );
     }
 }

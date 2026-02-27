@@ -31,3 +31,9 @@ name = "fuzz_target_1"
 path = "fuzz_targets/fuzz_target_1.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "encode_decode_rbsp"
+path = "fuzz_targets/encode_decode_rbsp.rs"
+test = false
+doc = false
