@@ -32,9 +32,9 @@ use std::num::NonZeroUsize;
 
 #[derive(Copy, Clone, Debug)]
 enum ParseState {
-    Start,
-    OneZero,
-    TwoZero,
+    /// Scanning for emulation prevention bytes; `zero_count` (0, 1, or 2)
+    /// tracks consecutive trailing `0x00` bytes.
+    Start(u8),
     Skip(NonZeroUsize),
     Three,
     PostThree,
@@ -70,15 +70,19 @@ pub struct ByteReader<R: BufRead> {
     /// significantly faster to limit this, maybe due to CPU cache effects, or
     /// maybe because it's common to examine at most the headers of large slice NALs.
     max_fill: usize,
+
+    /// Pre-built SIMD searcher for `0x00 0x00` pairs, reused across calls
+    zero_pair_finder: memchr::memmem::Finder<'static>,
 }
 impl<R: BufRead> ByteReader<R> {
     /// Constructs an adapter from the given [`BufRead`] which does not skip any initial bytes.
     pub fn without_skip(inner: R) -> Self {
         Self {
             inner,
-            state: ParseState::Start,
+            state: ParseState::Start(0),
             i: 0,
             max_fill: 128,
+            zero_pair_finder: memchr::memmem::Finder::new(b"\x00\x00"),
         }
     }
 
@@ -89,6 +93,7 @@ impl<R: BufRead> ByteReader<R> {
             state: ParseState::Skip(H264_HEADER_LEN),
             i: 0,
             max_fill: 128,
+            zero_pair_finder: memchr::memmem::Finder::new(b"\x00\x00"),
         }
     }
 
@@ -102,6 +107,7 @@ impl<R: BufRead> ByteReader<R> {
             state: ParseState::Skip(skip),
             i: 0,
             max_fill: 128,
+            zero_pair_finder: memchr::memmem::Finder::new(b"\x00\x00"),
         }
     }
 
@@ -118,40 +124,74 @@ impl<R: BufRead> ByteReader<R> {
         let limit = std::cmp::min(chunk.len(), self.max_fill);
         while self.i < limit {
             match self.state {
-                ParseState::Start => match memchr::memchr(0x00, &chunk[self.i..limit]) {
-                    Some(nonzero_len) => {
-                        self.i += nonzero_len;
-                        self.state = ParseState::OneZero;
+                ParseState::Start(zero_count) => {
+                    // Find the index of the byte right after a 0x00 0x00 pair,
+                    // or None if no complete pair is available in this chunk.
+                    let after_pair = if zero_count >= 2 {
+                        // Two trailing zeros carried from previous buffer.
+                        Some(self.i)
+                    } else if zero_count == 1 && chunk[self.i] == 0x00 {
+                        // One trailing zero + current 0x00 = cross-buffer pair.
+                        if self.i + 1 < limit {
+                            Some(self.i + 1)
+                        } else {
+                            self.state = ParseState::Start(2);
+                            self.i += 1;
+                            None
+                        }
+                    } else {
+                        // Bulk scan for the next 0x00 0x00 pair.
+                        match self.zero_pair_finder.find(&chunk[self.i..limit]) {
+                            Some(offset) => {
+                                let ap = self.i + offset + 2;
+                                if ap < limit {
+                                    Some(ap)
+                                } else {
+                                    self.state = ParseState::Start(2);
+                                    self.i = ap;
+                                    None
+                                }
+                            }
+                            None => {
+                                let trailing = if limit > self.i && chunk[limit - 1] == 0x00 {
+                                    1
+                                } else {
+                                    0
+                                };
+                                self.state = ParseState::Start(trailing);
+                                self.i = limit;
+                                None
+                            }
+                        }
+                    };
+                    let Some(after_pair) = after_pair else { break };
+                    // Check the byte after the 0x00 0x00 pair.
+                    match chunk[after_pair] {
+                        0x03 => {
+                            self.i = after_pair;
+                            self.state = ParseState::Three;
+                            break;
+                        }
+                        0x00 => {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                format!("invalid RBSP byte {:#x} in state {:?}", 0x00, &self.state,),
+                            ));
+                        }
+                        _ => {
+                            self.i = after_pair + 1;
+                            self.state = ParseState::Start(0);
+                            continue;
+                        }
                     }
-                    None => {
-                        self.i = limit;
-                        break;
-                    }
-                },
-                ParseState::OneZero => match chunk[self.i] {
-                    0x00 => self.state = ParseState::TwoZero,
-                    _ => self.state = ParseState::Start,
-                },
-                ParseState::TwoZero => match chunk[self.i] {
-                    0x03 => {
-                        self.state = ParseState::Three;
-                        break;
-                    }
-                    0x00 => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            format!("invalid RBSP byte {:#x} in state {:?}", 0x00, &self.state),
-                        ))
-                    }
-                    _ => self.state = ParseState::Start,
-                },
+                }
                 ParseState::Skip(remaining) => {
                     debug_assert_eq!(self.i, 0);
                     let skip = std::cmp::min(chunk.len(), remaining.get());
                     self.inner.consume(skip);
                     self.state = NonZeroUsize::new(remaining.get() - skip)
                         .map(ParseState::Skip)
-                        .unwrap_or(ParseState::Start);
+                        .unwrap_or(ParseState::Start(0));
                     break;
                 }
                 ParseState::Three => {
@@ -160,18 +200,20 @@ impl<R: BufRead> ByteReader<R> {
                     self.state = ParseState::PostThree;
                     break;
                 }
-                ParseState::PostThree => match chunk[self.i] {
-                    0x00 => self.state = ParseState::OneZero,
-                    0x01 | 0x02 | 0x03 => self.state = ParseState::Start,
-                    o => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            format!("invalid RBSP byte {:#x} in state {:?}", o, &self.state),
-                        ))
+                ParseState::PostThree => {
+                    match chunk[self.i] {
+                        0x00 => self.state = ParseState::Start(1),
+                        0x01 | 0x02 | 0x03 => self.state = ParseState::Start(0),
+                        o => {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                format!("invalid RBSP byte {:#x} in state {:?}", o, &self.state),
+                            ))
+                        }
                     }
-                },
+                    self.i += 1;
+                }
             }
-            self.i += 1;
         }
         Ok(true)
     }
@@ -236,6 +278,7 @@ pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Result<Cow<'a, [u8]>, std::io::Erro
         state: ParseState::Skip(H264_HEADER_LEN),
         i: 0,
         max_fill: usize::MAX, // to borrow if at all possible.
+        zero_pair_finder: memchr::memmem::Finder::new(b"\x00\x00"),
     };
     let buf = reader.fill_buf()?;
     if buf.len() + 1 == nal_unit.len() {
