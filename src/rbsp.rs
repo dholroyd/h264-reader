@@ -45,6 +45,12 @@ const H264_HEADER_LEN: NonZeroUsize = match NonZeroUsize::new(1) {
     None => panic!("1 should be non-zero"),
 };
 
+fn zero_pair_finder() -> &'static memchr::memmem::Finder<'static> {
+    static FINDER: std::sync::OnceLock<memchr::memmem::Finder<'static>> =
+        std::sync::OnceLock::new();
+    FINDER.get_or_init(|| memchr::memmem::Finder::new(b"\x00\x00"))
+}
+
 /// [`BufRead`] adapter which returns RBSP from NAL bytes.
 ///
 /// This optionally skips a given number of leading bytes, then returns any bytes except the
@@ -70,9 +76,6 @@ pub struct ByteReader<R: BufRead> {
     /// significantly faster to limit this, maybe due to CPU cache effects, or
     /// maybe because it's common to examine at most the headers of large slice NALs.
     max_fill: usize,
-
-    /// Pre-built SIMD searcher for `0x00 0x00` pairs, reused across calls
-    zero_pair_finder: memchr::memmem::Finder<'static>,
 }
 impl<R: BufRead> ByteReader<R> {
     /// Constructs an adapter from the given [`BufRead`] which does not skip any initial bytes.
@@ -82,7 +85,6 @@ impl<R: BufRead> ByteReader<R> {
             state: ParseState::Start(0),
             i: 0,
             max_fill: 128,
-            zero_pair_finder: memchr::memmem::Finder::new(b"\x00\x00"),
         }
     }
 
@@ -93,7 +95,6 @@ impl<R: BufRead> ByteReader<R> {
             state: ParseState::Skip(H264_HEADER_LEN),
             i: 0,
             max_fill: 128,
-            zero_pair_finder: memchr::memmem::Finder::new(b"\x00\x00"),
         }
     }
 
@@ -107,7 +108,6 @@ impl<R: BufRead> ByteReader<R> {
             state: ParseState::Skip(skip),
             i: 0,
             max_fill: 128,
-            zero_pair_finder: memchr::memmem::Finder::new(b"\x00\x00"),
         }
     }
 
@@ -141,7 +141,7 @@ impl<R: BufRead> ByteReader<R> {
                         }
                     } else {
                         // Bulk scan for the next 0x00 0x00 pair.
-                        match self.zero_pair_finder.find(&chunk[self.i..limit]) {
+                        match zero_pair_finder().find(&chunk[self.i..limit]) {
                             Some(offset) => {
                                 let ap = self.i + offset + 2;
                                 if ap < limit {
@@ -285,7 +285,6 @@ pub fn decode_nal<'a>(nal_unit: &'a [u8]) -> Result<Cow<'a, [u8]>, std::io::Erro
         state: ParseState::Skip(H264_HEADER_LEN),
         i: 0,
         max_fill: usize::MAX, // to borrow if at all possible.
-        zero_pair_finder: memchr::memmem::Finder::new(b"\x00\x00"),
     };
     let buf = reader.fill_buf()?;
     if buf.len() + 1 == nal_unit.len() {
