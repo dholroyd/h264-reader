@@ -172,10 +172,17 @@ impl<R: BufRead> ByteReader<R> {
                             self.state = ParseState::Three;
                             break;
                         }
-                        0x00 => {
+
+                        // H.264 section 7.4.1:
+                        // > Within the NAL unit, the following three-byte sequences shall not occur at
+                        // > any byte-aligned position:
+                        // > *   0x000000
+                        // > *   0x000001
+                        // > *   0x000002
+                        b @ 0x00..=0x02 => {
                             return Err(std::io::Error::new(
                                 std::io::ErrorKind::InvalidData,
-                                format!("invalid RBSP byte {:#x} in state {:?}", 0x00, &self.state,),
+                                format!("invalid RBSP byte {:#x} in state {:?}", b, &self.state,),
                             ));
                         }
                         _ => {
@@ -847,6 +854,26 @@ mod tests {
         let nal = make_nal(0x67, &rbsp);
         let decoded = decode_nal(&nal).unwrap();
         assert_eq!(&*decoded, &rbsp[..]);
+    }
+
+    #[test]
+    fn byte_reader_rejects_forbidden_sequences() {
+        // H.264 section 7.4.1: within a NAL unit, the three-byte sequences
+        // 0x000000, 0x000001, and 0x000002 shall not occur at any byte-aligned
+        // position. ByteReader must return InvalidData for all three.
+        for forbidden in [0x00u8, 0x01, 0x02] {
+            let nal = [0x67, 0x12, 0x00, 0x00, forbidden, 0x34];
+            let mut r = ByteReader::skipping_h264_header(&nal[..]);
+            let mut buf = Vec::new();
+            let err = r.read_to_end(&mut buf).unwrap_err();
+            assert_eq!(
+                err.kind(),
+                std::io::ErrorKind::InvalidData,
+                "expected InvalidData for 0x00 0x00 {:#04x}, got {:?}",
+                forbidden,
+                err.kind(),
+            );
+        }
     }
 
     #[test]
