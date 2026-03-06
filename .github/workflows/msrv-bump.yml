@@ -1,0 +1,42 @@
+name: MSRV bump
+
+on:
+  schedule:
+    - cron: '0 0 1 */3 *'  # quarterly
+  workflow_dispatch:
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Determine MSRV from 12 months ago
+      id: msrv
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        CUTOFF=$(date -d '12 months ago' +%s)
+        TARGET=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+          'https://api.github.com/repos/rust-lang/rust/releases?per_page=100' \
+          | jq -r --argjson cutoff "$CUTOFF" '
+            [ .[]
+              | select(.tag_name | test("^\\d+\\.\\d+\\.0$"))
+              | select((.published_at | fromdateiso8601) < $cutoff)
+            ] | first | .tag_name')
+        echo "version=$TARGET" >> "$GITHUB_OUTPUT"
+
+    - name: Update rust-toolchain.toml
+      run: |
+        sed -i 's/channel = .*/channel = "${{ steps.msrv.outputs.version }}"/' rust-toolchain.toml
+
+    - name: Create pull request
+      uses: peter-evans/create-pull-request@v6
+      with:
+        title: "Bump MSRV to ${{ steps.msrv.outputs.version }}"
+        body: |
+          Automated MSRV bump to the latest Rust stable release
+          that is at least 12 months old.
+        branch: msrv-bump
+        commit-message: "Bump MSRV to ${{ steps.msrv.outputs.version }}"
