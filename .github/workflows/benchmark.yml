@@ -35,6 +35,9 @@ jobs:
       - run: |
           bencher run \
           --branch "$GITHUB_REF_NAME" \
+          --threshold-measure estimated-cycles \
+          --threshold-test t_test \
+          --threshold-upper-boundary 0.95 \
           --err \
           --adapter rust_iai_callgrind \
           --hash "$GITHUB_SHA" \
