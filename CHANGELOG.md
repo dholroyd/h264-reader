@@ -28,6 +28,7 @@
 *   Add `Context::put_subset_seq_param_set()`, `Context::subset_sps_by_id()`, and `Context::subset_sps()` for managing subset SPS state.
 *   Add `ChromaInfo::chroma_array_type()` helper.
 *   Added support for `user_data_unregistered()` SEI syntax
+*   Added support for `recovery_point()` SEI syntax (payloadType 6).
 *   Parse `prefix_nal_unit_rbsp()` (NAL type 14) via new `prefix::PrefixNalUnit`, including SVC `prefix_nal_unit_svc()` body and MVC (empty body).
 *   Add `NalHeaderExtension`, `NalHeaderMvcExtension`, `NalHeaderSvcExtension` types and `parse_nal_header_extension()` for parsing the 3-byte NAL unit header extension used by NAL types 14, 20, and 21.
 *   Parse MVC slice headers (NAL types 20/21) including `ref_pic_list_mvc_modification()` with `modification_of_pic_nums_idc` values 4 and 5. Add `ModificationOfPicNums::SubtractViewIdx` and `AddViewIdx` variants.

@@ -1,5 +1,6 @@
 pub mod buffering_period;
 pub mod pic_timing;
+pub mod recovery_point;
 pub mod user_data_registered_itu_t_t35;
 pub mod user_data_unregistered;
 
