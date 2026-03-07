@@ -5,7 +5,6 @@ pub mod user_data_unregistered;
 
 use crate::rbsp::BitReaderError;
 use hex_slice::AsHex;
-use std::convert::TryFrom;
 use std::fmt::{Debug, Formatter};
 use std::io::BufRead;
 
@@ -141,6 +140,11 @@ impl HeaderType {
     }
 }
 
+/// Maximum supported SEI payload size (1 MB). The H.264 spec does not mandate a limit, but
+/// real-world payloads are small (timing info, recovery points, user data). This cap prevents
+/// denial-of-service from crafted streams claiming enormous payload lengths.
+const MAX_SEI_PAYLOAD_LEN: u32 = 1024 * 1024;
+
 /// Reader of messages in an SEI NAL.
 pub struct SeiReader<'a, R: BufRead + Clone> {
     reader: R,
@@ -186,7 +190,17 @@ impl<'a, R: BufRead + Clone> SeiReader<'a, R> {
             }
         }
         let payload_type = HeaderType::from_id(payload_type);
-        let payload_len = usize::try_from(read_u32(&mut self.reader, "payload_len")?).unwrap();
+        let payload_len = read_u32(&mut self.reader, "payload_len")?;
+        if payload_len > MAX_SEI_PAYLOAD_LEN {
+            return Err(BitReaderError::ReaderError(
+                "payload_len",
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "SEI payload length exceeds 1 MB limit",
+                ),
+            ));
+        }
+        let payload_len = payload_len as usize;
 
         // Read into scratch. We could instead directly use reader's buffer if
         // the next chunk is long enough, or pass along a BufRead that uses
