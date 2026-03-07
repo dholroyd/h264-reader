@@ -1642,6 +1642,23 @@ impl SeqParameterSet {
             // initial SPS data
             vui_parameters: None,
         };
+        // Validate frame size: check that width * height doesn't overflow u32, and that
+        // the result is within the level's MaxFS limit (Table A-1). For unknown levels,
+        // use the largest known max_fs (Level 6.2 = 139264 macroblocks).
+        let pic_size = sps
+            .pic_width_in_mbs()
+            .checked_mul(sps.pic_height_in_map_units())
+            .ok_or(SpsError::FieldValueTooLarge {
+                name: "pic_size_in_map_units",
+                value: u32::MAX,
+            })?;
+        let max_fs = sps.level().limits().map_or(139264, |l| l.max_fs);
+        if pic_size > max_fs {
+            return Err(SpsError::FieldValueTooLarge {
+                name: "pic_size_in_map_units",
+                value: pic_size,
+            });
+        }
         let vui_parameters = VuiParameters::read(r, &sps)?;
         sps.vui_parameters = vui_parameters;
         Ok(sps)
@@ -1782,7 +1799,10 @@ impl SeqParameterSet {
 
     /// From the spec: `PicSizeInMapUnits = PicWidthInMbs * PicHeightInMapUnits`
     pub fn pic_size_in_map_units(&self) -> u32 {
-        self.pic_width_in_mbs() * self.pic_height_in_map_units()
+        // Validated during parsing in from_bits(), so this should never overflow.
+        self.pic_width_in_mbs()
+            .checked_mul(self.pic_height_in_map_units())
+            .expect("pic_size_in_map_units overflow: should have been validated during SPS parsing")
     }
 }
 
