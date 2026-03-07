@@ -23,6 +23,7 @@ pub enum PpsError {
     InvalidTopLeft(u32),
     InvalidBottomRight(u32),
     InvalidSliceGroupChangeRateMinus1(u32),
+    InvalidPicSizeInMapUnitsMinus1 { actual: u32, max: u32 },
 }
 
 impl From<rbsp::BitReaderError> for PpsError {
@@ -129,7 +130,7 @@ impl SliceGroup {
             }
             6 => Ok(SliceGroup::ExplicitAssignment {
                 num_slice_groups_minus1,
-                slice_group_id: Self::read_group_ids(r, num_slice_groups_minus1)?,
+                slice_group_id: Self::read_group_ids(r, num_slice_groups_minus1, sps)?,
             }),
             _ => Err(PpsError::InvalidSliceGroupMapType(slice_group_map_type)),
         }
@@ -174,15 +175,22 @@ impl SliceGroup {
     fn read_group_ids<R: BitRead>(
         r: &mut R,
         num_slice_groups_minus1: u32,
+        sps: &SeqParameterSet,
     ) -> Result<Vec<u32>, PpsError> {
         let pic_size_in_map_units_minus1 = r.read_ue("pic_size_in_map_units_minus1")?;
-        // TODO: avoid any panics due to failed conversions
-        let size = (1f64 + f64::from(num_slice_groups_minus1)).log2().ceil() as u32;
-        let mut run_length_minus1 = Vec::with_capacity(num_slice_groups_minus1 as usize + 1);
-        for _ in 0..pic_size_in_map_units_minus1 + 1 {
-            run_length_minus1.push(r.read_var(size, "slice_group_id")?);
+        let pic_size_in_map_units = sps.pic_size_in_map_units();
+        if pic_size_in_map_units_minus1 >= pic_size_in_map_units {
+            return Err(PpsError::InvalidPicSizeInMapUnitsMinus1 {
+                actual: pic_size_in_map_units_minus1,
+                max: pic_size_in_map_units,
+            });
         }
-        Ok(run_length_minus1)
+        let size = (1f64 + f64::from(num_slice_groups_minus1)).log2().ceil() as u32;
+        let mut slice_group_id = Vec::with_capacity(pic_size_in_map_units_minus1 as usize + 1);
+        for _ in 0..=pic_size_in_map_units_minus1 {
+            slice_group_id.push(r.read_var(size, "slice_group_id")?);
+        }
+        Ok(slice_group_id)
     }
 }
 

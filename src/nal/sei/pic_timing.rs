@@ -82,7 +82,7 @@ impl CtType {
             1 => CtType::Interlaced,
             2 => CtType::Unknown,
             3 => CtType::Reserved,
-            _ => panic!("unexpected ct_type {}", id),
+            _ => unreachable!("ct_type is a 2-bit field"),
         }
     }
 }
@@ -116,7 +116,7 @@ impl CountingType {
             5 => CountingType::DroppingIndividual,
             6 => CountingType::Dropping,
             7..=31 => CountingType::Reserved(id),
-            _ => panic!("unexpected counting_type {}", id),
+            _ => unreachable!("counting_type is a 5-bit field"),
         }
     }
 }
