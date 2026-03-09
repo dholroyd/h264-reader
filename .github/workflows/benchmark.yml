@@ -10,7 +10,7 @@ jobs:
       BENCHER_PROJECT: h264-reader
       BENCHER_API_TOKEN: ${{ secrets.BENCHER_API_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           lfs: true
 
