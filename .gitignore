@@ -2,7 +2,6 @@
 /big_buck_bunny_1080p.h264
 /target/
 **/*.swp
-Cargo.lock
 .idea
 h264-reader.iml
 resource
