@@ -1,5 +1,7 @@
 use super::sps::{self};
-use crate::nal::sps::{ScalingLists4x4, ScalingLists8x8, SeqParameterSet};
+use crate::nal::sps::{
+    ChromaInfo, ScalingLists4x4, ScalingLists8x8, ScalingLists8x8Resolved, SeqParameterSet,
+};
 use crate::nal::sps::{SeqParamSetId, SeqParamSetIdError};
 use crate::rbsp::BitRead;
 use crate::{rbsp, Context};
@@ -201,6 +203,39 @@ pub struct PicScalingMatrix {
     pub scaling_lists8x8: Option<ScalingLists8x8>,
 }
 impl PicScalingMatrix {
+    /// Resolve 4x4 scaling lists using PPS fall-back rules (Table 7-2).
+    ///
+    /// Uses rule set B when the SPS has a scaling matrix
+    /// (`seq_scaling_matrix_present_flag` = 1), otherwise rule set A.
+    pub fn scaling_lists_4x4(&self, sps_chroma: &ChromaInfo) -> [[u8; 16]; 6] {
+        let sps_resolved = sps_chroma
+            .scaling_matrix
+            .as_ref()
+            .map(|m| m.scaling_lists_4x4());
+        sps::resolve_4x4_lists(&self.scaling_lists4x4.0, sps_resolved.as_ref())
+    }
+
+    /// Resolve 8x8 scaling lists using PPS fall-back rules (Table 7-2).
+    ///
+    /// Returns `None` when `transform_8x8_mode_flag` is false (no 8x8 lists in PPS).
+    pub fn scaling_lists_8x8(&self, sps_chroma: &ChromaInfo) -> Option<ScalingLists8x8Resolved> {
+        let pps_lists = self.scaling_lists8x8.as_ref()?;
+        let sps_8x8 = sps_chroma
+            .scaling_matrix
+            .as_ref()
+            .map(|m| m.scaling_lists_8x8());
+        let sps_slice = sps_8x8.as_ref().map(|r| r.as_slice());
+
+        Some(match pps_lists {
+            ScalingLists8x8::Y(lists) => {
+                ScalingLists8x8Resolved::Y(sps::resolve_8x8_lists(lists, sps_slice))
+            }
+            ScalingLists8x8::YCbCr(lists) => {
+                ScalingLists8x8Resolved::YCbCr(sps::resolve_8x8_lists(lists, sps_slice))
+            }
+        })
+    }
+
     fn read<R: BitRead>(
         r: &mut R,
         sps: &sps::SeqParameterSet,

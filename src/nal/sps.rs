@@ -549,11 +549,25 @@ impl From<BitReaderError> for ScalingMatrixError {
     }
 }
 
-/// Matrix of scaling values.
+/// Sequence-level scaling matrix parsed from the SPS.
+///
+/// The fields store raw `next_scale` intermediate values from the bitstream, not the
+/// final `ScalingList` values used by the decoding process. To obtain usable scaling
+/// list values with all spec fallback rules applied, use the helper methods on the
+/// structs that contain this type:
+///
+/// - [`ChromaInfo::scaling_lists_4x4`] / [`ChromaInfo::scaling_lists_8x8`] — the
+///   simplest entry point. Handles the case where `seq_scaling_matrix_present_flag`
+///   is 0 (returns flat-16 lists) and delegates here otherwise.
+/// - [`SeqScalingMatrix::scaling_lists_4x4`] / [`SeqScalingMatrix::scaling_lists_8x8`]
+///   — resolves using SPS fall-back rule set A (Table 7-2).
+///
+/// For picture-level scaling lists, see
+/// [`PicScalingMatrix::scaling_lists_4x4`](crate::nal::pps::PicScalingMatrix::scaling_lists_4x4).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeqScalingMatrix {
-    scaling_lists4x4: ScalingLists4x4,
-    scaling_lists8x8: ScalingLists8x8,
+    pub scaling_lists4x4: ScalingLists4x4,
+    pub scaling_lists8x8: ScalingLists8x8,
 }
 
 /// Each `u8` is the `next_scale` intermediate value at that position (see H.264
@@ -561,7 +575,7 @@ pub struct SeqScalingMatrix {
 /// `j`; all positions from `j` onward will also be `0`. A value of `0` at position
 /// 0 means the list is entirely the default value.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ScalingLists4x4([Option<[u8; 16]>; 6]);
+pub struct ScalingLists4x4(pub [Option<[u8; 16]>; 6]);
 
 impl ScalingLists4x4 {
     pub(crate) fn read<R: BitRead>(r: &mut R) -> Result<Self, ScalingMatrixError> {
@@ -582,6 +596,29 @@ pub enum ScalingLists8x8 {
 
     /// 8x8 scaling lists for [`ChromaFormat::YUV444`], used for both luma (Y) and chroma (Cb/Cr) components.
     YCbCr([Option<[u8; 64]>; 6]),
+}
+
+/// Resolved 8x8 scaling lists with all fallback rules applied.
+/// Unlike [`ScalingLists8x8`], these contain final `ScalingList` values
+/// ready for use in the decoding process (section 8.5.9).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
+pub enum ScalingLists8x8Resolved {
+    /// For chroma formats other than [`ChromaFormat::YUV444`].
+    Y([[u8; 64]; 2]),
+
+    /// For [`ChromaFormat::YUV444`].
+    YCbCr([[u8; 64]; 6]),
+}
+
+impl ScalingLists8x8Resolved {
+    /// Access the resolved lists as a slice (length 2 or 6).
+    pub fn as_slice(&self) -> &[[u8; 64]] {
+        match self {
+            Self::Y(a) => a.as_slice(),
+            Self::YCbCr(a) => a.as_slice(),
+        }
+    }
 }
 
 impl ScalingLists8x8 {
@@ -613,6 +650,24 @@ impl ScalingLists8x8 {
 }
 
 impl SeqScalingMatrix {
+    /// Resolve 4x4 scaling lists using SPS fall-back rules (rule set A, Table 7-2).
+    ///
+    /// Converts the stored `next_scale` intermediates into final `ScalingList` values,
+    /// applying default-table and chain fallbacks for absent lists.
+    pub fn scaling_lists_4x4(&self) -> [[u8; 16]; 6] {
+        resolve_4x4_lists(&self.scaling_lists4x4.0, None)
+    }
+
+    /// Resolve 8x8 scaling lists using SPS fall-back rules (rule set A, Table 7-2).
+    pub fn scaling_lists_8x8(&self) -> ScalingLists8x8Resolved {
+        match &self.scaling_lists8x8 {
+            ScalingLists8x8::Y(lists) => ScalingLists8x8Resolved::Y(resolve_8x8_lists(lists, None)),
+            ScalingLists8x8::YCbCr(lists) => {
+                ScalingLists8x8Resolved::YCbCr(resolve_8x8_lists(lists, None))
+            }
+        }
+    }
+
     fn read<R: BitRead>(
         r: &mut R,
         chroma_format: ChromaFormat,
@@ -691,6 +746,121 @@ fn write_list<W: BitWrite>(next_scale: Option<&[u8]>, w: &mut W) -> std::io::Res
     Ok(())
 }
 
+// ---- Default and flat scaling lists (Tables 7-2 through 7-4, equations 7-8/7-9) ----
+
+const FLAT_4X4: [u8; 16] = [16; 16];
+
+const FLAT_8X8: [u8; 64] = [16; 64];
+
+/// Default 4x4 Intra scaling list (Table 7-3).
+const DEFAULT_4X4_INTRA: [u8; 16] = [
+    6, 13, 13, 20, 20, 20, 28, 28, 28, 28, 32, 32, 32, 37, 37, 42,
+];
+
+/// Default 4x4 Inter scaling list (Table 7-3).
+const DEFAULT_4X4_INTER: [u8; 16] = [
+    10, 14, 14, 20, 20, 20, 24, 24, 24, 24, 27, 27, 27, 30, 30, 34,
+];
+
+/// Default 8x8 Intra scaling list (Table 7-4).
+const DEFAULT_8X8_INTRA: [u8; 64] = [
+    6, 10, 10, 13, 11, 13, 16, 16, 16, 16, 18, 18, 18, 18, 18, 23, 23, 23, 23, 23, 23, 25, 25, 25,
+    25, 25, 25, 25, 27, 27, 27, 27, 27, 27, 27, 27, 29, 29, 29, 29, 29, 29, 29, 31, 31, 31, 31, 31,
+    31, 33, 33, 33, 33, 33, 36, 36, 36, 36, 38, 38, 38, 40, 40, 42,
+];
+
+/// Default 8x8 Inter scaling list (Table 7-4).
+const DEFAULT_8X8_INTER: [u8; 64] = [
+    9, 13, 13, 15, 13, 15, 17, 17, 17, 17, 19, 19, 19, 19, 19, 21, 21, 21, 21, 21, 21, 22, 22, 22,
+    22, 22, 22, 22, 24, 24, 24, 24, 24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 27, 27, 27, 27, 27,
+    27, 28, 28, 28, 28, 28, 30, 30, 30, 30, 32, 32, 32, 33, 33, 35,
+];
+
+/// Default scaling list for a given 4x4 list index (Table 7-2 "Default scaling list" column).
+fn default_4x4(i: usize) -> &'static [u8; 16] {
+    if i < 3 {
+        &DEFAULT_4X4_INTRA
+    } else {
+        &DEFAULT_4X4_INTER
+    }
+}
+
+/// Default scaling list for a given 8x8 list index (Table 7-2 "Default scaling list" column).
+/// Index is local (0-based within the 8x8 array): even = Intra, odd = Inter.
+fn default_8x8(i: usize) -> &'static [u8; 64] {
+    if i % 2 == 0 {
+        &DEFAULT_8X8_INTRA
+    } else {
+        &DEFAULT_8X8_INTER
+    }
+}
+
+/// Resolve stored `next_scale` intermediate values into final `ScalingList` values
+/// (section 7.3.2.1.1.1).
+///
+/// When the first element is 0 (`useDefaultScalingMatrixFlag`), returns `default`.
+/// Otherwise, replaces trailing zeros with the last non-zero value (carry-forward).
+fn resolve_list<const S: usize>(next_scales: &[u8; S], default: &[u8; S]) -> [u8; S] {
+    if next_scales[0] == 0 {
+        return *default;
+    }
+    let mut result = [0u8; S];
+    let mut last = 0u8;
+    for j in 0..S {
+        if next_scales[j] != 0 {
+            last = next_scales[j];
+        }
+        result[j] = last;
+    }
+    result
+}
+
+/// Resolve 4x4 scaling lists with fallback rules from Table 7-2.
+///
+/// `sps_fallback` is `None` for rule set A (SPS context), or `Some` with the
+/// SPS-resolved lists for rule set B (PPS context with `seq_scaling_matrix_present_flag` = 1).
+pub(crate) fn resolve_4x4_lists(
+    lists: &[Option<[u8; 16]>; 6],
+    sps_fallback: Option<&[[u8; 16]; 6]>,
+) -> [[u8; 16]; 6] {
+    let mut result = [[0u8; 16]; 6];
+    for i in 0..6 {
+        result[i] = match &lists[i] {
+            Some(ns) => resolve_list(ns, default_4x4(i)),
+            None => match (i, sps_fallback) {
+                (0, Some(sps)) | (3, Some(sps)) => sps[i],
+                (0, None) => DEFAULT_4X4_INTRA,
+                (3, None) => DEFAULT_4X4_INTER,
+                _ => result[i - 1],
+            },
+        };
+    }
+    result
+}
+
+/// Resolve 8x8 scaling lists with fallback rules from Table 7-2.
+///
+/// `sps_fallback` is `None` for rule set A, or `Some` with the SPS-resolved 8x8
+/// lists (as a slice) for rule set B.
+pub(crate) fn resolve_8x8_lists<const C: usize>(
+    lists: &[Option<[u8; 64]>; C],
+    sps_fallback: Option<&[[u8; 64]]>,
+) -> [[u8; 64]; C] {
+    let mut result = [[0u8; 64]; C];
+    for i in 0..C {
+        result[i] = match &lists[i] {
+            Some(ns) => resolve_list(ns, default_8x8(i)),
+            None => match (i, sps_fallback) {
+                (0, Some(sps)) | (1, Some(sps)) => sps[i],
+                (0, None) => DEFAULT_8X8_INTRA,
+                (1, None) => DEFAULT_8X8_INTER,
+                _ => result[i - 2],
+            },
+        };
+    }
+    result
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ChromaInfo {
     pub chroma_format: ChromaFormat,
@@ -701,6 +871,32 @@ pub struct ChromaInfo {
     pub scaling_matrix: Option<Box<SeqScalingMatrix>>,
 }
 impl ChromaInfo {
+    /// Returns the resolved sequence-level 4x4 scaling lists.
+    ///
+    /// When `seq_scaling_matrix_present_flag` is 0 (no scaling matrix), returns
+    /// `Flat_4x4_16` (all values 16) for every list. Otherwise delegates to
+    /// [`SeqScalingMatrix::scaling_lists_4x4`].
+    pub fn scaling_lists_4x4(&self) -> [[u8; 16]; 6] {
+        match &self.scaling_matrix {
+            Some(m) => m.scaling_lists_4x4(),
+            None => [FLAT_4X4; 6],
+        }
+    }
+
+    /// Returns the resolved sequence-level 8x8 scaling lists.
+    ///
+    /// When `seq_scaling_matrix_present_flag` is 0, returns `Flat_8x8_16` for every
+    /// list. The variant (`Y` vs `YCbCr`) is determined by `chroma_format`.
+    pub fn scaling_lists_8x8(&self) -> ScalingLists8x8Resolved {
+        match &self.scaling_matrix {
+            Some(m) => m.scaling_lists_8x8(),
+            None => match self.chroma_format {
+                ChromaFormat::YUV444 => ScalingLists8x8Resolved::YCbCr([FLAT_8X8; 6]),
+                _ => ScalingLists8x8Resolved::Y([FLAT_8X8; 2]),
+            },
+        }
+    }
+
     /// Returns `ChromaArrayType` as defined by the spec: 0 if `separate_colour_plane_flag` is
     /// true, otherwise equal to `chroma_format_idc`.
     pub fn chroma_array_type(&self) -> u8 {
@@ -2621,5 +2817,93 @@ mod test {
         for level in &levels {
             assert!(level.limits().is_some(), "Expected limits for {:?}", level);
         }
+    }
+
+    #[test]
+    fn resolve_list_default_flag() {
+        // First element is 0 → useDefaultScalingMatrixFlag → returns default
+        let stored = [0u8; 16];
+        assert_eq!(resolve_list(&stored, &DEFAULT_4X4_INTRA), DEFAULT_4X4_INTRA);
+    }
+
+    #[test]
+    fn resolve_list_carry_forward() {
+        // [8, 10, 0, 0, ...] → nextScale=0 at j=2 means carry forward 10
+        let mut stored = [0u8; 16];
+        stored[0] = 8;
+        stored[1] = 10;
+        let result = resolve_list(&stored, &DEFAULT_4X4_INTRA);
+        assert_eq!(result[0], 8);
+        assert_eq!(result[1], 10);
+        for j in 2..16 {
+            assert_eq!(result[j], 10, "position {j} should carry forward");
+        }
+    }
+
+    #[test]
+    fn resolve_list_all_explicit() {
+        let stored: [u8; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let result = resolve_list(&stored, &DEFAULT_4X4_INTRA);
+        assert_eq!(result, stored);
+    }
+
+    #[test]
+    fn chroma_info_no_scaling_matrix_returns_flat() {
+        let ci = ChromaInfo {
+            chroma_format: ChromaFormat::YUV420,
+            ..ChromaInfo::default()
+        };
+        assert_eq!(ci.scaling_lists_4x4(), [FLAT_4X4; 6]);
+        assert_eq!(
+            ci.scaling_lists_8x8(),
+            ScalingLists8x8Resolved::Y([FLAT_8X8; 2])
+        );
+    }
+
+    #[test]
+    fn seq_scaling_matrix_all_none_returns_defaults() {
+        let sm = SeqScalingMatrix {
+            scaling_lists4x4: ScalingLists4x4([None; 6]),
+            scaling_lists8x8: ScalingLists8x8::Y([None; 2]),
+        };
+        let r4 = sm.scaling_lists_4x4();
+        // Rule set A: i=0 → Default_4x4_Intra, i=1 falls back to i=0, etc.
+        assert_eq!(r4[0], DEFAULT_4X4_INTRA);
+        assert_eq!(r4[1], DEFAULT_4X4_INTRA); // falls back to i=0
+        assert_eq!(r4[2], DEFAULT_4X4_INTRA); // falls back to i=1
+        assert_eq!(r4[3], DEFAULT_4X4_INTER);
+        assert_eq!(r4[4], DEFAULT_4X4_INTER); // falls back to i=3
+        assert_eq!(r4[5], DEFAULT_4X4_INTER); // falls back to i=4
+
+        let r8 = sm.scaling_lists_8x8();
+        let ScalingLists8x8Resolved::Y(lists) = r8 else {
+            panic!("expected Y variant");
+        };
+        assert_eq!(lists[0], DEFAULT_8X8_INTRA);
+        assert_eq!(lists[1], DEFAULT_8X8_INTER);
+    }
+
+    #[test]
+    fn seq_scaling_matrix_chain_fallback() {
+        // i=0 has an explicit list, i=1 is None → should fall back to i=0's resolved list
+        let custom: [u8; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let sm = SeqScalingMatrix {
+            scaling_lists4x4: ScalingLists4x4([
+                Some(custom),
+                None, // falls back to i=0
+                None, // falls back to i=1 = i=0
+                None, // falls back to Default_4x4_Inter
+                None, // falls back to i=3
+                None, // falls back to i=4
+            ]),
+            scaling_lists8x8: ScalingLists8x8::Y([None; 2]),
+        };
+        let r = sm.scaling_lists_4x4();
+        assert_eq!(r[0], custom);
+        assert_eq!(r[1], custom);
+        assert_eq!(r[2], custom);
+        assert_eq!(r[3], DEFAULT_4X4_INTER);
+        assert_eq!(r[4], DEFAULT_4X4_INTER);
+        assert_eq!(r[5], DEFAULT_4X4_INTER);
     }
 }

@@ -17,6 +17,12 @@
 
 ### Added
 
+*   Add scaling list helper methods that convert stored `next_scale` intermediates into final
+    `ScalingList` values:
+    *   `SeqScalingMatrix::scaling_lists_4x4()` / `scaling_lists_8x8()`
+    *   `ChromaInfo::scaling_lists_4x4()` / `scaling_lists_8x8()`
+    *   `PicScalingMatrix::scaling_lists_4x4(&ChromaInfo)` / `scaling_lists_8x8(&ChromaInfo)`
+    *   `ScalingLists8x8Resolved` enum for resolved 8x8 lists.
 *   Added support for `luma_weights_l1` and `chroma_weights_l1` to `PredWeightTable`.
 *   Give `has_chroma_info()` newer profile_idc values 118, 128, 134, 135, 138, 139, implementing SPS parse support for Multiview High, Stereo High, and related profiles.
 *   Add `Profile::CavlcIntra444` (profile_idc 44) and `Profile::MFCHigh` (profile_idc 134) enum variants.
