@@ -1677,17 +1677,15 @@ fn max_val_for_max_dec_frame_buffering(sps: &SeqParameterSet) -> Option<u32> {
     let pic_width_in_mbs = sps.pic_width_in_mbs();
     let frame_height_in_mbs = match sps.frame_mbs_flags {
         FrameMbsFlags::Frames => sps.pic_height_in_map_units(),
-        FrameMbsFlags::Fields { .. } => 2 * sps.pic_height_in_map_units(),
+        FrameMbsFlags::Fields { .. } => sps.pic_height_in_map_units().checked_mul(2)?,
     };
+    let frame_size_in_mbs = pic_width_in_mbs.checked_mul(frame_height_in_mbs)?;
     let max_dpb_mbs = level.limits()?.max_dpb_mbs;
 
     match profile {
         // A.3.1 - Baseline, Constrained Baseline, Main, Extended
         Profile::Baseline | Profile::ConstrainedBaseline | Profile::Main | Profile::Extended => {
-            Some(std::cmp::min(
-                max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs),
-                16,
-            ))
+            Some(std::cmp::min(max_dpb_mbs / frame_size_in_mbs, 16))
         }
         // A.3.2 - High, Progressive High, Constrained High, High 10, High 10 Intra,
         // High 4:2:2, High 4:2:2 Intra, High 4:4:4 Predictive, High 4:4:4 Intra,
@@ -1701,19 +1699,13 @@ fn max_val_for_max_dec_frame_buffering(sps: &SeqParameterSet) -> Option<u32> {
         | Profile::High422Intra
         | Profile::High444
         | Profile::High444Intra
-        | Profile::CavlcIntra444 => Some(std::cmp::min(
-            max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs),
-            16,
-        )),
+        | Profile::CavlcIntra444 => Some(std::cmp::min(max_dpb_mbs / frame_size_in_mbs, 16)),
         // G.10.2.1 - Scalable profiles
         Profile::ScalableBase
         | Profile::ScalableConstrainedBaseline
         | Profile::ScalableHigh
         | Profile::ScalableConstrainedHigh
-        | Profile::ScalableHighIntra => Some(std::cmp::min(
-            max_dpb_mbs / (pic_width_in_mbs * frame_height_in_mbs),
-            16,
-        )),
+        | Profile::ScalableHighIntra => Some(std::cmp::min(max_dpb_mbs / frame_size_in_mbs, 16)),
         // H.10.2.1 - Multiview/Stereo/MFC profiles require NumViews from MVC extension data
         Profile::MultiviewHigh | Profile::StereoHigh | Profile::MFCHigh | Profile::MFCDepthHigh => {
             None
