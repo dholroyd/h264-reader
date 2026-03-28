@@ -17,6 +17,7 @@
 
 ### Added
 
+*   Derive `Clone` and `Copy` for `SliceFamily`.
 *   Add scaling list helper methods that convert stored `next_scale` intermediates into final
     `ScalingList` values:
     *   `SeqScalingMatrix::scaling_lists_4x4()` / `scaling_lists_8x8()`

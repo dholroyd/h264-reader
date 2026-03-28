@@ -7,7 +7,7 @@ use crate::rbsp::BitRead;
 use crate::rbsp::BitReaderError;
 use crate::Context;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SliceFamily {
     P,
     B,
