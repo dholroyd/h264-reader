@@ -90,6 +90,8 @@ pub enum SliceHeaderError {
     InvalidDisableDeblockingFilterIdc(u32),
     /// `slice_alpha_c0_offset_div2` was outside the expected range of `-6` to `+6`
     InvalidSliceAlphaC0OffsetDiv2(i32),
+    /// `slice_beta_offset_div2` was outside the expected range of `-6` to `+6`
+    InvalidSliceBetaOffsetDiv2(i32),
     /// `num_ref_idx_l0_default_active_minus1` or num_ref_idx_l1_default_active_minus1` is
     /// greater than allowed 32.
     InvalidNumRefIdx(&'static str, u32),
@@ -699,7 +701,11 @@ impl SliceHeader {
                     return Err(SliceHeaderError::InvalidSliceAlphaC0OffsetDiv2(alpha));
                 }
                 slice_alpha_c0_offset_div2 = Some(alpha);
-                slice_beta_offset_div2 = Some(r.read_se("slice_beta_offset_div2")?);
+                let beta = r.read_se("slice_beta_offset_div2")?;
+                if beta < -6 || 6 < beta {
+                    return Err(SliceHeaderError::InvalidSliceBetaOffsetDiv2(beta));
+                }
+                slice_beta_offset_div2 = Some(beta);
             }
         }
         let slice_group_change_cycle = if let Some(pps::SliceGroup::Changing {
