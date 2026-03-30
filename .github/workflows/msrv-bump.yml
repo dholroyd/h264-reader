@@ -32,7 +32,7 @@ jobs:
         sed -i 's/channel = .*/channel = "${{ steps.msrv.outputs.version }}"/' rust-toolchain.toml
 
     - name: Create pull request
-      uses: peter-evans/create-pull-request@v6
+      uses: peter-evans/create-pull-request@v8
       with:
         title: "Bump MSRV to ${{ steps.msrv.outputs.version }}"
         body: |
