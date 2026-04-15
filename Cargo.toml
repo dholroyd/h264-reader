@@ -13,7 +13,7 @@ exclude = ["/*.h264"]
 rust-version = "1.83"
 
 [dependencies]
-bitstream-io = "4.9"
+bitstream-io = "4.10"
 hex-slice = "0.1.4"
 memchr = "2.8.0"
 rfc6381-codec = "0.2"
