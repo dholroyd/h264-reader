@@ -47,6 +47,7 @@ jobs:
           --start-point-clone-thresholds \
           --start-point-reset \
           --ci-number "$PR_NUMBER" \
+          --ci-only-thresholds \
           --github-actions "${{ secrets.GITHUB_TOKEN }}" \
           --token "${{ secrets.BENCHER_API_TOKEN }}" \
           --err \
