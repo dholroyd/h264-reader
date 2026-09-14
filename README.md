@@ -18,7 +18,7 @@ The following list shows the current state of support per H264 syntax element:
    * [x] _Annex B_ format (e.g. in MPEG-TS)
    * [x] _AVCC_ format (e.g. in MP4)
  * Network Abstraction Layer Units (NAL Units)
-   * [x] `slice_layer_without_partitioning_rbsp()` — `slice_header()` only, not `slice_data()`
+   * [x] `slice_layer_without_partitioning_rbsp()` — `slice_header()` and `slice_data()` (baseline profile only)
    * [ ] `slice_data_partition_a_layer_rbsp()`
    * [ ] `slice_data_partition_b_layer_rbsp()`
    * [ ] `slice_data_partition_c_layer_rbsp()`

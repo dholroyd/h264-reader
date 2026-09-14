@@ -17,6 +17,7 @@
 
 ### Added
 
+*   Baseline-profile support for parsing `slice_data()` syntax.
 *   Derive `Clone` and `Copy` for `SliceFamily`.
 *   Add scaling list helper methods that convert stored `next_scale` intermediates into final
     `ScalingList` values:

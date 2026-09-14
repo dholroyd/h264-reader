@@ -381,6 +381,9 @@ pub trait BitRead {
     /// [`crate::bitstream_io::read::BitRead::skip`].
     fn skip(&mut self, bit_count: u32, name: &'static str) -> Result<(), BitReaderError>;
 
+    /// Returns true if the reader is at a byte boundary.
+    fn byte_aligned(&self) -> bool;
+
     /// Returns true if positioned before the RBSP trailing bits.
     ///
     /// This matches the definition of `more_rbsp_data()` in Rec. ITU-T H.264
@@ -482,6 +485,10 @@ impl<R: std::io::BufRead + Clone> BitRead for BitReader<R> {
         self.reader
             .skip(bit_count)
             .map_err(|e| BitReaderError::ReaderError(name, e))
+    }
+
+    fn byte_aligned(&self) -> bool {
+        self.reader.byte_aligned()
     }
 
     fn has_more_rbsp_data(&mut self, name: &'static str) -> Result<bool, BitReaderError> {
