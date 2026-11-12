@@ -1616,12 +1616,10 @@ impl BitstreamRestrictions {
             }
             let max_num_reorder_frames = r.read_ue("max_num_reorder_frames")?;
             let max_dec_frame_buffering = r.read_ue("max_dec_frame_buffering")?;
-            if max_num_reorder_frames > max_dec_frame_buffering {
-                return Err(SpsError::FieldValueTooLarge {
-                    name: "max_num_reorder_frames",
-                    value: max_num_reorder_frames,
-                });
-            }
+            // The spec says max_num_reorder_frames "shall be in the range of 0 to
+            // max_dec_frame_buffering, inclusive", but real bitstreams break this (the screen
+            // mirror of a Simrad/B&G NOS chartplotter, 5 and 3), and both are hints for a decoder,
+            // so this is not checked.
             // "The value of max_dec_frame_buffering shall be greater than or equal to
             // max_num_ref_frames."
             if max_dec_frame_buffering < sps.max_num_ref_frames {
@@ -2057,6 +2055,22 @@ mod test {
         assert_eq!(0, sps.constraint_flags.reserved_zero_two_bits());
         assert_eq!((64, 64), sps.pixel_dimensions().unwrap());
         assert!(!sps.rfc6381().to_string().is_empty())
+    }
+
+    #[test]
+    fn test_reorder_frames_above_dec_frame_buffering() {
+        // From the screen mirror (GStreamer RTSP server) of a Simrad/B&G chartplotter: its VUI has
+        // max_num_reorder_frames 5, more than max_dec_frame_buffering.
+        let data = hex!(
+            "67 4d 00 28 aa 60 28 02 dd 81 08 00 00 03 00 08
+            00 00 03 00 f7 40 00 3e 80 00 0f a0 0d ef 7c 1d
+            a1 a3 4c 48"
+        );
+        let rbsp = decode_nal(&data[..]).unwrap();
+        let sps = SeqParameterSet::from_bits(BitReader::new(&*rbsp)).unwrap();
+        println!("sps: {sps:#?}");
+        let restrictions = sps.vui_parameters.unwrap().bitstream_restrictions.unwrap();
+        assert!(restrictions.max_num_reorder_frames > restrictions.max_dec_frame_buffering);
     }
 
     #[test]
